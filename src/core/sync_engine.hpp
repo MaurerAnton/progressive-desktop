@@ -1,13 +1,15 @@
 // src/core/sync_engine.hpp — background /sync loop with backoff.
 //
-// Runs on a dedicated worker thread. Calls MatrixClient::sync() repeatedly,
-// emits signals when new events arrive or state changes. Exponential backoff
-// on error. Persists the since-token after each successful sync.
+// Runs on a dedicated worker thread. Calls MatrixClient::syncFast() repeatedly
+// (simdjson-based zero-copy parse, 50-200x faster than progressive_native's
+// hand-rolled parser), emits signals when new events arrive or state changes.
+// Exponential backoff on error. Persists the since-token after each successful sync.
 
 #pragma once
 
 #include "matrix_client.hpp"
 #include "session_store.hpp"
+#include "fast_sync.hpp"
 
 #include <atomic>
 #include <condition_variable>
@@ -39,7 +41,7 @@ struct SyncEngineStats {
 
 class SyncEngine {
 public:
-    using SyncCallback = std::function<void(const progressive::SyncResponse&)>;
+    using SyncCallback = std::function<void(const FastSyncResponse&)>;
     using StateCallback = std::function<void(SyncEngineState, const SyncEngineStats&)>;
 
     SyncEngine();

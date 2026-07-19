@@ -10,6 +10,7 @@
 #include "http_client.hpp"
 #include "account_info.hpp"
 #include "session_store.hpp"
+#include "fast_sync.hpp"
 
 #include <progressive/auth_models.hpp>
 #include <progressive/login_flow.hpp>
@@ -97,6 +98,18 @@ public:
     // (which delegates to sync_models.cpp's parser).
     ApiResult<progressive::SyncResponse> sync(const std::string& since = "",
                                                 int timeoutMs = 30000);
+
+    // GET /_matrix/client/v3/sync — long-poll, fast simdjson-based parser.
+    // 50-200x faster than sync() for large responses. Use this for the
+    // background sync loop. Returns FastSyncResponse with string_views
+    // into the parser's internal buffer (valid until the response is destroyed).
+    struct FastSyncResult {
+        bool ok = false;
+        FastSyncResponse data{};
+        progressive::MatrixError error;
+        int httpStatus = 0;
+    };
+    FastSyncResult syncFast(const std::string& since = "", int timeoutMs = 30000);
 
     // ---- Account / session ----
 

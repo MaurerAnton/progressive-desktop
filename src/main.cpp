@@ -106,13 +106,14 @@ static int syncTest(int count) {
     se.setClient(&c);
     se.setSessionStore(&s);
     int syncs_seen = 0;
-    se.onSync([&](const progressive::SyncResponse& r) {
+    se.onSync([&](const FastSyncResponse& r) {
         syncs_seen++;
         std::cout << "  sync #" << syncs_seen
-                  << ": join=" << r.rooms.join.size()
-                  << " invite=" << r.rooms.invite.size()
-                  << " leave=" << r.rooms.leave.size()
-                  << " toDevice=" << r.toDevice.events.size() << "\n";
+                  << ": join=" << r.joinedRooms.size()
+                  << " invite=" << r.invitedRoomIds.size()
+                  << " leave=" << r.leftRoomIds.size()
+                  << " toDevice=" << r.toDeviceEvents
+                  << " (" << r.buffer->size() << " bytes)\n";
     });
     se.onStateChange([](SyncEngineState st, const SyncEngineStats& stats) {
         std::cout << "  state: " << static_cast<int>(st)

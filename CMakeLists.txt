@@ -44,6 +44,7 @@ add_library(progressive_core STATIC
     src/core/matrix_client.cpp
     src/core/session_store.cpp
     src/core/sync_engine.cpp
+    src/core/fast_sync.cpp
 )
 target_include_directories(progressive_core PUBLIC src)
 target_link_libraries(progressive_core PUBLIC
@@ -80,12 +81,23 @@ endif()
 # --- Tests ---
 if(PROGRESSIVE_BUILD_TESTS)
     enable_testing()
+
     add_executable(test_phase1 tests/test_phase1.cpp)
     target_link_libraries(test_phase1 PRIVATE progressive_core)
     target_compile_options(test_phase1 PRIVATE
         -include "${CMAKE_CURRENT_SOURCE_DIR}/third_party/android_shim/progressive_compat.h")
     add_test(NAME phase1 COMMAND test_phase1)
+
+    add_executable(test_phase3 tests/bench_sync_parse.cpp)
+    target_link_libraries(test_phase3 PRIVATE progressive_core)
+    target_compile_options(test_phase3 PRIVATE
+        -include "${CMAKE_CURRENT_SOURCE_DIR}/third_party/android_shim/progressive_compat.h")
+    # Not registered with ctest — needs network for --record, fixture for bench
 endif()
+
+# --- Ignore test fixtures from git ---
+set_tests_properties(phase1 PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 
 # --- Install (basic, for packaging later) ---
 install(TARGETS progressive-desktop RUNTIME DESTINATION bin)

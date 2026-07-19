@@ -65,7 +65,7 @@ void SyncEngine::run() {
         if (!running_) break;
 
         // Do one sync.
-        auto result = client_->sync(sinceToken_, 30000);
+        auto result = client_->syncFast(sinceToken_, 30000);
 
         if (!result.ok) {
             stats_.errors++;
@@ -84,14 +84,12 @@ void SyncEngine::run() {
         // Success — update token + stats.
         stats_.errors = 0;
         stats_.syncs++;
-        sinceToken_ = result.data.nextBatch;
+        sinceToken_ = std::string(result.data.nextBatch);
 
-        stats_.roomsJoined += static_cast<int>(result.data.rooms.join.size());
-        stats_.invites     += static_cast<int>(result.data.rooms.invite.size());
-        for (const auto& [id, room] : result.data.rooms.join) {
-            stats_.timelineEvents += static_cast<int>(room.timeline.events.size());
-        }
-        stats_.toDeviceEvents += static_cast<int>(result.data.toDevice.events.size());
+        stats_.roomsJoined += static_cast<int>(result.data.joinedRooms.size());
+        stats_.invites     += static_cast<int>(result.data.invitedRoomIds.size());
+        stats_.timelineEvents += result.data.totalTimelineEvents;
+        stats_.toDeviceEvents += result.data.toDeviceEvents;
 
         // Persist token.
         if (store_ && !sinceToken_.empty()) {

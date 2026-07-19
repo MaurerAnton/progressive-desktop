@@ -32,3 +32,6 @@ compile_commands.json
 *.rpm
 *.tar.gz
 *.flatpak
+
+# Test fixtures (recorded locally — not committed, may contain user data)
+tests/fixtures/

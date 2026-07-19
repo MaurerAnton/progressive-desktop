@@ -44,7 +44,7 @@ public:
 
     // Public UI-thread slots — called from SyncEngine callbacks (marshaled
     // via QMetaObject::invokeMethod in main.cpp).
-    void onSync(const progressive::SyncResponse& resp);
+    void onSync(const FastSyncResponse& resp);
     void onSyncState(SyncEngineState state, const SyncEngineStats& stats);
 
 protected:
@@ -56,9 +56,9 @@ private slots:
     void onSlashCommand(const std::string& cmd, const std::string& args);
 
 private:
-    void rebuildRoomList(const progressive::SyncResponse& resp);
+    void rebuildRoomList(const FastSyncResponse& resp);
     void appendTimelineForRoom(const std::string& roomId,
-                                const std::vector<progressive::Event>& events);
+                                const std::vector<FastEvent>& events);
     void wireSyncCallbacks();
 
     MatrixClient* client_ = nullptr;

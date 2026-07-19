@@ -305,6 +305,33 @@ ApiResult<progressive::SyncResponse> MatrixClient::sync(const std::string& since
     return r;
 }
 
+MatrixClient::FastSyncResult MatrixClient::syncFast(const std::string& since,
+                                                     int timeoutMs) {
+    FastSyncResult r;
+    if (!isLoggedIn()) {
+        r.error.message = "not logged in";
+        return r;
+    }
+    std::ostringstream url;
+    url << account_.homeserverUrl << "/_matrix/client/v3/sync"
+        << "?timeout=" << timeoutMs
+        << "&full_state=false";
+    if (!since.empty()) url << "&since=" << since;
+
+    auto resp = httpGet(url.str(), authHeaders(), timeoutMs + 10000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) {
+        std::string err;
+        r.data = parseSyncResponseFast(std::move(resp.body), err);
+        r.ok = err.empty();
+        if (!r.ok) r.error.message = std::move(err);
+    } else {
+        if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+        r.error.message = resp.errorMessage.empty() ? r.error.message : resp.errorMessage;
+    }
+    return r;
+}
+
 void MatrixClient::setAccount(const AccountInfo& acct) {
     account_ = acct;
 }

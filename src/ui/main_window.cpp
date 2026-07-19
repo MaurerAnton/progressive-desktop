@@ -28,24 +28,21 @@ namespace progressive::desktop {
 
 namespace {
 
-// Extract display name from room state events.
-// Returns "My Room Name" if m.room.name is set, otherwise empty.
-std::string extractRoomName(const std::vector<progressive::Event>& stateEvents) {
-    for (const auto& e : stateEvents) {
-        if (e.type == "m.room.name" && !e.contentJson.empty()) {
-            auto n = progressive::parseJsonStringValue(e.contentJson, "name");
-            if (!n.empty()) return n;
-        }
-    }
-    return {};
-}
-
 // Extract last text message body from timeline events (newest first).
-std::string extractLastMessageBody(const std::vector<progressive::Event>& events) {
+std::string_view extractLastMessageBody(const std::vector<FastEvent>& events) {
     for (auto it = events.rbegin(); it != events.rend(); ++it) {
         const auto& e = *it;
-        if (e.type == "m.room.message") {
-            return progressive::parseJsonStringValue(e.contentJson, "body");
+        if (e.type == "m.room.message" && !e.contentJson.empty()) {
+            // Look for "body":"..." in the contentJson
+            std::string_view key = "\"body\":\"";
+            auto pos = e.contentJson.find(key);
+            if (pos != std::string_view::npos) {
+                pos += key.size();
+                auto end = e.contentJson.find('"', pos);
+                if (end != std::string_view::npos) {
+                    return e.contentJson.substr(pos, end - pos);
+                }
+            }
         }
     }
     return {};
@@ -192,10 +189,10 @@ void MainWindow::onSlashCommand(const std::string& cmd, const std::string& args)
     }
 }
 
-void MainWindow::onSync(const progressive::SyncResponse& resp) {
+void MainWindow::onSync(const FastSyncResponse& resp) {
     rebuildRoomList(resp);
     statusLabel_->setText(QString("synced %1 room(s), %2 event(s)")
-        .arg(static_cast<int>(resp.rooms.join.size()))
+        .arg(static_cast<int>(resp.joinedRooms.size()))
         .arg(sync_.stats().timelineEvents));
 }
 
@@ -212,21 +209,18 @@ void MainWindow::onSyncState(SyncEngineState state, const SyncEngineStats& stats
         .arg(s).arg(stats.roomsJoined).arg(stats.timelineEvents).arg(stats.errors));
 }
 
-void MainWindow::rebuildRoomList(const progressive::SyncResponse& resp) {
-    for (const auto& [roomId, room] : resp.rooms.join) {
+void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
+    for (const auto& [roomIdView, room] : resp.joinedRooms) {
+        std::string roomId(roomIdView);
         RoomData rd;
         rd.roomId = roomId;
 
         // Try state events for the name
-        std::string name = extractRoomName(room.state.events);
-        if (name.empty()) {
-            // Fallback: try timeline for m.room.name (initial sync often has it there)
-            name = extractRoomName(room.timeline.events);
-        }
+        std::string name(room.name());
         if (name.empty()) name = roomId;  // last resort
         rd.name = name;
 
-        rd.lastMessage = extractLastMessageBody(room.timeline.events);
+        rd.lastMessage = std::string(extractLastMessageBody(room.timeline.events));
         rd.lastActivityTs = room.timeline.events.empty() ? 0 :
                               room.timeline.events.back().originServerTs;
         if (rd.lastActivityTs == 0 && !room.timeline.events.empty()) {
@@ -234,13 +228,9 @@ void MainWindow::rebuildRoomList(const progressive::SyncResponse& resp) {
             rd.lastActivityTs = room.timeline.events.front().originServerTs;
         }
 
-        rd.unreadCount = room.unreadNotifications.notificationCount;
-        rd.highlightCount = room.unreadNotifications.highlightCount;
-
-        // Detect encrypted (m.room.encryption state event)
-        for (const auto& e : room.state.events) {
-            if (e.type == "m.room.encryption") { rd.isEncrypted = true; break; }
-        }
+        rd.unreadCount = room.notificationCount;
+        rd.highlightCount = room.highlightCount;
+        rd.isEncrypted = room.isEncrypted;
 
         roomModel_->upsertRoom(rd);
 
@@ -252,10 +242,11 @@ void MainWindow::rebuildRoomList(const progressive::SyncResponse& resp) {
 }
 
 void MainWindow::appendTimelineForRoom(const std::string& roomId,
-                                       const std::vector<progressive::Event>& events) {
+                                       const std::vector<FastEvent>& events) {
     for (const auto& e : events) {
-        timeline_->appendEvent(e.eventId, e.originServerTs, e.senderId,
-                                e.type, e.contentJson);
+        timeline_->appendEvent(std::string(e.eventId), e.originServerTs,
+                                std::string(e.senderId), std::string(e.type),
+                                std::string(e.contentJson));
     }
 }
 

@@ -114,6 +114,19 @@ FetchContent_Declare(
 set(OLM_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(olm)
 
+# --- simdjson (fast JSON parsing for /sync + json_parser patches) ---
+# Apache 2.0. Used by both progressive_native (patched json_parser.cpp) and
+# the desktop fast_sync.{hpp,cpp} layer (zero-copy /sync parsing).
+FetchContent_Declare(
+    simdjson
+    GIT_REPOSITORY https://github.com/simdjson/simdjson.git
+    GIT_TAG        v3.13.0
+)
+set(SIMDJSON_DEVELOPMENT_MODE OFF CACHE BOOL "" FORCE)
+set(SIMDJSON_BUILD_STATIC ON CACHE BOOL "" FORCE)
+set(SIMDJSON_DISABLE_DEPRECATED_API ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(simdjson)
+
 # --- SQLite3 amalgamation (downloaded + cached in build dir) ---
 # Same recipe as upstream progressive_native CMakeLists.txt.
 set(SQLITE3_DIR "${CMAKE_BINARY_DIR}/sqlite-amalgamation-3450200")
@@ -170,7 +183,7 @@ target_include_directories(progressive_native
         "${PN_SHIM_DIR}"
 )
 
-target_link_libraries(progressive_native PUBLIC olm)
+target_link_libraries(progressive_native PUBLIC olm simdjson::simdjson)
 
 target_compile_definitions(progressive_native PRIVATE PROGRESSIVE_HAS_OLM=1)
 

@@ -52,6 +52,7 @@ target_link_libraries(progressive_core PUBLIC
     Qt6::Network
     CURL::libcurl
     SQLite::SQLite3
+    simdjson::simdjson
 )
 
 # --- Desktop app ---

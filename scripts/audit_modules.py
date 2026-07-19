@@ -44,6 +44,14 @@ HASH_CALL_RE = re.compile(r'std::hash<std::string>')
 # Tier C: size echo — every function returns {"ok":true,"sz":N} (no hash, just input size)
 SIZE_CALL_RE = re.compile(r'json\.size\(\)')
 
+# Broken-header detector: headers like `std::string int(...)`, `std::string struct(...)`,
+# `std::string bool(...)`, `std::string std(...)`, `std::string vector(...)` are
+# auto-generated garbage — keywords/C++ identifiers as function names. These break
+# any TU that includes the header, even if the .cpp body is real.
+BROKEN_HEADER_RE = re.compile(
+    r'std::string\s+(int|bool|struct|class|std|vector|string|char|short|long|float|double|unsigned|signed|auto|void)\s*\('
+)
+
 def classify(path: Path) -> tuple[str, str]:
     """Return (tier, reason) for a single .cpp file."""
     try:
@@ -63,6 +71,20 @@ def classify(path: Path) -> tuple[str, str]:
     name = path.name
     if name.startswith('jni_bridge') or re.match(r'jni_stubs_part\d+\.cpp$', name):
         return ('D', 'jni bridge/stubs by filename')
+
+    # --- Tier C: broken header (auto-generated garbage declarations) ---
+    # Check the corresponding .hpp file in include/progressive/.
+    # If the header is broken, the .cpp can't be safely included/linked.
+    stem = path.stem  # e.g. "poll_vote_utils" from "poll_vote_utils.cpp"
+    header_path = path.parent.parent / 'include' / 'progressive' / f'{stem}.hpp'
+    if header_path.is_file():
+        try:
+            header_text = header_path.read_text(errors='replace')
+            broken_hits = len(BROKEN_HEADER_RE.findall(header_text))
+            if broken_hits > 0:
+                return ('C', f'broken header ({broken_hits} garbage decls in {stem}.hpp)')
+        except OSError:
+            pass
 
     # --- Tier C: hash echo stub ---
     # Stub files call std::hash<std::string>{}(json) in every function.

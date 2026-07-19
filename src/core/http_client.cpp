@@ -48,13 +48,13 @@ size_t headerCb(char* buffer, size_t size, size_t nitems, void* userdata) {
     return total;
 }
 
-const char* proxyTypeStr(ProxyConfig::Type t) {
+long proxyTypeCode(ProxyConfig::Type t) {
     switch (t) {
         case ProxyConfig::Type::Http:            return CURLPROXY_HTTP;
         case ProxyConfig::Type::Socks5:          return CURLPROXY_SOCKS5;
         case ProxyConfig::Type::Socks5Hostname:  return CURLPROXY_SOCKS5_HOSTNAME;
     }
-    return nullptr;
+    return CURLPROXY_HTTP;
 }
 
 } // namespace
@@ -137,7 +137,7 @@ HttpResponse httpExecute(const HttpRequest& req) {
         if (g_proxy.enabled && !g_proxy.host.empty()) {
             std::string proxyUrl = g_proxy.host + ":" + std::to_string(g_proxy.port);
             curl_easy_setopt(curl, CURLOPT_PROXY, proxyUrl.c_str());
-            curl_easy_setopt(curl, CURLOPT_PROXYTYPE, proxyTypeStr(g_proxy.type));
+            curl_easy_setopt(curl, CURLOPT_PROXYTYPE, proxyTypeCode(g_proxy.type));
             if (!g_proxy.username.empty()) {
                 std::string creds = g_proxy.username + ":" + g_proxy.password;
                 curl_easy_setopt(curl, CURLOPT_PROXYUSERPWD, creds.c_str());

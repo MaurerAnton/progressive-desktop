@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "matrix_client.hpp"
+#include "account_info.hpp"
 
 #include <string>
 #include <optional>

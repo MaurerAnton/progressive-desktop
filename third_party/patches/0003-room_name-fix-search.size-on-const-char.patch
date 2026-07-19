@@ -1,0 +1,26 @@
+diff --git a/progressive/src/main/cpp/src/room_name.cpp b/progressive/src/main/cpp/src/room_name.cpp
+index 5bf959e..4946078 100644
+--- a/progressive/src/main/cpp/src/room_name.cpp
++++ b/progressive/src/main/cpp/src/room_name.cpp
+@@ -189,14 +189,16 @@ std::string roomNameToJson(const RoomName& name) {
+ 
+ std::string parseRoomNameContent(const std::string& contentJson) {
+     // {"name": "My Room Name"}
+-    auto search = "\"name\":\"";
++    const std::string search = "\"name\":\"";
+     auto pos = contentJson.find(search);
+     if (pos == std::string::npos) {
+-        search = "\"name\": \"";
+-        pos = contentJson.find(search);
++        const std::string search2 = "\"name\": \"";
++        pos = contentJson.find(search2);
++        if (pos == std::string::npos) return "";
++        pos += search2.size();
++    } else {
++        pos += search.size();
+     }
+-    if (pos == std::string::npos) return "";
+-    pos += search.size();
+     auto end = contentJson.find('"', pos);
+     if (end == std::string::npos) return "";
+     return contentJson.substr(pos, end - pos);

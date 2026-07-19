@@ -1,0 +1,35 @@
+diff --git a/progressive/src/main/cpp/include/progressive/login_flow.hpp b/progressive/src/main/cpp/include/progressive/login_flow.hpp
+index bf36389..b3c426e 100644
+--- a/progressive/src/main/cpp/include/progressive/login_flow.hpp
++++ b/progressive/src/main/cpp/include/progressive/login_flow.hpp
+@@ -57,7 +57,7 @@ struct LoginAuthFlow {
+ };
+ 
+ struct LoginAuthFlowsResult {
+-    std::vector<LoginFlow> flows;
++    std::vector<LoginAuthFlow> flows;
+     bool hasPassword = false;    // can login with password
+     bool hasSso = false;         // can login via SSO
+     bool hasToken = false;       // can login via token
+diff --git a/progressive/src/main/cpp/src/login_flow.cpp b/progressive/src/main/cpp/src/login_flow.cpp
+index 7707d9d..bb405f7 100644
+--- a/progressive/src/main/cpp/src/login_flow.cpp
++++ b/progressive/src/main/cpp/src/login_flow.cpp
+@@ -55,7 +55,7 @@ LoginAuthFlowsResult parseLoginFlows(const std::string& json) {
+             currentFlow = json.substr(flowStart, pos - flowStart);
+ 
+             // Parse the flow type
+-            LoginFlow flow;
++            LoginAuthFlow flow;
+             auto typePos = currentFlow.find("\"type\"");
+             if (typePos != std::string::npos) {
+                 auto colon = currentFlow.find(':', typePos);
+@@ -250,7 +250,7 @@ std::vector<std::string> getSupportedLoginTypes() {
+     };
+ }
+ 
+-std::string loginFlowsToJson(const LoginLoginAuthFlowsResult& result) {
++std::string loginFlowsToJson(const LoginAuthFlowsResult& result) {
+     auto esc = [](const std::string& s) -> std::string {
+         std::string out;
+         for (char c : s) { if (c == '"') out += "\\\""; else out += c; }

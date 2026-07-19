@@ -217,8 +217,8 @@ bool MatrixClient::persistSession() {
 bool MatrixClient::loadSavedSession() {
     if (!sessionStore_) return false;
     auto acct = sessionStore_->loadAccount();
-    if (!acct.userId.empty() && !acct.accessToken.empty()) {
-        account_ = acct;
+    if (acct && !acct->userId.empty() && !acct->accessToken.empty()) {
+        account_ = *acct;
         return true;
     }
     return false;

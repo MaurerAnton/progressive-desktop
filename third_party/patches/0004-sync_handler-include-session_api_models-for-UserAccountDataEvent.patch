@@ -1,0 +1,18 @@
+diff --git a/progressive/src/main/cpp/include/progressive/sync_handler.hpp b/progressive/src/main/cpp/include/progressive/sync_handler.hpp
+index 35a990c..2631614 100644
+--- a/progressive/src/main/cpp/include/progressive/sync_handler.hpp
++++ b/progressive/src/main/cpp/include/progressive/sync_handler.hpp
+@@ -5,6 +5,13 @@
+ #include <unordered_map>
+ #include <cstdint>
+ #include "progressive/sync_models.hpp"
++#include "progressive/session_api_models.hpp"  // UserAccountDataEvent (used in processAccountDataSync)
++
++namespace progressive {
++// Bring UserAccountDataEvent into progressive:: scope — it's defined in
++// progressive::session_models:: but used here unqualified.
++using session_models::UserAccountDataEvent;
++}
+ 
+ namespace progressive {
+ 

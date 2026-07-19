@@ -8,6 +8,7 @@
 #pragma once
 
 #include "http_client.hpp"
+#include "account_info.hpp"
 #include "session_store.hpp"
 
 #include <progressive/auth_models.hpp>
@@ -31,13 +32,7 @@ struct ApiResult {
 };
 
 // Account/session info persisted across runs.
-struct AccountInfo {
-    std::string userId;                      // "@user:server"
-    std::string deviceId;                    // "DEVID"
-    std::string homeserverUrl;               // "https://matrix.org"
-    std::string accessToken;
-    std::string refreshToken;                // optional
-};
+// (Defined in account_info.hpp — shared with SessionStore to avoid circular include.)
 
 class MatrixClient {
 public:

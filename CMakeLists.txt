@@ -37,21 +37,25 @@ find_package(CURL REQUIRED COMPONENTS HTTPS)
 # --- progressive_native (from submodule) ---
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/progressive_native.cmake)
 
-# --- Desktop app ---
-add_executable(progressive-desktop
-    src/main.cpp
+# --- Desktop core (shared between app + tests) ---
+find_package(SQLite3 REQUIRED)
+add_library(progressive_core STATIC
     src/core/http_client.cpp
     src/core/matrix_client.cpp
     src/core/session_store.cpp
     src/core/sync_engine.cpp
 )
-
-target_link_libraries(progressive-desktop PRIVATE
+target_include_directories(progressive_core PUBLIC src)
+target_link_libraries(progressive_core PUBLIC
     progressive_native
-    Qt6::Widgets
     Qt6::Network
     CURL::libcurl
+    SQLite::SQLite3
 )
+
+# --- Desktop app ---
+add_executable(progressive-desktop src/main.cpp)
+target_link_libraries(progressive-desktop PRIVATE progressive_core Qt6::Widgets)
 
 target_compile_definitions(progressive-desktop PRIVATE
     PROGRESSIVE_DESKTOP=1
@@ -65,7 +69,7 @@ endif()
 if(PROGRESSIVE_BUILD_TESTS)
     enable_testing()
     add_executable(test_phase1 tests/test_phase1.cpp)
-    target_link_libraries(test_phase1 PRIVATE progressive_native)
+    target_link_libraries(test_phase1 PRIVATE progressive_core)
     target_compile_options(test_phase1 PRIVATE
         -include "${CMAKE_CURRENT_SOURCE_DIR}/third_party/android_shim/progressive_compat.h")
     add_test(NAME phase1 COMMAND test_phase1)

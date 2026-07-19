@@ -15,6 +15,8 @@
 #include <QWidget>
 #include <QVBoxLayout>
 
+#include <curl/curl.h>
+
 #include <iostream>
 #include <string>
 #include <thread>
@@ -95,10 +97,11 @@ static int loginTest(const std::string& user, const std::string& pass) {
 static int syncTest(int count) {
     SessionStore s;
     s.open("/tmp/progressive-desktop-test.db");
-    auto acct = s.loadAccount();
-    if (!acct) { std::cerr << "no saved session — run --login first\n"; return 1; }
+    auto acct_opt = s.loadAccount();
+    if (!acct_opt) { std::cerr << "no saved session — run --login first\n"; return 1; }
+    auto acct = *acct_opt;
     MatrixClient c;
-    c.setAccount(*acct);
+    c.setAccount(acct);
     c.setSessionStore(&s);
 
     SyncEngine se;

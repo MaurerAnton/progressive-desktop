@@ -1,0 +1,27 @@
+diff --git a/progressive/src/main/cpp/src/content_utils.cpp b/progressive/src/main/cpp/src/content_utils.cpp
+index a9c72a5..6998d0f 100644
+--- a/progressive/src/main/cpp/src/content_utils.cpp
++++ b/progressive/src/main/cpp/src/content_utils.cpp
+@@ -87,15 +87,16 @@ std::string buildMxcUri(const std::string& serverName, const std::string& mediaI
+ MessageType parseMessageType(const std::string& contentJson) {
+     // Extract msgtype field:
+     // {"msgtype":"m.text","body":"Hello"}
+-    auto search = "\"msgtype\":\"";
++    const std::string search = "\"msgtype\":\"";
+     auto pos = contentJson.find(search);
+     if (pos == std::string::npos) {
+-        search = "\"msgtype\": \"";
+-        pos = contentJson.find(search);
++        const std::string search2 = "\"msgtype\": \"";
++        pos = contentJson.find(search2);
++        if (pos == std::string::npos) return MessageType::Unknown;
++        pos += search2.size();
++    } else {
++        pos += search.size();
+     }
+-    if (pos == std::string::npos) return MessageType::Unknown;
+-
+-    pos += search.size();
+     auto end = contentJson.find('"', pos);
+     if (end == std::string::npos) return MessageType::Unknown;
+ 

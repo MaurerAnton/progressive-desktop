@@ -15,14 +15,41 @@
 
 set(PN_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/progressive-android-experiments/progressive/src/main/cpp")
 
+# --- Apply downstream patches to the submodule (idempotent) ---
+# Patches fix bugs in progressive_native that prevent compilation on strict
+# gcc/clang (Android NDK is more permissive). Patches live in
+# third_party/patches/ and are applied at configure time. Each patch is
+# applied with `git apply --check` first; if already applied, skip.
+set(PN_PATCH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/patches")
+file(GLOB PN_PATCHES CONFIGURE_DEPENDS "${PN_PATCH_DIR}/*.patch")
+foreach(patch IN LISTS PN_PATCHES)
+    execute_process(
+        COMMAND git apply --check --verbose ${patch}
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/third_party/progressive-android-experiments"
+        RESULT_VARIABLE check_rc
+        OUTPUT_VARIABLE check_out
+        ERROR_VARIABLE check_err
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_STRIP_TRAILING_WHITESPACE
+    )
+    if(check_rc EQUAL 0)
+        execute_process(
+            COMMAND git apply ${patch}
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/third_party/progressive-android-experiments"
+            RESULT_VARIABLE apply_rc
+        )
+        if(apply_rc EQUAL 0)
+            message(STATUS "progressive_native: applied patch ${patch}")
+        else()
+            message(WARNING "progressive_native: failed to apply ${patch} (rc=${apply_rc})")
+        endif()
+    else()
+        message(STATUS "progressive_native: patch already applied or not relevant: ${patch}")
+    endif()
+endforeach()
+
 # --- Collect sources, exclude Android-only files ---
 file(GLOB PN_SOURCES CONFIGURE_DEPENDS "${PN_ROOT}/src/*.cpp")
-
-# Files that require a JVM (JNIEnv*, FindClass, NewStringUTF, ...) — exclude on desktop.
-# tls_bridge.cpp calls back into Java for TLS; desktop uses OpenSSL directly.
-# jni_bridge.cpp + jni_stubs_part*.cpp are pure JNI entry points.
-set(PN_EXCLUDE_REGEX "(jni_bridge|jni_stubs_part[0-9]+|tls_bridge)\\.cpp$")
-list(FILTER PN_SOURCES EXCLUDE REGEX "${PN_EXCLUDE_REGEX}")
 
 # --- Exclude Tier C (stubs) and Tier D (JNI) via runtime classification ---
 # Generate the audit TSV once at configure time, then read it into a list.
@@ -60,8 +87,17 @@ foreach(line IN LISTS audit_lines)
 endforeach()
 set(PN_SOURCES ${PN_FILTERED_SOURCES})
 
+# --- Exclude specific broken files (Tier A but with WIP/undefined symbols) ---
+# Files that require a JVM (JNIEnv*, FindClass, NewStringUTF, ...) — exclude on desktop.
+# tls_bridge.cpp calls back into Java for TLS; desktop uses OpenSSL directly.
+# jni_bridge.cpp + jni_stubs_part*.cpp are pure JNI entry points.
+# decryptor_utils.cpp references undefined types (DecryptionQueue, DecryptionQueueEntry,
+#   DecryptionPriority) not declared in its header — incomplete WIP, won't compile.
+set(PN_EXCLUDE_REGEX "(jni_bridge|jni_stubs_part[0-9]+|tls_bridge|decryptor_utils)\\.cpp$")
+list(FILTER PN_SOURCES EXCLUDE REGEX "${PN_EXCLUDE_REGEX}")
+
 list(LENGTH PN_SOURCES PN_SOURCES_COUNT)
-message(STATUS "progressive_native: ${PN_SOURCES_COUNT} sources after Tier-C/D filter")
+message(STATUS "progressive_native: ${PN_SOURCES_COUNT} sources after Tier-C/D + broken-file filter")
 
 # --- Android log shim ---
 # Lets #include <android/log.h> resolve on Linux desktop.
@@ -145,15 +181,20 @@ target_compile_options(progressive_native PRIVATE
     -fvisibility=hidden
 )
 
-# Force-include progressive_compat.h on every TU. The Android NDK transitively
+# Force-include progressive_compat.h on every C++ TU. The Android NDK transitively
 # pulls in <algorithm>, <cctype>, <numeric>, etc. via <string>/<vector>; gcc 16
 # on Linux does NOT. Many real modules call std::remove/std::find/std::sort
 # without #include <algorithm>, so they break without this shim.
 #
+# Use $<$<COMPILE_LANGUAGE:CXX>:...> so the flag does NOT apply to C sources
+# (e.g. sqlite3.c — the SQLite amalgamation is plain C and cannot include
+# C++ headers like <algorithm>).
+#
 # This is the smallest possible fix: one -include, no source patches to
 # progressive_native (which is a read-only submodule from a different repo).
 target_compile_options(progressive_native PRIVATE
-    -include "${PN_SHIM_DIR}/progressive_compat.h"
+    $<$<COMPILE_LANGUAGE:CXX>:-include>
+    $<$<COMPILE_LANGUAGE:CXX>:${PN_SHIM_DIR}/progressive_compat.h>
 )
 
 set_source_files_properties(

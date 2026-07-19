@@ -6,41 +6,32 @@
 // DanctNIX Linux) does NOT — so modules using std::remove/std::find/std::sort
 // without an explicit #include <algorithm> fail to compile.
 //
-// This is a build-time compatibility shim, NOT part of the API. It does not
-// change any behavior — only makes the implicit transitive includes explicit
-// that the Android NDK was providing for free.
+// Kept intentionally MINIMAL — only headers that are actually missing on
+// desktop but transitively present via Android NDK's <string>/<vector>.
+// Heavy headers like <regex>, <random> are NOT here because:
+//   (a) real modules that use them already #include them explicitly
+//   (b) force-including them on 595 TUs slows the build significantly
+//
+// This is a build-time compatibility shim, NOT part of the API.
 #pragma once
 
-#include <algorithm>
-#include <array>
-#include <cctype>
-#include <chrono>
-#include <cmath>
+#include <algorithm>      // std::remove, std::find, std::sort, std::transform, std::min/max
+#include <cctype>         // std::tolower, std::isspace, std::isalpha
+#include <chrono>         // std::chrono::system_clock (used by common_utils.hpp)
+#include <climits>        // INT_MAX, INT_MIN, LLONG_MAX (string_utils, timeline_chunk)
+#include <cmath>          // std::fmod, std::isnan, std::round, std::floor, std::ceil (displayname_utils)
 #include <cstdint>
-#include <cstdlib>
-#include <cstring>
-#include <ctime>
-#include <deque>
-#include <functional>
-#include <iomanip>
-#include <limits>
-#include <list>
+#include <cstdlib>        // std::strtol, std::strtod
+#include <cstring>        // std::strlen, std::memcpy
+#include <ctime>          // std::time, std::localtime
+#include <functional>     // std::function, std::hash
 #include <map>
-#include <memory>
-#include <numeric>
+#include <memory>         // std::shared_ptr, std::unique_ptr
+#include <numeric>        // std::accumulate, std::iota
 #include <optional>
-#include <queue>
-#include <random>
-#include <regex>
-#include <set>
-#include <span>
 #include <sstream>
-#include <stack>
 #include <string>
-#include <string_view>
-#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
-#include <utility>
-#include <variant>
+#include <utility>        // std::pair, std::move, std::forward
 #include <vector>

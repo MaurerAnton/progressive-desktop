@@ -2,6 +2,7 @@
 build/
 build-*/
 out/
+build.log
 
 # CMake
 CMakeCache.txt

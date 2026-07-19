@@ -24,8 +24,44 @@ file(GLOB PN_SOURCES CONFIGURE_DEPENDS "${PN_ROOT}/src/*.cpp")
 set(PN_EXCLUDE_REGEX "(jni_bridge|jni_stubs_part[0-9]+|tls_bridge)\\.cpp$")
 list(FILTER PN_SOURCES EXCLUDE REGEX "${PN_EXCLUDE_REGEX}")
 
+# --- Exclude Tier C (stubs) and Tier D (JNI) via runtime classification ---
+# Generate the audit TSV once at configure time, then read it into a list.
+# Stubs (C) often have broken headers (std::string int(...), comments mid-decl)
+# that break other modules that include them. Skipping them entirely is correct:
+# they contribute nothing to functionality.
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(PN_AUDIT_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/scripts/audit_modules.py")
+set(PN_AUDIT_TSV "${CMAKE_BINARY_DIR}/module_audit.tsv")
+
+execute_process(
+    COMMAND ${Python3_EXECUTABLE} "${PN_AUDIT_SCRIPT}" "--tsv"
+    OUTPUT_FILE "${PN_AUDIT_TSV}"
+    RESULT_VARIABLE audit_rc
+)
+if(NOT audit_rc EQUAL 0)
+    message(FATAL_ERROR "module audit failed (rc=${audit_rc})")
+endif()
+
+# Read TSV → keep only Tier A and B filenames.
+file(READ "${PN_AUDIT_TSV}" audit_text)
+string(REPLACE "\n" ";" audit_lines "${audit_text}")
+set(PN_FILTERED_SOURCES "")
+foreach(line IN LISTS audit_lines)
+    string(REPLACE "\t" ";" fields "${line}")
+    list(LENGTH fields nfields)
+    if(nfields LESS 2)
+        continue()
+    endif()
+    list(GET fields 0 fname)
+    list(GET fields 1 tier)
+    if(tier STREQUAL "A" OR tier STREQUAL "B")
+        list(APPEND PN_FILTERED_SOURCES "${PN_ROOT}/src/${fname}")
+    endif()
+endforeach()
+set(PN_SOURCES ${PN_FILTERED_SOURCES})
+
 list(LENGTH PN_SOURCES PN_SOURCES_COUNT)
-message(STATUS "progressive_native: ${PN_SOURCES_COUNT} sources after excluding JNI/TLS-bridge")
+message(STATUS "progressive_native: ${PN_SOURCES_COUNT} sources after Tier-C/D filter")
 
 # --- Android log shim ---
 # Lets #include <android/log.h> resolve on Linux desktop.
@@ -81,6 +117,15 @@ endif()
 # --- The static library ---
 add_library(progressive_native STATIC ${PN_SOURCES} "${SQLITE3_SRC}")
 
+# progressive_native is pure C++ (no Q_OBJECT, no Qt MOC). Disable AUTOMOC
+# to avoid scanning 889 files for Q_OBJECT — saves time and silences the
+# "AutoGen warning: ... is empty" noise from empty .cpp stubs.
+set_target_properties(progressive_native PROPERTIES
+    AUTOMOC OFF
+    AUTORCC OFF
+    AUTOUIC OFF
+)
+
 target_include_directories(progressive_native
     PUBLIC
         "${PN_ROOT}/include"
@@ -98,6 +143,17 @@ target_compile_options(progressive_native PRIVATE
     -fdata-sections
     -ffunction-sections
     -fvisibility=hidden
+)
+
+# Force-include progressive_compat.h on every TU. The Android NDK transitively
+# pulls in <algorithm>, <cctype>, <numeric>, etc. via <string>/<vector>; gcc 16
+# on Linux does NOT. Many real modules call std::remove/std::find/std::sort
+# without #include <algorithm>, so they break without this shim.
+#
+# This is the smallest possible fix: one -include, no source patches to
+# progressive_native (which is a read-only submodule from a different repo).
+target_compile_options(progressive_native PRIVATE
+    -include "${PN_SHIM_DIR}/progressive_compat.h"
 )
 
 set_source_files_properties(

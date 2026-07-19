@@ -51,9 +51,10 @@ cmake --preset ci              # CI
 `progressive_native` is built from the [`progressive-android-experiments`](https://github.com/MaurerAnton/progressive-android-experiments) submodule. Of the 889 `.cpp` files, not all are real implementations. Run the audit:
 
 ```bash
-./scripts/audit-modules.py             # summary
-./scripts/audit-modules.py --verbose   # per-file
-./scripts/audit-modules.py --csv       # CSV
+./scripts/audit_modules.py            # summary
+./scripts/audit_modules.py --verbose  # per-file
+./scripts/audit_modules.py --csv      # CSV
+./scripts/audit_modules.py --tsv      # TSV (used by CMake at configure time)
 ```
 
 Tiers:

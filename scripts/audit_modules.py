@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""scripts/audit-modules.py — classify progressive_native modules into tiers.
+"""scripts/audit_modules.py — classify progressive_native modules into tiers.
 
 Tiers:
   A — Real hand-written implementations (parse real Matrix JSON, real logic).
@@ -9,9 +9,9 @@ Tiers:
   D — Android-only JNI glue (requires JNIEnv*, can't compile on desktop).
 
 Usage:
-    ./scripts/audit-modules.py            # summary
-    ./scripts/audit-modules.py --csv      # CSV to stdout
-    ./scripts/audit-modules.py --verbose  # per-file reasons
+    ./scripts/audit_modules.py            # summary
+    ./scripts/audit_modules.py --csv      # CSV to stdout
+    ./scripts/audit_modules.py --verbose  # per-file reasons
 """
 import argparse
 import csv
@@ -99,6 +99,7 @@ def classify(path: Path) -> tuple[str, str]:
 def main():
     parser = argparse.ArgumentParser(description='Classify progressive_native modules into tiers A/B/C/D.')
     parser.add_argument('--csv', action='store_true', help='Output CSV instead of summary')
+    parser.add_argument('--tsv', action='store_true', help='Output TSV (tab-separated, no quoting) instead of summary')
     parser.add_argument('--verbose', action='store_true', help='Print per-file classification')
     parser.add_argument('--src-dir', default=str(SRC_DIR), help=f'Source directory (default: {SRC_DIR})')
     args = parser.parse_args()
@@ -124,6 +125,14 @@ def main():
         w.writerow(['file', 'tier', 'reason', 'bytes'])
         for row in results:
             w.writerow(row)
+        return 0
+
+    if args.tsv:
+        # TSV — no quoting, tab-delimited. Easier to parse from CMake.
+        for name, tier, reason, size in results:
+            # reason may contain commas but not tabs (we control it)
+            reason_clean = reason.replace('\t', ' ')
+            sys.stdout.write(f'{name}\t{tier}\t{reason_clean}\t{size}\n')
         return 0
 
     # Summary

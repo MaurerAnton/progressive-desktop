@@ -31,16 +31,26 @@ find_package(Qt6 6.4 REQUIRED COMPONENTS Widgets Network)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
+# --- libcurl (HTTP client with TLS + SOCKS5/Tor proxy) ---
+find_package(CURL REQUIRED COMPONENTS HTTPS)
+
 # --- progressive_native (from submodule) ---
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/progressive_native.cmake)
 
 # --- Desktop app ---
-add_executable(progressive-desktop src/main.cpp)
+add_executable(progressive-desktop
+    src/main.cpp
+    src/core/http_client.cpp
+    src/core/matrix_client.cpp
+    src/core/session_store.cpp
+    src/core/sync_engine.cpp
+)
 
 target_link_libraries(progressive-desktop PRIVATE
     progressive_native
     Qt6::Widgets
     Qt6::Network
+    CURL::libcurl
 )
 
 target_compile_definitions(progressive-desktop PRIVATE
@@ -54,7 +64,11 @@ endif()
 # --- Tests ---
 if(PROGRESSIVE_BUILD_TESTS)
     enable_testing()
-    # TODO: add tests/ directory in phase 1
+    add_executable(test_phase1 tests/test_phase1.cpp)
+    target_link_libraries(test_phase1 PRIVATE progressive_native)
+    target_compile_options(test_phase1 PRIVATE
+        -include "${CMAKE_CURRENT_SOURCE_DIR}/third_party/android_shim/progressive_compat.h")
+    add_test(NAME phase1 COMMAND test_phase1)
 endif()
 
 # --- Install (basic, for packaging later) ---

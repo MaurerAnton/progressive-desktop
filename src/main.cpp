@@ -23,6 +23,7 @@
 #include "core/sync_engine.hpp"
 #include "ui/main_window.hpp"
 #include "ui/login_dialog.hpp"
+#include "ui/theme.hpp"
 
 #include <progressive/markdown.hpp>
 
@@ -136,8 +137,12 @@ static int syncTest(int count) {
 static void runGui(int argc, char** argv) {
     QApplication app(argc, argv);
     QApplication::setApplicationName("progressive-desktop");
-    QApplication::setApplicationVersion("0.0.2");
+    QApplication::setApplicationVersion("0.0.3");
     QApplication::setOrganizationName("progressive.chat");
+
+    // Dark theme is the default — applied before any widgets are constructed
+    // so the palette propagates to all child widgets.
+    applyDarkTheme(app);
 
     // Open session store first
     SessionStore store;

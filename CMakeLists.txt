@@ -64,6 +64,7 @@ add_executable(progressive-desktop
     src/ui/room_list_model.cpp
     src/ui/timeline_view.cpp
     src/ui/message_edit.cpp
+    src/ui/theme.cpp
 )
 target_link_libraries(progressive-desktop PRIVATE
     progressive_core

@@ -107,7 +107,7 @@ MainWindow::~MainWindow() {
 
 void MainWindow::wireSyncCallbacks() {
     // SyncEngine calls these from its worker thread — marshal to UI thread.
-    sync_.onSync([this](const progressive::SyncResponse& resp) {
+    sync_.onSync([this](const FastSyncResponse& resp) {
         QMetaObject::invokeMethod(this, [this, resp]() {
             onSync(resp);
         }, Qt::QueuedConnection);

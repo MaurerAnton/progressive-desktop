@@ -84,7 +84,7 @@ void TimelineView::appendEvent(const std::string& eventId,
             std::string rendered = progressive::markdownToHtml(body);
             // If markdown produced nothing, fallback to escaped plain text
             if (rendered.empty()) {
-                bodyHtml = "<span style='color:#222'>" + htmlEscape(body) + "</span>";
+                bodyHtml = "<span style='color:#e8e8e8'>" + htmlEscape(body) + "</span>";
             } else {
                 bodyHtml = QString::fromStdString(rendered);
             }
@@ -92,7 +92,7 @@ void TimelineView::appendEvent(const std::string& eventId,
             bodyHtml = QString("<i>* %1 %2</i>").arg(sender, htmlEscape(body));
             sender = "&nbsp;";  // emote doesn't show sender separately
         } else if (msgtype == "m.notice") {
-            bodyHtml = QString("<span style='color:#666'>%1</span>")
+            bodyHtml = QString("<span style='color:#969696'>%1</span>")
                           .arg(htmlEscape(body));
         } else if (msgtype == "m.image" || msgtype == "m.video" ||
                    msgtype == "m.audio" || msgtype == "m.file") {
@@ -102,13 +102,13 @@ void TimelineView::appendEvent(const std::string& eventId,
         }
 
         html << "<p style='margin:4px 0'><b>" << sender.toStdString()
-             << "</b> <span style='color:#999;font-size:smaller'>"
+             << "</b> <span style='color:#969696;font-size:smaller'>"
              << time.toStdString() << "</span><br>"
              << bodyHtml.toStdString() << "</p>";
     } else if (type == "m.room.encrypted") {
         // Phase 2: no decryption yet
-        html << "<p style='margin:4px 0;color:#999'><b>" << sender.toStdString()
-             << "</b> <span style='color:#999;font-size:smaller'>"
+        html << "<p style='margin:4px 0;color:#969696'><b>" << sender.toStdString()
+             << "</b> <span style='color:#969696;font-size:smaller'>"
              << time.toStdString() << "</span><br>"
              << "<i>[encrypted message — decryption in Phase 4]</i></p>";
     } else if (type == "m.room.member") {
@@ -122,17 +122,17 @@ void TimelineView::appendEvent(const std::string& eventId,
         else if (membership == "invite")msg = who + " was invited";
         else if (membership == "ban")   msg = who + " was banned";
         else                            msg = who + " " + membership;
-        html << "<p style='margin:4px 0;color:#888;font-size:smaller'>"
+        html << "<p style='margin:4px 0;color:#969696;font-size:smaller'>"
              << time.toStdString() << " — " << msg << "</p>";
     } else if (type == "m.room.redaction") {
-        html << "<p style='margin:4px 0;color:#888;font-size:smaller'>"
+        html << "<p style='margin:4px 0;color:#969696;font-size:smaller'>"
              << time.toStdString() << " — " << sender.toStdString()
              << " redacted a message</p>";
     } else {
         // Other state events — minimal display
         std::string eventType = type.empty() ? "event" : type;
         if (eventType.substr(0, 7) == "m.room.") eventType = eventType.substr(7);
-        html << "<p style='margin:4px 0;color:#888;font-size:smaller'>"
+        html << "<p style='margin:4px 0;color:#969696;font-size:smaller'>"
              << time.toStdString() << " — " << sender.toStdString()
              << " " << eventType << "</p>";
     }
@@ -145,8 +145,8 @@ void TimelineView::appendEvent(const std::string& eventId,
 
 void TimelineView::appendLocalEcho(const std::string& body) {
     std::ostringstream html;
-    html << "<p style='margin:4px 0;opacity:0.7'><b>you</b>"
-         << "<span style='color:#999;font-size:smaller'> (sending)</span><br>"
+    html << "<p style='margin:4px 0;color:#969696'><b>you</b>"
+         << "<span style='font-size:smaller'> (sending)</span><br>"
          << htmlEscape(body).toStdString() << "</p>";
     appendHtml(QString::fromStdString(html.str()));
     QScrollBar* bar = verticalScrollBar();

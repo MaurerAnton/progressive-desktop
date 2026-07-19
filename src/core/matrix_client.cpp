@@ -11,6 +11,8 @@
 
 #include <sstream>
 #include <chrono>
+#include <atomic>
+#include <ctime>
 
 namespace progressive::desktop {
 
@@ -175,6 +177,104 @@ ApiResult<bool> MatrixClient::logout() {
     }
     // Clear local state regardless of server response.
     account_ = AccountInfo{};
+    return r;
+}
+
+ApiResult<std::string> MatrixClient::sendMessage(const std::string& roomId,
+                                                  const std::string& body,
+                                                  const std::string& msgtype) {
+    ApiResult<std::string> r;
+    if (!isLoggedIn()) {
+        r.error.message = "not logged in";
+        return r;
+    }
+    // Build a unique transaction ID: timestamp + counter.
+    static std::atomic<uint64_t> txnCounter{0};
+    uint64_t txn = static_cast<uint64_t>(std::time(nullptr)) * 1000 +
+                    (txnCounter.fetch_add(1) % 1000);
+    std::ostringstream url;
+    url << account_.homeserverUrl << "/_matrix/client/v3/rooms/"
+        << roomId << "/send/m.room.message/" << "pd" << txn;
+
+    // Escape body for JSON
+    std::string escaped;
+    escaped.reserve(body.size() + 8);
+    for (char c : body) {
+        switch (c) {
+            case '"':  escaped += "\\\""; break;
+            case '\\': escaped += "\\\\"; break;
+            case '\n': escaped += "\\n"; break;
+            case '\r': escaped += "\\r"; break;
+            case '\t': escaped += "\\t"; break;
+            default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    char buf[8];
+                    std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+                    escaped += buf;
+                } else {
+                    escaped += c;
+                }
+        }
+    }
+
+    std::ostringstream jsonBody;
+    jsonBody << R"({"msgtype":")" << msgtype << R"(","body":")" << escaped << R"("})";
+
+    auto resp = httpPost(url.str(), jsonBody.str(), authHeaders(), 15000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) {
+        r.data = progressive::parseJsonStringValue(resp.body, "event_id");
+        r.ok = !r.data.empty();
+        if (!r.ok) r.error.message = "send: no event_id in response";
+    } else {
+        if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+        r.error.message = resp.errorMessage.empty() ? r.error.message : resp.errorMessage;
+    }
+    return r;
+}
+
+ApiResult<std::string> MatrixClient::getMessages(const std::string& roomId,
+                                                    const std::string& from,
+                                                    int limit) {
+    ApiResult<std::string> r;
+    if (!isLoggedIn()) {
+        r.error.message = "not logged in";
+        return r;
+    }
+    std::ostringstream url;
+    url << account_.homeserverUrl << "/_matrix/client/v3/rooms/"
+        << roomId << "/messages?dir=b&limit=" << limit;
+    if (!from.empty()) url << "&from=" << from;
+
+    auto resp = httpGet(url.str(), authHeaders(), 30000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) {
+        r.ok = true;
+        r.data = resp.body;
+    } else {
+        if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+        r.error.message = resp.errorMessage.empty() ? r.error.message : resp.errorMessage;
+    }
+    return r;
+}
+
+ApiResult<bool> MatrixClient::setReadMarker(const std::string& roomId,
+                                              const std::string& eventId) {
+    ApiResult<bool> r;
+    if (!isLoggedIn()) {
+        r.error.message = "not logged in";
+        return r;
+    }
+    std::ostringstream url;
+    url << account_.homeserverUrl << "/_matrix/client/v3/rooms/" << roomId << "/read_markers";
+    std::string body = R"({"m.read":")" + eventId + R"("})";
+    auto resp = httpPost(url.str(), body, authHeaders(), 10000);
+    r.httpStatus = resp.statusCode;
+    r.ok = resp.success;
+    r.data = resp.success;
+    if (!resp.success && !resp.body.empty()) {
+        r.error = progressive::parseMatrixErrorJson(resp.body);
+    }
     return r;
 }
 

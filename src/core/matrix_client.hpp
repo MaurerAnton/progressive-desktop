@@ -64,6 +64,32 @@ public:
     // POST /_matrix/client/v3/logout — invalidate the current access token.
     ApiResult<bool> logout();
 
+    // ---- Send message ----
+
+    // POST /_matrix/client/v3/rooms/{roomId}/send/m.room.message/{txnId}
+    // Body: {"msgtype":"m.text","body":"..."} (or "m.emote", "m.notice")
+    // Returns the event_id of the new event (or error).
+    ApiResult<std::string> sendMessage(const std::string& roomId,
+                                        const std::string& body,
+                                        const std::string& msgtype = "m.text");
+
+    // ---- Paginate timeline ----
+
+    // GET /_matrix/client/v3/rooms/{roomId}/messages?dir=b&from=...&limit=...
+    // Returns raw JSON (chunk of events + end token). The caller parses with
+    // progressive::parseSyncResponse or similar — kept simple for Phase 2.
+    // Returns: { "chunk": [...], "end": "..." } as raw JSON string.
+    ApiResult<std::string> getMessages(const std::string& roomId,
+                                        const std::string& from = "",
+                                        int limit = 30);
+
+    // ---- Read marker ----
+
+    // POST /_matrix/client/v3/rooms/{roomId}/read_markers
+    // Body: {"m.read": eventId}
+    ApiResult<bool> setReadMarker(const std::string& roomId,
+                                  const std::string& eventId);
+
     // ---- Sync ----
 
     // GET /_matrix/client/v3/sync — long-poll.

@@ -1,19 +1,14 @@
-// src/main.cpp — Phase 1 smoke test.
+// src/main.cpp — Phase 2 entry point.
 //
-// Verifies that the desktop HTTP client, MatrixClient, SessionStore, and
-// SyncEngine all link and run. NOT a real UI — Phase 2 adds Qt6 widgets.
-//
-// Run modes:
-//   progressive-desktop                    # GUI smoke window
-//   progressive-desktop --smoke            # quick link test, exit
-//   progressive-desktop --discover URL     # discover homeserver, print result
-//   progressive-desktop --login USER PASS  # login flow test
-//   progressive-desktop --sync N            # do N syncs then exit (headless)
+// Three modes:
+//   1. CLI subcommands (--smoke --discover --login --sync) — for testing
+//   2. No saved session → MainWindow + LoginDialog
+//   3. Saved session → MainWindow with sync already running
 
 #include <QApplication>
-#include <QLabel>
-#include <QWidget>
-#include <QVBoxLayout>
+#include <QStandardPaths>
+#include <QDir>
+#include <QTimer>
 
 #include <curl/curl.h>
 
@@ -26,13 +21,17 @@
 #include "core/matrix_client.hpp"
 #include "core/session_store.hpp"
 #include "core/sync_engine.hpp"
+#include "ui/main_window.hpp"
+#include "ui/login_dialog.hpp"
 
 #include <progressive/markdown.hpp>
 
 using namespace progressive::desktop;
 
+// ---- CLI test subcommands (kept for Phase 1 compat) ----
+
 static int smoke() {
-    std::cout << "=== progressive-desktop Phase 1 smoke test ===\n";
+    std::cout << "=== progressive-desktop Phase 2 smoke test ===\n";
     std::cout << "  http_client   : OK (libcurl " << curl_version() << ")\n";
     MatrixClient c;
     std::cout << "  matrix_client  : OK (constructed)\n";
@@ -45,7 +44,7 @@ static int smoke() {
     std::cout << "  sync_engine    : OK (constructed)\n";
     std::cout << "  progressive_native::markdownToHtml(\"**hi**\") = "
               << progressive::markdownToHtml("**hi**") << "\n";
-    std::cout << "All Phase 1 components linked successfully.\n";
+    std::cout << "All Phase 2 components linked successfully.\n";
     return 0;
 }
 
@@ -85,7 +84,6 @@ static int loginTest(const std::string& user, const std::string& pass) {
     }
     std::cout << "logged in as " << r.data.userId
               << " (device " << r.data.deviceId << ")\n";
-    // Persist and reload
     SessionStore s;
     s.open("/tmp/progressive-desktop-test.db");
     c.setSessionStore(&s);
@@ -124,7 +122,6 @@ static int syncTest(int count) {
     });
     se.start();
 
-    // Wait until we've seen `count` syncs (or timeout)
     for (int i = 0; i < 60 && syncs_seen < count; ++i) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
@@ -133,8 +130,50 @@ static int syncTest(int count) {
     return syncs_seen > 0 ? 0 : 1;
 }
 
+// ---- GUI mode ----
+
+static void runGui(int argc, char** argv) {
+    QApplication app(argc, argv);
+    QApplication::setApplicationName("progressive-desktop");
+    QApplication::setApplicationVersion("0.0.2");
+    QApplication::setOrganizationName("progressive.chat");
+
+    // Open session store first
+    SessionStore store;
+    QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QDir().mkpath(dataDir);
+    QString dbPath = dataDir + "/session.db";
+    store.open(dbPath.toStdString());
+
+    // Create client + load saved session if present
+    MatrixClient client;
+    client.setSessionStore(&store);
+    bool hasSession = client.loadSavedSession();
+
+    MainWindow w;
+    w.setClient(&client);
+    w.setSessionStore(&store);
+    // MainWindow owns the SyncEngine and wires its callbacks in its constructor.
+
+    if (hasSession && client.isLoggedIn()) {
+        w.show();
+        // Start sync on next event loop tick so the window shows first
+        QTimer::singleShot(0, &w, [&]() { w.startWithSavedSession(); });
+    } else {
+        // Show login dialog
+        LoginDialog dlg(&client, &store, &w);
+        if (dlg.exec() == QDialog::Accepted && dlg.loggedIn()) {
+            w.show();
+            QTimer::singleShot(0, &w, [&]() { w.startWithSavedSession(); });
+        } else {
+            return;  // user cancelled
+        }
+    }
+
+    app.exec();
+}
+
 int main(int argc, char** argv) {
-    // CLI subcommands first (no Qt needed for those)
     if (argc >= 2) {
         std::string cmd = argv[1];
         if (cmd == "--smoke")    return smoke();
@@ -143,38 +182,6 @@ int main(int argc, char** argv) {
         if (cmd == "--sync"     && argc >= 3) return syncTest(std::stoi(argv[2]));
     }
 
-    // Default: Qt6 window
-    QApplication app(argc, argv);
-    QApplication::setApplicationName("progressive-desktop");
-    QApplication::setApplicationVersion("0.0.1");
-
-    QWidget window;
-    window.setWindowTitle("Progressive Chat — Desktop (Phase 1)");
-    window.resize(900, 600);
-    auto* layout = new QVBoxLayout(&window);
-
-    auto* title = new QLabel("<h2>Progressive Chat — Desktop</h2>"
-                             "<p>Phase 1 — core plumbing ready</p>");
-    title->setAlignment(Qt::AlignCenter);
-    layout->addWidget(title);
-
-    auto* probe = new QLabel(QString("progressive_native: linked.\n"
-                                     "Markdown probe: %1\n"
-                                     "HTTP/libcurl: %2")
-        .arg(QString::fromStdString(progressive::markdownToHtml("**hi**")))
-        .arg(curl_version()));
-    probe->setWordWrap(true);
-    probe->setAlignment(Qt::AlignCenter);
-    layout->addWidget(probe);
-
-    auto* status = new QLabel("Run from CLI for Matrix tests:\n"
-                              "  progressive-desktop --smoke\n"
-                              "  progressive-desktop --discover matrix.org\n"
-                              "  progressive-desktop --login user pass\n"
-                              "  progressive-desktop --sync 3");
-    status->setAlignment(Qt::AlignCenter);
-    layout->addWidget(status);
-
-    window.show();
-    return app.exec();
+    runGui(argc, argv);
+    return 0;
 }

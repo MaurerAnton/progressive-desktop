@@ -48,14 +48,25 @@ add_library(progressive_core STATIC
 target_include_directories(progressive_core PUBLIC src)
 target_link_libraries(progressive_core PUBLIC
     progressive_native
+    Qt6::Core
     Qt6::Network
     CURL::libcurl
     SQLite::SQLite3
 )
 
 # --- Desktop app ---
-add_executable(progressive-desktop src/main.cpp)
-target_link_libraries(progressive-desktop PRIVATE progressive_core Qt6::Widgets)
+add_executable(progressive-desktop
+    src/main.cpp
+    src/ui/login_dialog.cpp
+    src/ui/main_window.cpp
+    src/ui/room_list_model.cpp
+    src/ui/timeline_view.cpp
+    src/ui/message_edit.cpp
+)
+target_link_libraries(progressive-desktop PRIVATE
+    progressive_core
+    Qt6::Widgets
+)
 
 target_compile_definitions(progressive-desktop PRIVATE
     PROGRESSIVE_DESKTOP=1

@@ -1,0 +1,66 @@
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "pinetab2",
+            "displayName": "PineTab 2 (DanctNIX, aarch64, native build)",
+            "description": "Debug build, Ninja, ccache, LTO off, mobile mode on. For 8GB PineTab 2 dev.",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_C_COMPILER_LAUNCHER": "ccache",
+                "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "PROGRESSIVE_LTO": "OFF",
+                "PROGRESSIVE_MOBILE": "ON",
+                "PROGRESSIVE_BUILD_TESTS": "ON"
+            }
+        },
+        {
+            "name": "desktop",
+            "displayName": "Linux desktop (x86_64 or aarch64, release)",
+            "description": "Release build, Ninja, LTO on, desktop UI mode.",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "PROGRESSIVE_LTO": "ON",
+                "PROGRESSIVE_MOBILE": "OFF",
+                "PROGRESSIVE_BUILD_TESTS": "ON"
+            }
+        },
+        {
+            "name": "ci",
+            "displayName": "CI (GitHub Actions)",
+            "description": "Release build for CI, no ccache assumption.",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "PROGRESSIVE_LTO": "OFF",
+                "PROGRESSIVE_MOBILE": "OFF",
+                "PROGRESSIVE_BUILD_TESTS": "ON"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "pinetab2",
+            "configurePreset": "pinetab2",
+            "jobs": 4
+        },
+        {
+            "name": "desktop",
+            "configurePreset": "desktop",
+            "jobs": 0
+        },
+        {
+            "name": "ci",
+            "configurePreset": "ci",
+            "jobs": 0
+        }
+    ]
+}

@@ -1,0 +1,3 @@
+[submodule "third_party/progressive-android-experiments"]
+	path = third_party/progressive-android-experiments
+	url = https://github.com/MaurerAnton/progressive-android-experiments.git

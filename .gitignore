@@ -1,0 +1,33 @@
+# Build artifacts
+build/
+build-*/
+out/
+
+# CMake
+CMakeCache.txt
+CMakeUserPresets.json
+compile_commands.json
+.cmake/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# ccache
+.ccache/
+
+# Compiled objects
+*.o
+*.obj
+*.so
+*.a
+*.dylib
+
+# Distribution
+*.deb
+*.rpm
+*.tar.gz
+*.flatpak

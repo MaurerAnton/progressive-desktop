@@ -16,6 +16,8 @@
 #include <string>
 #include <thread>
 #include <chrono>
+#include <csignal>
+#include <cstdlib>
 
 #include "core/http_client.hpp"
 #include "core/matrix_client.hpp"
@@ -28,6 +30,16 @@
 #include <progressive/markdown.hpp>
 
 using namespace progressive::desktop;
+
+// ---- SIGSEGV handler — prints backtrace on crash ----
+static void crashHandler(int sig) {
+    const char* msg = "\n*** FATAL: progressive-desktop crashed (signal ";
+    std::fwrite(msg, 1, std::strlen(msg), stderr);
+    std::fprintf(stderr, "%d) ***\n", sig);
+    std::fprintf(stderr, "Please report this with the steps to reproduce.\n");
+    std::fflush(stderr);
+    std::_Exit(128 + sig);
+}
 
 // ---- CLI test subcommands (kept for Phase 1 compat) ----
 
@@ -180,6 +192,11 @@ static void runGui(int argc, char** argv) {
 }
 
 int main(int argc, char** argv) {
+    // Install crash handler so we get a message instead of silent segfault
+    std::signal(SIGSEGV, crashHandler);
+    std::signal(SIGABRT, crashHandler);
+    std::signal(SIGBUS, crashHandler);
+
     if (argc >= 2) {
         std::string cmd = argv[1];
         if (cmd == "--smoke")    return smoke();
@@ -188,6 +205,14 @@ int main(int argc, char** argv) {
         if (cmd == "--sync"     && argc >= 3) return syncTest(std::stoi(argv[2]));
     }
 
-    runGui(argc, argv);
+    try {
+        runGui(argc, argv);
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "FATAL: unhandled exception: %s\n", e.what());
+        return 1;
+    } catch (...) {
+        std::fprintf(stderr, "FATAL: unknown exception\n");
+        return 1;
+    }
     return 0;
 }

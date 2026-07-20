@@ -34,13 +34,99 @@
 #include <progressive/event_models.hpp>
 #include <progressive/permalink.hpp>
 
+#include <simdjson.h>
+
 #include <iostream>
 #include <chrono>
 #include <thread>
+#include <cstdio>
 
 namespace progressive::desktop {
 
 namespace {
+
+// ---- JSON unescape: convert \n, \t, \r, \", \\, \/, \uXXXX to real chars.
+// simdjson::to_string() escapes non-ASCII as \uXXXX, so Cyrillic text
+// comes through as literal "\u043f\u0440..." — must decode to UTF-8.
+std::string jsonUnescape(std::string_view s) {
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] != '\\') { out += s[i]; continue; }
+        if (++i >= s.size()) break;
+        char c = s[i];
+        switch (c) {
+            case 'n': out += '\n'; break;
+            case 't': out += '\t'; break;
+            case 'r': out += '\r'; break;
+            case '"': out += '"'; break;
+            case '\\': out += '\\'; break;
+            case '/': out += '/'; break;
+            case 'b': out += '\b'; break;
+            case 'f': out += '\f'; break;
+            case 'u': {
+                // \uXXXX — decode 4 hex digits to UTF-8
+                if (i + 4 >= s.size()) { out += 'u'; break; }
+                unsigned cp = 0;
+                for (int j = 1; j <= 4; ++j) {
+                    char hex = s[i + j];
+                    cp <<= 4;
+                    if (hex >= '0' && hex <= '9') cp |= (hex - '0');
+                    else if (hex >= 'a' && hex <= 'f') cp |= (hex - 'a' + 10);
+                    else if (hex >= 'A' && hex <= 'F') cp |= (hex - 'A' + 10);
+                    else { cp = 0; break; }
+                }
+                i += 4;
+                // Encode codepoint as UTF-8
+                if (cp < 0x80) out += static_cast<char>(cp);
+                else if (cp < 0x800) {
+                    out += static_cast<char>(0xC0 | (cp >> 6));
+                    out += static_cast<char>(0x80 | (cp & 0x3F));
+                } else {
+                    out += static_cast<char>(0xE0 | (cp >> 12));
+                    out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+                    out += static_cast<char>(0x80 | (cp & 0x3F));
+                }
+                break;
+            }
+            default: out += '\\'; out += c; break;
+        }
+    }
+    return out;
+}
+
+// ---- JSON string value extraction with escape handling ----
+// Finds "key":"value" or "key": "value", returns DECODED string.
+std::string extractJsonStringDecoded(std::string_view json, std::string_view key) {
+    // Pattern 1: "key":"value"
+    std::string pat1 = std::string("\"") + std::string(key) + "\":\"";
+    auto pos = json.find(pat1);
+    if (pos != std::string_view::npos) {
+        pos += pat1.size();
+        // Find closing quote, skipping escaped chars
+        auto end = pos;
+        while (end < json.size()) {
+            if (json[end] == '\\' && end + 1 < json.size()) { end += 2; continue; }
+            if (json[end] == '"') break;
+            ++end;
+        }
+        if (end < json.size()) return jsonUnescape(json.substr(pos, end - pos));
+    }
+    // Pattern 2: "key": "value"
+    std::string pat2 = std::string("\"") + std::string(key) + "\": \"";
+    pos = json.find(pat2);
+    if (pos != std::string_view::npos) {
+        pos += pat2.size();
+        auto end = pos;
+        while (end < json.size()) {
+            if (json[end] == '\\' && end + 1 < json.size()) { end += 2; continue; }
+            if (json[end] == '"') break;
+            ++end;
+        }
+        if (end < json.size()) return jsonUnescape(json.substr(pos, end - pos));
+    }
+    return {};
+}
 
 std::string_view extractLastMessageBody(const std::vector<FastEvent>& events) {
     for (auto it = events.rbegin(); it != events.rend(); ++it) {
@@ -48,9 +134,14 @@ std::string_view extractLastMessageBody(const std::vector<FastEvent>& events) {
         if (e.type == "m.room.message" && !e.contentJson.empty()) {
             auto pos = e.contentJson.find("\"body\":\"");
             if (pos != std::string_view::npos) {
-                pos += 7;
-                auto end = e.contentJson.find('"', pos);
-                if (end != std::string_view::npos) {
+                pos += 8;  // skip "body":" (8 chars)
+                auto end = pos;
+                while (end < e.contentJson.size()) {
+                    if (e.contentJson[end] == '\\' && end + 1 < e.contentJson.size()) { end += 2; continue; }
+                    if (e.contentJson[end] == '"') break;
+                    ++end;
+                }
+                if (end < e.contentJson.size()) {
                     return e.contentJson.substr(pos, end - pos);
                 }
             }
@@ -61,24 +152,9 @@ std::string_view extractLastMessageBody(const std::vector<FastEvent>& events) {
 
 // Helper: extract a JSON string value from contentJson, handling both
 // "key":"value" and "key": "value" (with space) patterns.
+// DECODES JSON escapes (\n, \", \uXXXX) — use extractJsonStringDecoded.
 std::string extractJsonString(std::string_view json, std::string_view key) {
-    // Try without space: "key":"..."
-    std::string pattern1 = std::string("\"") + std::string(key) + "\":\"";
-    auto pos = json.find(pattern1);
-    if (pos != std::string_view::npos) {
-        pos += pattern1.size();
-        auto end = json.find('"', pos);
-        if (end != std::string_view::npos) return std::string(json.substr(pos, end - pos));
-    }
-    // Try with space: "key": "..."
-    std::string pattern2 = std::string("\"") + std::string(key) + "\": \"";
-    pos = json.find(pattern2);
-    if (pos != std::string_view::npos) {
-        pos += pattern2.size();
-        auto end = json.find('"', pos);
-        if (end != std::string_view::npos) return std::string(json.substr(pos, end - pos));
-    }
-    return {};
+    return extractJsonStringDecoded(json, key);
 }
 
 // Compute room name from state events AND timeline events.
@@ -86,6 +162,19 @@ std::string extractJsonString(std::string_view json, std::string_view key) {
 std::string computeRoomName(const std::vector<FastEvent>& stateEvents,
                               const std::vector<FastEvent>& timelineEvents,
                               const std::string& roomId) {
+    // Debug: log what state events we have for this room
+    if (getenv("PD_DEBUG_ROOMS")) {
+        std::fprintf(stderr, "[PD_DEBUG] room %s: %zu state events, %zu timeline events\n",
+                     roomId.c_str(), stateEvents.size(), timelineEvents.size());
+        for (const auto& e : stateEvents) {
+            if (e.type == "m.room.name" || e.type == "m.room.canonical_alias" || e.type == "m.room.avatar") {
+                std::fprintf(stderr, "[PD_DEBUG]   state: type=%.*s contentJson=%.*s\n",
+                             (int)e.type.size(), e.type.data(),
+                             (int)e.contentJson.size(), e.contentJson.data());
+            }
+        }
+    }
+
     // 1. m.room.name in state events
     for (const auto& e : stateEvents) {
         if (e.type == "m.room.name" && !e.contentJson.empty()) {
@@ -166,47 +255,22 @@ std::string computeRoomName(const std::vector<FastEvent>& stateEvents,
 
 // Extract mxc URL from image content JSON
 std::string extractMxcUrl(std::string_view contentJson) {
-    auto pos = contentJson.find("\"url\":\"");
-    if (pos == std::string_view::npos) return {};
-    pos += 7;
-    auto start = pos;
-    while (start < contentJson.size() && contentJson[start] != '"') {
-        if (contentJson[start] == '\\') start++;
-        start++;
-    }
-    if (start > pos) return std::string(contentJson.substr(pos, start - pos));
-    return {};
+    return extractJsonStringDecoded(contentJson, "url");
 }
 
 // Extract mimetype from content JSON
 std::string extractMimetype(std::string_view contentJson) {
-    auto pos = contentJson.find("\"mimetype\":\"");
-    if (pos == std::string_view::npos) return {};
-    pos += 12;
-    auto end = contentJson.find('"', pos);
-    if (end != std::string_view::npos) return std::string(contentJson.substr(pos, end - pos));
-    return {};
+    return extractJsonStringDecoded(contentJson, "mimetype");
 }
 
-// Extract body from content JSON
+// Extract body from content JSON (DECODED)
 std::string extractBody(std::string_view contentJson) {
-    auto pos = contentJson.find("\"body\":\"");
-    if (pos == std::string_view::npos) return {};
-    pos += 7;
-    auto start = contentJson.find('"', pos) + 1;
-    auto end = contentJson.find('"', start);
-    if (end != std::string_view::npos) return std::string(contentJson.substr(start, end - start));
-    return {};
+    return extractJsonStringDecoded(contentJson, "body");
 }
 
 // Extract msgtype from content JSON
 std::string extractMsgtype(std::string_view contentJson) {
-    auto pos = contentJson.find("\"msgtype\":\"");
-    if (pos == std::string_view::npos) return {};
-    pos += 11;
-    auto end = contentJson.find('"', pos);
-    if (end != std::string_view::npos) return std::string(contentJson.substr(pos, end - pos));
-    return {};
+    return extractJsonStringDecoded(contentJson, "msgtype");
 }
 
 } // namespace
@@ -427,7 +491,6 @@ void MainWindow::loadRoomHistory(const std::string& roomId) {
     MatrixClient* client = client_;
 
     std::thread([this, client, roomId]() {
-        // GET /_matrix/client/v3/rooms/{roomId}/messages?dir=b&limit=30
         auto result = client->getMessages(roomId, "", 30);
 
         QMetaObject::invokeMethod(this, [this, result, roomId]() {
@@ -437,113 +500,49 @@ void MainWindow::loadRoomHistory(const std::string& roomId) {
                 return;
             }
 
-            // Parse the /messages response: { "chunk": [...events...], "end": "token" }
-            // The events are in REVERSE chronological order (dir=b = backwards).
-            // We need to reverse them before appending.
-            auto body = result.data;
-
-            // Find "chunk" array
-            auto chunkPos = body.find("\"chunk\"");
-            if (chunkPos == std::string::npos) {
-                statusLabel_->setText("No history found.");
+            // Parse /messages response with simdjson — safe, no string-scan crashes
+            simdjson::dom::parser parser;
+            auto rootResult = parser.parse(result.data);
+            if (rootResult.error() != simdjson::SUCCESS) {
+                statusLabel_->setText("Failed to parse history.");
                 return;
             }
-            auto arrStart = body.find('[', chunkPos);
-            auto arrEnd = body.find(']', arrStart);
-            if (arrStart == std::string::npos || arrEnd == std::string::npos) {
+
+            auto chunkResult = rootResult.value()["chunk"].get_array();
+            if (chunkResult.error() != simdjson::SUCCESS) {
                 statusLabel_->setText("No history found.");
                 return;
             }
 
-            // Parse each event object from the chunk array
+            // Build FastEvent list from the parsed JSON
+            // We need to keep the parser alive — store events with COPIED strings
+            // (not string_views) since the parser will be destroyed.
             std::vector<FastEvent> events;
-            size_t pos = arrStart + 1;
-            while (pos < arrEnd) {
-                auto objStart = body.find('{', pos);
-                if (objStart == std::string::npos || objStart >= arrEnd) break;
-                int depth = 1;
-                size_t objEnd = objStart + 1;
-                while (objEnd < arrEnd && depth > 0) {
-                    if (body[objEnd] == '{') depth++;
-                    else if (body[objEnd] == '}') depth--;
-                    objEnd++;
-                }
-                // We need to parse this event object with simdjson
-                // For simplicity, extract fields via string search
-                std::string evtJson = body.substr(objStart, objEnd - objStart);
-
+            for (auto evt : chunkResult.value()) {
                 FastEvent fe;
-                // Extract type
-                auto typePos = evtJson.find("\"type\":\"");
-                if (typePos != std::string::npos) {
-                    typePos += 8;
-                    auto end = evtJson.find('"', typePos);
-                    if (end != std::string::npos) fe.type = evtJson.substr(typePos, end - typePos);
-                }
-                // Try with space
-                if (fe.type.empty()) {
-                    typePos = evtJson.find("\"type\": \"");
-                    if (typePos != std::string::npos) {
-                        typePos += 9;
-                        auto end = evtJson.find('"', typePos);
-                        if (end != std::string::npos) fe.type = evtJson.substr(typePos, end - typePos);
-                    }
-                }
-                // Extract event_id
-                auto eidPos = evtJson.find("\"event_id\":\"");
-                if (eidPos != std::string::npos) {
-                    eidPos += 12;
-                    auto end = evtJson.find('"', eidPos);
-                    if (end != std::string::npos) fe.eventId = evtJson.substr(eidPos, end - eidPos);
-                }
-                if (fe.eventId.empty()) {
-                    eidPos = evtJson.find("\"event_id\": \"");
-                    if (eidPos != std::string::npos) {
-                        eidPos += 13;
-                        auto end = evtJson.find('"', eidPos);
-                        if (end != std::string::npos) fe.eventId = evtJson.substr(eidPos, end - eidPos);
-                    }
-                }
-                // Extract sender
-                auto senderPos = evtJson.find("\"sender\":\"");
-                if (senderPos != std::string::npos) {
-                    senderPos += 10;
-                    auto end = evtJson.find('"', senderPos);
-                    if (end != std::string::npos) fe.senderId = evtJson.substr(senderPos, end - senderPos);
-                }
-                if (fe.senderId.empty()) {
-                    senderPos = evtJson.find("\"sender\": \"");
-                    if (senderPos != std::string::npos) {
-                        senderPos += 11;
-                        auto end = evtJson.find('"', senderPos);
-                        if (end != std::string::npos) fe.senderId = evtJson.substr(senderPos, end - senderPos);
-                    }
-                }
-                // Extract origin_server_ts
-                auto tsPos = evtJson.find("\"origin_server_ts\":");
-                if (tsPos != std::string::npos) {
-                    tsPos += 19;
-                    while (tsPos < evtJson.size() && !std::isdigit(static_cast<unsigned char>(evtJson[tsPos]))) tsPos++;
-                    fe.originServerTs = std::strtoll(evtJson.c_str() + tsPos, nullptr, 10);
-                }
-                // Extract content object
-                auto contentPos = evtJson.find("\"content\":");
-                if (contentPos != std::string::npos) {
-                    auto braceStart = evtJson.find('{', contentPos);
-                    if (braceStart != std::string::npos) {
-                        int depth2 = 1;
-                        size_t braceEnd = braceStart + 1;
-                        while (braceEnd < evtJson.size() && depth2 > 0) {
-                            if (evtJson[braceEnd] == '{') depth2++;
-                            else if (evtJson[braceEnd] == '}') depth2--;
-                            braceEnd++;
-                        }
-                        fe.contentJson = evtJson.substr(braceStart, braceEnd - braceStart);
-                    }
+                // Extract fields as COPIED strings (parser is local)
+                auto t = evt["type"].get_string();
+                if (t.error() == simdjson::SUCCESS) fe.type = std::string(t.value());
+
+                auto eid = evt["event_id"].get_string();
+                if (eid.error() == simdjson::SUCCESS) fe.eventId = std::string(eid.value());
+
+                auto sender = evt["sender"].get_string();
+                if (sender.error() == simdjson::SUCCESS) fe.senderId = std::string(sender.value());
+
+                auto sk = evt["state_key"].get_string();
+                if (sk.error() == simdjson::SUCCESS) fe.stateKey = std::string(sk.value());
+
+                auto ts = evt["origin_server_ts"].get_int64();
+                if (ts.error() == simdjson::SUCCESS) fe.originServerTs = ts.value();
+
+                // Serialize content object to JSON string (COPY — parser is local)
+                auto contentResult = evt["content"];
+                if (contentResult.error() == simdjson::SUCCESS) {
+                    fe.contentJson = simdjson::to_string(contentResult.value());
                 }
 
-                events.push_back(fe);
-                pos = objEnd;
+                events.push_back(std::move(fe));
             }
 
             // Events from /messages?dir=b are newest-first. Reverse to oldest-first.
@@ -928,13 +927,31 @@ void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
             }
         }
 
-        rd.lastMessage = std::string(extractLastMessageBody(room.timeline.events));
+        rd.lastMessage = jsonUnescape(extractLastMessageBody(room.timeline.events));
         rd.lastActivityTs = room.timeline.events.empty() ? 0 : room.timeline.events.back().originServerTs;
         if (rd.lastActivityTs == 0 && !room.timeline.events.empty())
             rd.lastActivityTs = room.timeline.events.front().originServerTs;
         rd.unreadCount = room.notificationCount;
         rd.highlightCount = room.highlightCount;
         rd.isEncrypted = room.isEncrypted;
+
+        // Extract room avatar from m.room.avatar state event
+        for (const auto& e : room.stateEvents) {
+            if (e.type == "m.room.avatar" && !e.contentJson.empty()) {
+                rd.avatarUrl = extractJsonStringDecoded(e.contentJson, "url");
+                if (!rd.avatarUrl.empty()) break;
+            }
+        }
+        // Also check timeline events for avatar (initial sync)
+        if (rd.avatarUrl.empty()) {
+            for (const auto& e : room.timeline.events) {
+                if (e.type == "m.room.avatar" && !e.contentJson.empty()) {
+                    rd.avatarUrl = extractJsonStringDecoded(e.contentJson, "url");
+                    if (!rd.avatarUrl.empty()) break;
+                }
+            }
+        }
+
         roomModel_->upsertRoom(rd);
 
         if (currentRoomId_.toStdString() == roomId) {

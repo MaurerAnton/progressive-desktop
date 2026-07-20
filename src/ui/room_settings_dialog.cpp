@@ -14,8 +14,61 @@
 #include <thread>
 
 #include <progressive/json_parser.hpp>
+#include <simdjson.h>
 
 namespace progressive::desktop {
+
+namespace {
+
+// Parse members response using simdjson — safe, fast, no string scan crashes.
+struct MemberInfo {
+    std::string userId;
+    std::string displayname;
+    std::string membership;
+    std::string avatarUrl;
+};
+
+std::vector<MemberInfo> parseMembersResponse(const std::string& json) {
+    std::vector<MemberInfo> result;
+    simdjson::dom::parser parser;
+    auto rootResult = parser.parse(json);
+    if (rootResult.error() != simdjson::SUCCESS) return result;
+
+    auto chunkResult = rootResult.value()["chunk"].get_array();
+    if (chunkResult.error() != simdjson::SUCCESS) return result;
+
+    for (auto evt : chunkResult.value()) {
+        MemberInfo m;
+        auto uid = evt["user_id"].get_string();
+        if (uid.error() == simdjson::SUCCESS) m.userId = std::string(uid.value());
+
+        auto dn = evt["content"]["displayname"].get_string();
+        if (dn.error() == simdjson::SUCCESS) m.displayname = std::string(dn.value());
+
+        // Also try top-level displayname (members API returns it at top level)
+        if (m.displayname.empty()) {
+            auto dn2 = evt["displayname"].get_string();
+            if (dn2.error() == simdjson::SUCCESS) m.displayname = std::string(dn2.value());
+        }
+
+        auto memb = evt["membership"].get_string();
+        if (memb.error() == simdjson::SUCCESS) m.membership = std::string(memb.value());
+
+        // Also try content.membership
+        if (m.membership.empty()) {
+            auto memb2 = evt["content"]["membership"].get_string();
+            if (memb2.error() == simdjson::SUCCESS) m.membership = std::string(memb2.value());
+        }
+
+        auto av = evt["avatar_url"].get_string();
+        if (av.error() == simdjson::SUCCESS) m.avatarUrl = std::string(av.value());
+
+        if (!m.userId.empty()) result.push_back(std::move(m));
+    }
+    return result;
+}
+
+} // namespace
 
 RoomSettingsDialog::RoomSettingsDialog(MatrixClient* client, const std::string& roomId,
                                          const std::string& roomName, QWidget* parent)
@@ -64,7 +117,7 @@ RoomSettingsDialog::RoomSettingsDialog(MatrixClient* client, const std::string& 
     connect(membersList_, &QListWidget::customContextMenuRequested, this, &RoomSettingsDialog::onMemberContextMenu);
     membersList_->setContextMenuPolicy(Qt::CustomContextMenu);
 
-    // Load topic from current state
+    // Load topic from current state using simdjson
     std::thread([this]() {
         auto state = client_->getRoomState(roomId_);
         QMetaObject::invokeMethod(this, [this, state]() {
@@ -72,11 +125,23 @@ RoomSettingsDialog::RoomSettingsDialog(MatrixClient* client, const std::string& 
                 statusLabel_->setText("Failed to load state: " + QString::fromStdString(state.error.message));
                 return;
             }
-            // Find m.room.topic
-            auto topicPos = state.data.find("\"m.room.topic\"");
-            if (topicPos != std::string::npos) {
-                auto topic = progressive::parseJsonStringValue(state.data.substr(topicPos), "topic");
-                topicEdit_->setPlainText(QString::fromStdString(topic));
+            // Parse state events with simdjson — state.data is an array of events
+            simdjson::dom::parser parser;
+            auto rootResult = parser.parse(state.data);
+            if (rootResult.error() == simdjson::SUCCESS) {
+                // State endpoint returns an array of event objects
+                auto arrResult = rootResult.value().get_array();
+                if (arrResult.error() == simdjson::SUCCESS) {
+                    for (auto evt : arrResult.value()) {
+                        auto t = evt["type"].get_string();
+                        if (t.error() == simdjson::SUCCESS && t.value() == "m.room.topic") {
+                            auto topic = evt["content"]["topic"].get_string();
+                            if (topic.error() == simdjson::SUCCESS) {
+                                topicEdit_->setPlainText(QString::fromUtf8(topic.value().data(), (int)topic.value().size()));
+                            }
+                        }
+                    }
+                }
             }
             statusLabel_->setText("Ready.");
         }, Qt::QueuedConnection);
@@ -121,45 +186,25 @@ void RoomSettingsDialog::loadMembers() {
         auto r = client_->getRoomMembers(roomId_);
         QMetaObject::invokeMethod(this, [this, r]() {
             if (!r.ok) {
-                statusLabel_->setText("Failed to load members.");
+                statusLabel_->setText("Failed to load members: " + QString::fromStdString(r.error.message));
                 return;
             }
-            // Parse members — find "chunk" array, extract user_id + displayname + membership
-            auto pos = r.data.find("\"chunk\"");
-            if (pos == std::string::npos) {
-                statusLabel_->setText("No members.");
+
+            auto members = parseMembersResponse(r.data);
+            if (members.empty()) {
+                statusLabel_->setText("No members found.");
                 return;
             }
-            auto arrStart = r.data.find('[', pos);
-            auto arrEnd = r.data.find(']', arrStart);
-            if (arrStart == std::string::npos) return;
 
             int count = 0;
-            size_t p = arrStart + 1;
-            while (p < arrEnd) {
-                auto objStart = r.data.find('{', p);
-                if (objStart == std::string::npos || objStart >= arrEnd) break;
-                int depth = 1;
-                size_t objEnd = objStart + 1;
-                while (objEnd < arrEnd && depth > 0) {
-                    if (r.data[objEnd] == '{') depth++;
-                    else if (r.data[objEnd] == '}') depth--;
-                    objEnd++;
-                }
-                auto obj = r.data.substr(objStart, objEnd - objStart);
-                auto userId = progressive::parseJsonStringValue(obj, "user_id");
-                auto displayname = progressive::parseJsonStringValue(obj, "displayname");
-                auto membership = progressive::parseJsonStringValue(obj, "membership");
-
-                if (membership == "join" || membership.empty()) {
-                    QString display = QString::fromStdString(displayname.empty() ? userId : displayname);
-                    display += "  (" + QString::fromStdString(userId) + ")";
-                    auto* item = new QListWidgetItem(display);
-                    item->setData(Qt::UserRole, QString::fromStdString(userId));
-                    membersList_->addItem(item);
-                    count++;
-                }
-                p = objEnd;
+            for (const auto& m : members) {
+                if (m.membership != "join" && !m.membership.empty()) continue;
+                QString display = QString::fromStdString(m.displayname.empty() ? m.userId : m.displayname);
+                display += "  (" + QString::fromStdString(m.userId) + ")";
+                auto* item = new QListWidgetItem(display);
+                item->setData(Qt::UserRole, QString::fromStdString(m.userId));
+                membersList_->addItem(item);
+                count++;
             }
             statusLabel_->setText(QString("%1 members.").arg(count));
         }, Qt::QueuedConnection);

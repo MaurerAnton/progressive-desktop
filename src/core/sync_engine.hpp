@@ -43,6 +43,7 @@ class SyncEngine {
 public:
     using SyncCallback = std::function<void(const FastSyncResponse&)>;
     using StateCallback = std::function<void(SyncEngineState, const SyncEngineStats&)>;
+    using AuthErrorCallback = std::function<void()>;
 
     SyncEngine();
     ~SyncEngine();
@@ -51,6 +52,9 @@ public:
     void setSessionStore(SessionStore* s) { store_ = s; }
     void onSync(SyncCallback cb) { syncCb_ = std::move(cb); }
     void onStateChange(StateCallback cb) { stateCb_ = std::move(cb); }
+    // Called when the access token is invalid (M_UNKNOWN_TOKEN) — UI should
+    // clear the saved session and show the login dialog.
+    void onAuthError(AuthErrorCallback cb) { authErrCb_ = std::move(cb); }
 
     const SyncEngineStats& stats() const { return stats_; }
 
@@ -74,6 +78,7 @@ private:
     SessionStore* store_ = nullptr;
     SyncCallback syncCb_;
     StateCallback stateCb_;
+    AuthErrorCallback authErrCb_;
 
     std::thread worker_;
     std::mutex mtx_;

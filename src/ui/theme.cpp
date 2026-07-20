@@ -59,11 +59,13 @@ void applyDarkTheme(QApplication& app) {
 
     // Also apply a small stylesheet for widgets that don't respect QPalette
     // by default (e.g. QTextBrowser's link color, QListView's border).
+    // font-weight:400 (normal) on body text prevents the "thin/stroke" look
+    // some users see on dark backgrounds with subpixel rendering.
     app.setStyleSheet(
         "QListView { border: none; background: #1e1e1e; }"
         "QListView::item { padding: 6px 8px; }"
         "QListView::item:selected { background: #325082; color: #ffffff; }"
-        "QTextBrowser { background: #141414; color: #e8e8e8; border: none; }"
+        "QTextBrowser { background: #141414; color: #e8e8e8; border: none; font-weight:400; }"
         "QLineEdit, QTextEdit { background: #141414; color: #e8e8e8; border: 1px solid #3a3a3a; }"
         "QLineEdit:focus, QTextEdit:focus { border: 1px solid #2a82da; }"
         "QPushButton { background: #2d2d2d; color: #e8e8e8; border: 1px solid #3a3a3a; padding: 6px 16px; }"
@@ -74,8 +76,11 @@ void applyDarkTheme(QApplication& app) {
         "QScrollBar::handle:vertical:hover { background: #5a5a5a; }"
         "QScrollBar::add-line, QScrollBar::sub-line { height: 0; }"
         "QStatusBar { background: #1e1e1e; color: #969696; }"
+        "QStatusBar::item { border: none; }"
         "QSplitter::handle { background: #2d2d2d; }"
         "QLabel { color: #e8e8e8; }"
+        "QToolBar { background: #1e1e1e; border: none; spacing: 4px; }"
+        "QToolBar QLabel { color: #e8e8e8; padding: 0 8px; }"
     );
 }
 

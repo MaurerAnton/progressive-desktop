@@ -72,6 +72,20 @@ void SyncEngine::run() {
             stats_.lastError = result.error.message.empty()
                 ? result.error.code
                 : result.error.message;
+
+            // Detect invalid access token — stop the loop and notify UI.
+            // The server returns M_UNKNOWN_TOKEN when the access token is
+            // expired, revoked, or never existed. Common causes:
+            //   - saved session from a previous Phase 2 test (token expired)
+            //   - user logged out from another device
+            //   - server-side cleanup of old tokens
+            if (result.error.code == "M_UNKNOWN_TOKEN") {
+                setState(SyncEngineState::Stopped);
+                if (authErrCb_) authErrCb_();
+                running_ = false;
+                break;
+            }
+
             setState(SyncEngineState::Backoff);
 
             int backoff = computeBackoffMs(stats_.errors);

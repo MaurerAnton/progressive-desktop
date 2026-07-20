@@ -3,6 +3,8 @@
 #include "login_dialog.hpp"
 
 #include <QApplication>
+#include <QDesktopServices>
+#include <QUrl>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
@@ -10,6 +12,7 @@
 #include <QDir>
 #include <QTimer>
 #include <QString>
+#include <QCheckBox>
 
 #include <progressive/well_known.hpp>
 
@@ -23,23 +26,29 @@ LoginDialog::LoginDialog(MatrixClient* client, SessionStore* store, QWidget* par
 
     serverEdit_ = new QLineEdit("matrix.org", this);
     userEdit_ = new QLineEdit(this);
-    userEdit_->setPlaceholderText("@user:server or username");
+    userEdit_->setPlaceholderText("username (NOT @user:server — just the name)");
     passEdit_ = new QLineEdit(this);
     passEdit_->setEchoMode(QLineEdit::Password);
     passEdit_->setPlaceholderText("password");
-    statusLabel_ = new QLabel("Enter your Matrix credentials.", this);
+    showPassCheck_ = new QCheckBox("Show password", this);
+
+    statusLabel_ = new QLabel("Enter your Matrix credentials.\n"
+                              "No account? Click Register to create one on the homeserver.", this);
     statusLabel_->setWordWrap(true);
 
     auto* form = new QFormLayout;
     form->addRow("Server:", serverEdit_);
     form->addRow("User:", userEdit_);
     form->addRow("Password:", passEdit_);
+    form->addRow("", showPassCheck_);
 
     auto* loginBtn = new QPushButton("Login", this);
     loginBtn->setDefault(true);
+    auto* registerBtn = new QPushButton("Register", this);
     auto* cancelBtn = new QPushButton("Cancel", this);
 
     auto* btnRow = new QHBoxLayout;
+    btnRow->addWidget(registerBtn);
     btnRow->addStretch();
     btnRow->addWidget(loginBtn);
     btnRow->addWidget(cancelBtn);
@@ -50,7 +59,39 @@ LoginDialog::LoginDialog(MatrixClient* client, SessionStore* store, QWidget* par
     root->addLayout(btnRow);
 
     connect(loginBtn, &QPushButton::clicked, this, &LoginDialog::onLoginClicked);
+    connect(registerBtn, &QPushButton::clicked, this, &LoginDialog::onRegisterClicked);
     connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
+    connect(showPassCheck_, &QCheckBox::toggled, this,
+            [this](bool checked) { onShowPasswordToggled(checked); });
+}
+
+void LoginDialog::onShowPasswordToggled(bool checked) {
+    passEdit_->setEchoMode(checked ? QLineEdit::Normal : QLineEdit::Password);
+}
+
+void LoginDialog::onRegisterClicked() {
+    // matrix.org (and most homeservers) require a captcha for registration,
+    // which we can't do from C++. Open the browser to the homeserver's web
+    // registration page instead.
+    auto server = serverEdit_->text().trimmed();
+    if (server.isEmpty()) {
+        statusLabel_->setText("Enter a server first.");
+        return;
+    }
+    // For matrix.org, element.io's registration page is the standard.
+    // For other servers, try /_matrix/client/v3/register/available to check,
+    // but for simplicity, just open the server URL in a browser.
+    QString regUrl;
+    if (server == "matrix.org" || server.contains("matrix.org")) {
+        regUrl = "https://app.element.io/#/register";
+    } else {
+        // Try the server's web client — many have a register page at /register
+        regUrl = "https://" + server + "/#/register";
+    }
+    QDesktopServices::openUrl(QUrl(regUrl));
+    statusLabel_->setText(QString("Opened registration page in your browser:\n%1\n"
+                                  "After registering, come back here and login.")
+        .arg(regUrl));
 }
 
 void LoginDialog::onLoginClicked() {
@@ -59,17 +100,19 @@ void LoginDialog::onLoginClicked() {
     auto pass = passEdit_->text();
 
     if (server.isEmpty() || user.isEmpty() || pass.isEmpty()) {
-        statusLabel_->setText("Fill in all fields.");
+        statusLabel_->setText("Fill in all fields.\n"
+                              "Username is just the name (e.g. 'alice'), "
+                              "NOT the full Matrix ID.");
         return;
     }
 
     statusLabel_->setText("Discovering homeserver...");
     QApplication::processEvents();
 
-    // Strip the leading @ and :server part if user entered full mxid
+    // Strip @ and :server from username if user entered the full Matrix ID.
+    // matrix.org's /login with m.id.user expects just 'alice', not '@alice:matrix.org'.
     std::string userStr = user.toStdString();
     if (userStr.size() > 0 && userStr[0] == '@') {
-        // @user:server  →  username (server comes from serverEdit)
         auto colon = userStr.find(':');
         if (colon != std::string::npos) userStr = userStr.substr(1, colon - 1);
         else userStr = userStr.substr(1);
@@ -77,7 +120,8 @@ void LoginDialog::onLoginClicked() {
 
     auto discovered = client_->discoverHomeserver(server.toStdString());
     if (!discovered.ok) {
-        statusLabel_->setText(QString("Discovery failed: %1")
+        statusLabel_->setText(QString("Discovery failed: %1\n"
+                                      "Check the server name (e.g. 'matrix.org').")
             .arg(QString::fromStdString(discovered.error.message)));
         return;
     }
@@ -93,9 +137,18 @@ void LoginDialog::onLoginClicked() {
 
     auto result = client_->loginWithPassword(userStr, pass.toStdString());
     if (!result.ok) {
-        statusLabel_->setText(QString("Login failed (%1): %2")
+        QString hint;
+        if (result.error.code == "M_FORBIDDEN") {
+            hint = "\n\nM_FORBIDDEN means wrong username or password.\n"
+                   "Check:\n"
+                   "  - Username is just 'alice' (no @, no :server)\n"
+                   "  - Password is correct (use Show password to verify)\n"
+                   "  - The account exists on this homeserver";
+        }
+        statusLabel_->setText(QString("Login failed (%1): %2%3")
             .arg(QString::fromStdString(result.error.code))
-            .arg(QString::fromStdString(result.error.message)));
+            .arg(QString::fromStdString(result.error.message))
+            .arg(hint));
         return;
     }
 

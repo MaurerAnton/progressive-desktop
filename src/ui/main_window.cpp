@@ -12,6 +12,8 @@
 #include <QMessageBox>
 #include <QStatusBar>
 #include <QTimer>
+#include <QToolBar>
+#include <QAction>
 #include <QVBoxLayout>
 #include <QStandardPaths>
 #include <QDir>
@@ -33,7 +35,6 @@ std::string_view extractLastMessageBody(const std::vector<FastEvent>& events) {
     for (auto it = events.rbegin(); it != events.rend(); ++it) {
         const auto& e = *it;
         if (e.type == "m.room.message" && !e.contentJson.empty()) {
-            // Look for "body":"..." in the contentJson
             std::string_view key = "\"body\":\"";
             auto pos = e.contentJson.find(key);
             if (pos != std::string_view::npos) {
@@ -56,27 +57,62 @@ MainWindow::MainWindow(QWidget* parent)
     setWindowTitle("Progressive Chat — Desktop");
     resize(1100, 720);
 
+    // --- Toolbar (top) ---
+    toolbar_ = addToolBar("Main");
+    toolbar_->setMovable(false);
+    userLabel_ = new QLabel("Not logged in", this);
+    toolbar_->addWidget(userLabel_);
+    toolbar_->addSeparator();
+    logoutAction_ = toolbar_->addAction("Logout");
+    connect(logoutAction_, &QAction::triggered, this, &MainWindow::onLogoutClicked);
+
+    // --- Central splitter ---
     splitter_ = new QSplitter(Qt::Horizontal, this);
 
-    roomList_ = new QListView(splitter_);
+    // Left panel: room list header + room list
+    auto* leftPanel = new QWidget(splitter_);
+    auto* leftLayout = new QVBoxLayout(leftPanel);
+    leftLayout->setContentsMargins(0, 0, 0, 0);
+    leftLayout->setSpacing(0);
+
+    roomListHeader_ = new QLabel("Rooms (0)", this);
+    roomListHeader_->setStyleSheet(
+        "font-weight:600; padding:8px 12px; color:#e8e8e8; background:#1e1e1e;");
+    leftLayout->addWidget(roomListHeader_);
+
+    roomList_ = new QListView(leftPanel);
     roomList_->setModel(roomModel_ = new RoomListModel(roomList_));
     roomList_->setMinimumWidth(280);
     roomList_->setMaximumWidth(380);
     roomList_->setAlternatingRowColors(true);
     roomList_->setWordWrap(true);
     roomList_->setUniformItemSizes(false);
+    leftLayout->addWidget(roomList_);
 
+    // Right panel: timeline + message edit
     auto* rightPanel = new QWidget(splitter_);
     auto* rightLayout = new QVBoxLayout(rightPanel);
     rightLayout->setContentsMargins(0, 0, 0, 0);
+    rightLayout->setSpacing(0);
 
     timeline_ = new TimelineView(rightPanel);
     rightLayout->addWidget(timeline_);
 
+    // Placeholder shown when no room is selected
+    timelinePlaceholder_ = new QLabel(
+        "← Select a room from the list to start chatting", this);
+    timelinePlaceholder_->setAlignment(Qt::AlignCenter);
+    timelinePlaceholder_->setStyleSheet(
+        "color:#969696; font-size:14pt; background:#141414;");
+    rightLayout->addWidget(timelinePlaceholder_);
+    timelinePlaceholder_->show();
+    timeline_->hide();
+
     messageEdit_ = new MessageEdit(rightPanel);
+    messageEdit_->hide();  // hidden until a room is selected
     rightLayout->addWidget(messageEdit_);
 
-    splitter_->addWidget(roomList_);
+    splitter_->addWidget(leftPanel);
     splitter_->addWidget(rightPanel);
     splitter_->setStretchFactor(0, 1);
     splitter_->setStretchFactor(1, 4);
@@ -85,8 +121,7 @@ MainWindow::MainWindow(QWidget* parent)
     statusLabel_ = new QLabel("Not synced yet.", this);
     statusBar()->addWidget(statusLabel_, 1);
 
-    // Sync engine — owns thread, calls back via callbacks (set up in
-    // wireSyncCallbacks). SyncEngine is a member of MainWindow.
+    // Sync engine — owns thread, calls back via callbacks.
     wireSyncCallbacks();
 
     // Wire UI signals
@@ -117,14 +152,21 @@ void MainWindow::wireSyncCallbacks() {
             onSyncState(st, stats);
         }, Qt::QueuedConnection);
     });
+    // M_UNKNOWN_TOKEN → clear session, show login dialog
+    sync_.onAuthError([this]() {
+        QMetaObject::invokeMethod(this, [this]() {
+            forceReLogin();
+        }, Qt::QueuedConnection);
+    });
 }
 
 void MainWindow::startWithSavedSession() {
     if (!client_ || !store_) return;
     if (!client_->isLoggedIn()) return;
 
-    statusLabel_->setText(QString("Logged in as %1")
-        .arg(QString::fromStdString(client_->account().userId)));
+    QString userText = QString::fromStdString(client_->account().userId);
+    userLabel_->setText("Logged in: " + userText);
+    statusLabel_->setText("Starting sync...");
     sync_.setClient(client_);
     sync_.setSessionStore(store_);
     sync_.start();
@@ -140,6 +182,9 @@ void MainWindow::onRoomClicked(const QModelIndex& idx) {
     if (!r) return;
     currentRoomId_ = QString::fromStdString(r->roomId);
     timeline_->setRoomId(r->roomId);
+    timelinePlaceholder_->hide();
+    timeline_->show();
+    messageEdit_->show();
     setWindowTitle(QString("Progressive Chat — %1").arg(
         QString::fromStdString(r->name)));
 }
@@ -148,7 +193,6 @@ void MainWindow::onSendMessage(const std::string& body) {
     if (currentRoomId_.isEmpty() || !client_) return;
     timeline_->appendLocalEcho(body);
 
-    // Send on a worker thread so we don't block UI
     std::string roomId = currentRoomId_.toStdString();
     MatrixClient* client = client_;
     std::thread([client, roomId, body]() {
@@ -161,20 +205,13 @@ void MainWindow::onSendMessage(const std::string& body) {
 
 void MainWindow::onSlashCommand(const std::string& cmd, const std::string& args) {
     if (cmd == "help") {
-        timeline_->appendHtml("<p style='color:#888'>Commands: /help /clear /logout /me &lt;action&gt;</p>");
+        timeline_->appendHtml(
+            "<p style='color:#969696'>Commands: /help /clear /logout /me &lt;action&gt;</p>");
     } else if (cmd == "clear") {
         timeline_->clear();
     } else if (cmd == "logout") {
-        sync_.stop();
-        if (client_) client_->logout();
-        if (store_) store_->clearAccount();
-        roomModel_->clear();
-        timeline_->clear();
-        currentRoomId_.clear();
-        setWindowTitle("Progressive Chat — Desktop");
-        statusLabel_->setText("Logged out.");
+        onLogoutClicked();
     } else if (cmd == "me") {
-        // /me waves  →  m.emote message
         if (currentRoomId_.isEmpty() || !client_) return;
         std::string roomId = currentRoomId_.toStdString();
         std::string body = args;
@@ -184,29 +221,88 @@ void MainWindow::onSlashCommand(const std::string& cmd, const std::string& args)
             client->sendMessage(roomId, body, "m.emote");
         }).detach();
     } else {
-        timeline_->appendHtml(QString("<p style='color:#888'>unknown command: /%1</p>")
+        timeline_->appendHtml(QString("<p style='color:#969696'>unknown command: /%1</p>")
             .arg(QString::fromStdString(cmd)));
     }
 }
 
+void MainWindow::onLogoutClicked() {
+    sync_.stop();
+    if (client_) client_->logout();
+    if (store_) store_->clearAccount();
+    roomModel_->clear();
+    timeline_->clear();
+    timeline_->hide();
+    timelinePlaceholder_->show();
+    messageEdit_->hide();
+    currentRoomId_.clear();
+    userLabel_->setText("Not logged in");
+    setWindowTitle("Progressive Chat — Desktop");
+    statusLabel_->setText("Logged out.");
+    showLoginDialog();
+}
+
+void MainWindow::showLoginDialog() {
+    LoginDialog dlg(client_, store_, this);
+    connect(&dlg, &QDialog::accepted, this, &MainWindow::onLoginDialogAccepted);
+    dlg.exec();
+}
+
+void MainWindow::onLoginDialogAccepted() {
+    if (client_ && client_->isLoggedIn()) {
+        QString userText = QString::fromStdString(client_->account().userId);
+        userLabel_->setText("Logged in: " + userText);
+        statusLabel_->setText("Starting sync...");
+        sync_.setClient(client_);
+        sync_.setSessionStore(store_);
+        sync_.start();
+    }
+}
+
+void MainWindow::forceReLogin() {
+    // Called when sync returns M_UNKNOWN_TOKEN.
+    sync_.stop();
+    if (store_) store_->clearAccount();
+    if (client_) {
+        AccountInfo empty;
+        client_->setAccount(empty);
+    }
+    roomModel_->clear();
+    timeline_->clear();
+    timeline_->hide();
+    timelinePlaceholder_->show();
+    messageEdit_->hide();
+    currentRoomId_.clear();
+    userLabel_->setText("Not logged in");
+    statusLabel_->setText("Session expired. Please login again.");
+    showLoginDialog();
+}
+
 void MainWindow::onSync(const FastSyncResponse& resp) {
     rebuildRoomList(resp);
-    statusLabel_->setText(QString("synced %1 room(s), %2 event(s)")
-        .arg(static_cast<int>(resp.joinedRooms.size()))
-        .arg(sync_.stats().timelineEvents));
+    int joined = static_cast<int>(resp.joinedRooms.size());
+    statusLabel_->setText(QString("synced %1 room(s), %2 event(s) | %3 bytes received")
+        .arg(joined)
+        .arg(sync_.stats().timelineEvents)
+        .arg(resp.buffer ? (int)resp.buffer->size() : 0));
 }
 
 void MainWindow::onSyncState(SyncEngineState state, const SyncEngineStats& stats) {
     const char* s = "?";
     switch (state) {
         case SyncEngineState::Stopped:     s = "stopped"; break;
-        case SyncEngineState::InitialSync: s = "initial sync"; break;
-        case SyncEngineState::Running:    s = "running"; break;
-        case SyncEngineState::Backoff:     s = "backoff"; break;
+        case SyncEngineState::InitialSync: s = "initial sync (downloading rooms)..."; break;
+        case SyncEngineState::Running:    s = "synced"; break;
+        case SyncEngineState::Backoff:     s = "connection issue, retrying..."; break;
         case SyncEngineState::Paused:      s = "paused"; break;
     }
-    statusLabel_->setText(QString("sync: %1 | total: %2 rooms / %3 events / %4 errors")
+    statusLabel_->setText(QString("sync: %1 | %2 rooms / %3 events / %4 errors")
         .arg(s).arg(stats.roomsJoined).arg(stats.timelineEvents).arg(stats.errors));
+}
+
+void MainWindow::updateRoomListHeader() {
+    int n = roomModel_->rowCount();
+    roomListHeader_->setText(QString("Rooms (%1)").arg(n));
 }
 
 void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
@@ -215,16 +311,14 @@ void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
         RoomData rd;
         rd.roomId = roomId;
 
-        // Try state events for the name
         std::string name(room.name());
-        if (name.empty()) name = roomId;  // last resort
+        if (name.empty()) name = roomId;
         rd.name = name;
 
         rd.lastMessage = std::string(extractLastMessageBody(room.timeline.events));
         rd.lastActivityTs = room.timeline.events.empty() ? 0 :
                               room.timeline.events.back().originServerTs;
         if (rd.lastActivityTs == 0 && !room.timeline.events.empty()) {
-            // Use the first event if the last is somehow 0
             rd.lastActivityTs = room.timeline.events.front().originServerTs;
         }
 
@@ -234,11 +328,11 @@ void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
 
         roomModel_->upsertRoom(rd);
 
-        // If this is the currently-selected room, append new timeline events
         if (currentRoomId_.toStdString() == roomId) {
             appendTimelineForRoom(roomId, room.timeline.events);
         }
     }
+    updateRoomListHeader();
 }
 
 void MainWindow::appendTimelineForRoom(const std::string& roomId,

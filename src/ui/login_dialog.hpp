@@ -27,6 +27,8 @@ public:
 
 private slots:
     void onLoginClicked();
+    void onRegisterClicked();
+    void onShowPasswordToggled(bool checked);
 
 private:
     MatrixClient* client_;
@@ -37,6 +39,7 @@ private:
     QLineEdit* userEdit_;
     QLineEdit* passEdit_;
     QLabel* statusLabel_;
+    QCheckBox* showPassCheck_;
 };
 
 } // namespace progressive::desktop

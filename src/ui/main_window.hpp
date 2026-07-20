@@ -42,6 +42,10 @@ public:
     // Called once at startup if a saved session exists — starts sync.
     void startWithSavedSession();
 
+    // Force-logout: called by MainWindow itself when sync returns M_UNKNOWN_TOKEN.
+    // Clears the saved session, shows the login dialog, restarts sync on success.
+    void forceReLogin();
+
     // Public UI-thread slots — called from SyncEngine callbacks (marshaled
     // via QMetaObject::invokeMethod in main.cpp).
     void onSync(const FastSyncResponse& resp);
@@ -54,16 +58,27 @@ private slots:
     void onRoomClicked(const QModelIndex& idx);
     void onSendMessage(const std::string& body);
     void onSlashCommand(const std::string& cmd, const std::string& args);
+    void onLogoutClicked();
+    void onLoginDialogAccepted();
 
 private:
     void rebuildRoomList(const FastSyncResponse& resp);
     void appendTimelineForRoom(const std::string& roomId,
                                 const std::vector<FastEvent>& events);
     void wireSyncCallbacks();
+    void showLoginDialog();
+    void updateRoomListHeader();
 
     MatrixClient* client_ = nullptr;
     SessionStore* store_ = nullptr;
     SyncEngine sync_;        // owns the worker thread
+
+    // Toolbar + status
+    class QToolBar* toolbar_ = nullptr;
+    class QLabel* userLabel_ = nullptr;
+    class QAction* logoutAction_ = nullptr;
+    class QLabel* roomListHeader_ = nullptr;
+    class QLabel* timelinePlaceholder_ = nullptr;
 
     QSplitter* splitter_ = nullptr;
     QListView* roomList_ = nullptr;

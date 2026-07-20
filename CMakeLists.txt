@@ -85,6 +85,8 @@ add_executable(progressive-desktop
     src/ui/emoji_picker.cpp
     src/ui/room_settings_dialog.cpp
     src/ui/message_edit.cpp
+    src/ui/room_list_delegate.cpp
+    src/ui/profile_dialog.cpp
     src/ui/theme.cpp
 )
 target_link_libraries(progressive-desktop PRIVATE

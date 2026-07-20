@@ -940,4 +940,108 @@ ApiResult<bool> MatrixClient::sendToDevice(const std::string& eventType,
     return r;
 }
 
+// ---- Media upload ----
+
+ApiResult<std::string> MatrixClient::uploadMedia(const std::vector<uint8_t>& data,
+                                                     const std::string& filename,
+                                                     const std::string& contentType) {
+    ApiResult<std::string> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    std::ostringstream url;
+    url << account_.homeserverUrl << "/_matrix/media/v3/upload";
+    if (!filename.empty()) url << "?filename=" << filename;
+
+    // Build headers with content type
+    auto hdrs = authHeaders();
+    hdrs["Content-Type"] = contentType.empty() ? "application/octet-stream" : contentType;
+
+    HttpRequest req;
+    req.method = "POST";
+    req.url = url.str();
+    req.body.assign(reinterpret_cast<const char*>(data.data()), data.size());
+    req.headers = hdrs;
+    req.timeoutMs = 60000;
+    req.followRedirects = true;
+    auto resp = httpExecute(req);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) {
+        r.ok = true;
+        r.data = progressive::parseJsonStringValue(resp.body, "content_uri");
+        if (r.data.empty()) r.error.message = "upload: no content_uri in response";
+    } else {
+        if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+        r.error.message = resp.errorMessage.empty() ? r.error.message : resp.errorMessage;
+    }
+    return r;
+}
+
+// ---- Profile ----
+
+ApiResult<bool> MatrixClient::setDisplayName(const std::string& displayName) {
+    ApiResult<bool> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    std::string body = "{\"displayname\":\"" + jsonEscape(displayName) + "\"}";
+    std::string url = account_.homeserverUrl + "/_matrix/client/v3/profile/" +
+                     urlEncodePath(account_.userId) + "/displayname";
+    auto resp = httpPut(url, body, authHeaders(), 15000);
+    r.httpStatus = resp.statusCode;
+    r.ok = resp.success;
+    r.data = resp.success;
+    if (!resp.success && !resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+    return r;
+}
+
+ApiResult<bool> MatrixClient::setAvatarUrl(const std::string& mxcUrl) {
+    ApiResult<bool> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    std::string body = "{\"avatar_url\":\"" + jsonEscape(mxcUrl) + "\"}";
+    std::string url = account_.homeserverUrl + "/_matrix/client/v3/profile/" +
+                     urlEncodePath(account_.userId) + "/avatar_url";
+    auto resp = httpPut(url, body, authHeaders(), 15000);
+    r.httpStatus = resp.statusCode;
+    r.ok = resp.success;
+    r.data = resp.success;
+    if (!resp.success && !resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+    return r;
+}
+
+ApiResult<std::string> MatrixClient::getProfile(const std::string& userId) {
+    ApiResult<std::string> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    std::string url = account_.homeserverUrl + "/_matrix/client/v3/profile/" + urlEncodePath(userId);
+    auto resp = httpGet(url, authHeaders(), 10000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) { r.ok = true; r.data = resp.body; }
+    else { if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+           r.error.message = resp.errorMessage.empty() ? r.error.message : resp.errorMessage; }
+    return r;
+}
+
+ApiResult<std::string> MatrixClient::sendThreadReply(const std::string& roomId,
+                                                        const std::string& body,
+                                                        const std::string& rootEventId,
+                                                        const std::string& msgtype) {
+    ApiResult<std::string> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    std::string txn = genTxnId("pd");
+    std::ostringstream jsonBody;
+    jsonBody << R"({"msgtype":")" << msgtype << R"(","body":")" << jsonEscape(body)
+             << R"(","m.relates_to":{"rel_type":"m.thread","event_id":")"
+             << jsonEscape(rootEventId) << R"("}})";
+    std::ostringstream url;
+    url << account_.homeserverUrl << "/_matrix/client/v3/rooms/"
+        << urlEncodePath(roomId) << "/send/m.room.message/" << txn;
+    auto resp = httpPut(url.str(), jsonBody.str(), authHeaders(), 15000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) {
+        r.data = progressive::parseJsonStringValue(resp.body, "event_id");
+        r.ok = !r.data.empty();
+        if (!r.ok) r.error.message = "send: no event_id in response";
+    } else {
+        if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+        r.error.message = resp.errorMessage.empty() ? r.error.message : resp.errorMessage;
+    }
+    return r;
+}
+
 } // namespace progressive::desktop

@@ -125,10 +125,6 @@ void SyncEngine::run() {
 }
 
 void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
-    // Process each to-device event:
-    //   - m.room_key: add an inbound megolm session
-    //   - m.room.encrypted: Olm 1:1 (decryption of m.room_key delivery)
-    //     Not yet implemented — requires Olm session management.
     for (const auto& evt : resp.toDeviceEventList) {
         if (evt.type == "m.room_key") {
             std::string contentStr(evt.contentJson);
@@ -142,16 +138,42 @@ void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
                           << evt.senderId << ": " << contentStr << "\n";
             }
         } else if (evt.type == "m.room.encrypted") {
-            // Olm 1:1 — decrypts to a m.room_key event (or m.dummy etc.).
-            // TODO: handle OlmSession (1:1) decryption. Requires:
-            //   - Server query for sender's device keys (Curve25519)
-            //   - Inbound OlmSession via createInbound
-            //   - Decryption of ciphertext
-            //   - If inner type == m.room_key, call decryptor_.handleRoomKey
-            stats_.decryptErrors++;
-            std::cerr << "[e2ee] to-device m.room.encrypted (Olm 1:1) — "
-                      << "decryption not yet implemented\n";
+            // Olm 1:1 — decrypts to a m.room_key event (or m.dummy etc.)
+            std::string contentStr(evt.contentJson);
+            std::string innerPlaintext = decryptor_.handleOlmEncryptedToDevice(
+                std::string(evt.senderId), contentStr);
+            if (!innerPlaintext.empty()) {
+                stats_.decryptedEvents++;
+                std::cerr << "[e2ee] decrypted Olm 1:1 to-device from "
+                          << evt.senderId << " (" << innerPlaintext.size() << " bytes)\n";
+            } else {
+                stats_.decryptErrors++;
+                std::cerr << "[e2ee] Olm 1:1 decryption failed from "
+                          << evt.senderId << "\n";
+            }
         }
+    }
+}
+
+// Upload device keys to the server. Call once at login.
+void SyncEngine::uploadDeviceKeys() {
+    if (!client_ || !client_->isLoggedIn()) return;
+    if (!decryptor_.isInitialized()) return;
+
+    std::string userId = client_->account().userId;
+    std::string deviceId = client_->account().deviceId;
+    if (deviceId.empty()) deviceId = "PROGRESSIVE_DESKTOP";
+
+    std::cerr << "[e2ee] uploading device keys for " << userId << "/" << deviceId << "\n";
+    std::string body = decryptor_.buildKeysUploadBody(userId, deviceId, 10);
+
+    // Upload synchronously — this is fast (small JSON)
+    auto result = client_->uploadKeys(body);
+    if (result.ok) {
+        std::cerr << "[e2ee] device keys uploaded. Server response: "
+                  << (result.data.size() > 200 ? result.data.substr(0, 200) + "..." : result.data) << "\n";
+    } else {
+        std::cerr << "[e2ee] device key upload FAILED: " << result.error.message << "\n";
     }
 }
 

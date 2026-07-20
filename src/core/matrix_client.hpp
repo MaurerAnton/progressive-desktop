@@ -283,6 +283,34 @@ public:
                                   const std::string& txnId,
                                   const std::string& body);
 
+    // ---- Media upload ----
+
+    // POST /_matrix/media/v3/upload?filename=...
+    // Uploads a file's binary content. Returns the mxc:// URL on success.
+    ApiResult<std::string> uploadMedia(const std::vector<uint8_t>& data,
+                                         const std::string& filename,
+                                         const std::string& contentType);
+
+    // ---- Profile ----
+
+    // PUT /_matrix/client/v3/profile/{userId}/displayname
+    ApiResult<bool> setDisplayName(const std::string& displayName);
+
+    // PUT /_matrix/client/v3/profile/{userId}/avatar_url
+    ApiResult<bool> setAvatarUrl(const std::string& mxcUrl);
+
+    // GET /_matrix/client/v3/profile/{userId}
+    // Returns JSON with displayname and avatar_url.
+    ApiResult<std::string> getProfile(const std::string& userId);
+
+    // ---- Send message with thread relation ----
+
+    // Same as sendMessage, but adds m.relates_to: {rel_type: "m.thread", event_id}
+    ApiResult<std::string> sendThreadReply(const std::string& roomId,
+                                              const std::string& body,
+                                              const std::string& rootEventId,
+                                              const std::string& msgtype = "m.text");
+
 private:
     AccountInfo account_;
     SessionStore* sessionStore_ = nullptr;

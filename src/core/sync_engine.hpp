@@ -62,6 +62,10 @@ public:
     // Access the E2EE decryptor (for setup at login time).
     Decryptor* decryptor() { return &decryptor_; }
 
+    // Upload device keys + one-time keys to the server.
+    // Call once after init() + login. Non-blocking (spawns a thread).
+    void uploadDeviceKeys();
+
     const SyncEngineStats& stats() const { return stats_; }
 
     // Start the loop. If a saved since-token exists, continues incremental;

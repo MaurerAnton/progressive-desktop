@@ -53,8 +53,12 @@ public:
 
     bool isValid() const { return account_ != nullptr; }
 
+    // Access the underlying progressive::OlmAccount for OlmSession operations.
+    void* rawAccount() { return account_; }
+
 private:
     void* account_ = nullptr;  // progressive::OlmAccount*
+    friend class Decryptor;
 };
 
 // Base64 encode/decode for olm pickles (URL-safe-ish, like libolm uses)

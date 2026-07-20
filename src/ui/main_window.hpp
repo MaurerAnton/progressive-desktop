@@ -6,6 +6,7 @@
 #include "core/fast_sync.hpp"
 #include "core/notifications.hpp"
 #include "room_list_model.hpp"
+#include "room_list_delegate.hpp"
 #include "timeline_model.hpp"
 #include "timeline_delegate.hpp"
 #include "image_loader.hpp"
@@ -60,6 +61,7 @@ private slots:
     void onImageClicked(const QString& eventId, const QString& mxcUrl);
     void onMessageClicked(const QString& eventId);
     void onTimelineContextMenu(const QPoint& pos);
+    void onAttachFile(const QString& filePath);
 
 private:
     void rebuildRoomList(const FastSyncResponse& resp);
@@ -94,6 +96,7 @@ private:
     QSplitter* splitter_ = nullptr;
     QListView* roomList_ = nullptr;
     RoomListModel* roomModel_ = nullptr;
+    RoomListDelegate* roomListDelegate_ = nullptr;
 
     // Timeline (replaces old TimelineView)
     QListView* timelineView_ = nullptr;

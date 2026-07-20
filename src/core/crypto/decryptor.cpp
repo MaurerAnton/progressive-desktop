@@ -6,12 +6,14 @@
 #include <olm/olm.h>
 #include <olm/outbound_group_session.h>
 
+#include "../http_client.hpp"
 #include <simdjson.h>
 #include <string_view>
 #include <algorithm>
 #include <cstring>
 #include <cstdio>
 #include <sstream>
+#include <vector>
 
 namespace progressive::desktop {
 
@@ -424,6 +426,299 @@ void Decryptor::dropOutboundSession(const std::string& roomId) {
         }
         outboundSessions_.erase(it);
     }
+}
+
+// ---- Room key sharing (full E2EE outbound) ----
+
+// Helper: build auth headers for HTTP calls.
+static std::unordered_map<std::string, std::string> makeAuthHeaders(const std::string& token) {
+    return {{"Authorization", "Bearer " + token},
+            {"Content-Type", "application/json"}};
+}
+
+// Helper: extract a string field from JSON (simdjson DOM).
+static std::string domGetString(simdjson::dom::element parent, std::string_view key) {
+    auto r = parent[key].get_string();
+    if (r.error() == simdjson::SUCCESS) return std::string(r.value());
+    return {};
+}
+
+bool Decryptor::shareRoomKey(const std::string& roomId,
+                                const std::vector<std::string>& userIds,
+                                const std::string& ourUserId,
+                                const std::string& ourDeviceId,
+                                const std::string& homeserverUrl,
+                                const std::string& accessToken) {
+    if (!isInitialized()) {
+        std::fprintf(stderr, "[e2ee] shareRoomKey: not initialized\n");
+        return false;
+    }
+    if (!hasOutboundSession(roomId)) {
+        std::fprintf(stderr, "[e2ee] shareRoomKey: no outbound session for %s\n", roomId.c_str());
+        return false;
+    }
+
+    auto ourCurve = curve25519Key();
+    auto ourEd = ed25519Key();
+    std::string sessionId = getOutboundSessionId(roomId);
+    std::string sessionKey = getOutboundSessionKey(roomId);
+    if (sessionKey.empty()) {
+        std::fprintf(stderr, "[e2ee] shareRoomKey: empty session key\n");
+        return false;
+    }
+
+    auto hdrs = makeAuthHeaders(accessToken);
+
+    // Step 1: Query device keys for all room members.
+    std::ostringstream queryBody;
+    queryBody << "{\"device_keys\":{";
+    bool first = true;
+    for (const auto& uid : userIds) {
+        if (uid == ourUserId) continue;  // skip self
+        if (!first) queryBody << ",";
+        first = false;
+        queryBody << "\"" << uid << "\":[]";
+    }
+    queryBody << "}}";
+
+    auto queryResp = httpPost(homeserverUrl + "/_matrix/client/v3/keys/query",
+                              queryBody.str(), hdrs, 30000);
+    if (!queryResp.success) {
+        std::fprintf(stderr, "[e2ee] keys/query failed: %s\n", queryResp.errorMessage.c_str());
+        return false;
+    }
+
+    // Parse the response to extract device keys for each user.
+    // Response format:
+    //   {"device_keys":{"@user:server":{"device_id":{"algorithms":[...],
+    //    "device_id":"...","keys":{"curve25519:dev":"...","ed25519:dev":"..."},
+    //    "signatures":{...}}}},"failures":{}}
+    simdjson::dom::parser parser;
+    auto rootResult = parser.parse(queryResp.body);
+    if (rootResult.error() != simdjson::SUCCESS) {
+        std::fprintf(stderr, "[e2ee] keys/query response parse failed\n");
+        return false;
+    }
+
+    struct DeviceInfo {
+        std::string userId;
+        std::string deviceId;
+        std::string curve25519;
+        std::string ed25519;
+    };
+    std::vector<DeviceInfo> devices;
+
+    auto deviceKeysResult = rootResult.value()["device_keys"].get_object();
+    if (deviceKeysResult.error() == simdjson::SUCCESS) {
+        for (auto userField : deviceKeysResult.value()) {
+            std::string uid(userField.key);
+            auto userDevices = userField.value.get_object();
+            if (userDevices.error() != simdjson::SUCCESS) continue;
+            for (auto devField : userDevices.value()) {
+                DeviceInfo info;
+                info.userId = uid;
+                info.deviceId = std::string(devField.key);
+                if (info.deviceId == ourDeviceId && uid == ourUserId) continue;
+                info.curve25519 = domGetString(devField.value, "curve25519:" + info.deviceId);
+                // Extract curve25519 + ed25519 from keys object
+                auto keysResult = devField.value["keys"].get_object();
+                if (keysResult.error() == simdjson::SUCCESS) {
+                    auto keysObj = keysResult.value();
+                    for (auto k : keysObj) {
+                        std::string kKey(k.key);
+                        if (kKey.find("curve25519") != std::string::npos && info.curve25519.empty()) {
+                            auto v = k.value.get_string();
+                            if (v.error() == simdjson::SUCCESS) info.curve25519 = std::string(v.value());
+                        }
+                        if (kKey.find("ed25519") != std::string::npos) {
+                            auto v = k.value.get_string();
+                            if (v.error() == simdjson::SUCCESS) info.ed25519 = std::string(v.value());
+                        }
+                    }
+                }
+                if (!info.curve25519.empty()) {
+                    devices.push_back(info);
+                    std::fprintf(stderr, "[e2ee] found device: %s/%s curve=%s...\n",
+                                 uid.c_str(), info.deviceId.c_str(),
+                                 info.curve25519.substr(0, 8).c_str());
+                }
+            }
+        }
+    }
+
+    if (devices.empty()) {
+        std::fprintf(stderr, "[e2ee] no devices to share room_key with\n");
+        return true;  // nothing to do — not an error
+    }
+
+    // Step 2: Claim one-time keys for each device.
+    std::ostringstream claimBody;
+    claimBody << "{\"one_time_keys\":{";
+    first = true;
+    for (const auto& d : devices) {
+        if (!first) claimBody << ",";
+        first = false;
+        claimBody << "\"" << d.userId << "\":{\""
+                  << d.deviceId << "\":\"signed_curve25519\"}";
+    }
+    claimBody << "}}";
+
+    auto claimResp = httpPost(homeserverUrl + "/_matrix/client/v3/keys/claim",
+                              claimBody.str(), hdrs, 15000);
+    if (!claimResp.success) {
+        std::fprintf(stderr, "[e2ee] keys/claim failed: %s\n", claimResp.errorMessage.c_str());
+        return false;
+    }
+
+    // Parse the response to extract claimed one-time keys.
+    // Response: {"one_time_keys":{"@user:server":{"device_id":
+    //   {"signed_curve25519:AAAA":{"key":"...","signatures":{...}}}}}}
+    simdjson::dom::parser claimParser;
+    auto claimRoot = claimParser.parse(claimResp.body);
+    if (claimRoot.error() != simdjson::SUCCESS) {
+        std::fprintf(stderr, "[e2ee] keys/claim response parse failed\n");
+        return false;
+    }
+
+    // For each device, find the claimed one-time key.
+    struct ClaimedKey {
+        std::string userId;
+        std::string deviceId;
+        std::string oneTimeKey;  // the actual key value
+    };
+    std::vector<ClaimedKey> claimedKeys;
+
+    auto otkResult = claimRoot.value()["one_time_keys"].get_object();
+    if (otkResult.error() == simdjson::SUCCESS) {
+        for (auto userField : otkResult.value()) {
+            std::string uid(userField.key);
+            auto userDevs = userField.value.get_object();
+            if (userDevs.error() != simdjson::SUCCESS) continue;
+            for (auto devField : userDevs.value()) {
+                std::string devId(devField.key);
+                // The value is an object with one key: signed_curve25519:XXXX
+                auto keyObj = devField.value.get_object();
+                if (keyObj.error() != simdjson::SUCCESS) continue;
+                for (auto k : keyObj.value()) {
+                    ClaimedKey ck;
+                    ck.userId = uid;
+                    ck.deviceId = devId;
+                    // The value has a "key" field
+                    ck.oneTimeKey = domGetString(k.value, "key");
+                    if (ck.oneTimeKey.empty()) {
+                        // Maybe the value IS the key directly (some servers)
+                        auto keyStr = k.value.get_string();
+                        if (keyStr.error() == simdjson::SUCCESS) {
+                            ck.oneTimeKey = std::string(keyStr.value());
+                        }
+                    }
+                    if (!ck.oneTimeKey.empty()) {
+                        claimedKeys.push_back(ck);
+                    }
+                    break;  // only one key per device
+                }
+            }
+        }
+    }
+
+    std::fprintf(stderr, "[e2ee] claimed %zu one-time keys (had %zu devices)\n",
+                 claimedKeys.size(), devices.size());
+
+    if (claimedKeys.empty()) {
+        std::fprintf(stderr, "[e2ee] no one-time keys claimed — can't share room_key\n");
+        return false;
+    }
+
+    // Step 3: For each claimed key, create OlmSession outbound + encrypt m.room_key.
+    // Build the /sendToDevice/m.room.encrypted body:
+    //   {"messages":{"@user:server":{"device_id":{"algorithm":"m.olm.v1.curve25519-aes-sha2",
+    //    "ciphertext":{"<our_curve>":{"body":"<base64>","type":0}},
+    //    "sender_key":"<our_curve>"}}}}
+    std::ostringstream sendBody;
+    sendBody << "{\"messages\":{";
+    first = true;
+    int shared = 0;
+
+    for (const auto& ck : claimedKeys) {
+        // Find the matching device info for ed25519
+        std::string theirEd;
+        for (const auto& d : devices) {
+            if (d.userId == ck.userId && d.deviceId == ck.deviceId) {
+                theirEd = d.ed25519;
+                break;
+            }
+        }
+        std::string theirCurve;
+        for (const auto& d : devices) {
+            if (d.userId == ck.userId && d.deviceId == ck.deviceId) {
+                theirCurve = d.curve25519;
+                break;
+            }
+        }
+        if (theirCurve.empty()) continue;
+
+        // Create OlmSession outbound
+        progressive::OlmSession session;
+        auto* underlyingAccount = static_cast<progressive::OlmAccount*>(account_->rawAccount());
+        auto sessResult = session.createOutbound(*underlyingAccount, theirCurve, ck.oneTimeKey);
+        if (!sessResult.success) {
+            std::fprintf(stderr, "[e2ee] createOutbound failed for %s/%s\n",
+                         ck.userId.c_str(), ck.deviceId.c_str());
+            continue;
+        }
+
+        // Build the m.room_key plaintext JSON
+        std::string roomKeyContent = "{\"algorithm\":\"m.megolm.v1.aes-sha2\","
+            "\"room_id\":\"" + roomId + "\","
+            "\"session_id\":\"" + sessionId + "\","
+            "\"session_key\":\"" + sessionKey + "\","
+            "\"sender_key\":\"" + ourCurve + "\"}";
+
+        // Wrap it as a to-device event JSON:
+        // {"type":"m.room_key","content":{...},"sender":"<our_user_id>","keys":{"ed25519":"<our_ed>"}}
+        std::string plaintext = "{\"type\":\"m.room_key\",\"content\":" + roomKeyContent +
+            ",\"sender\":\"" + ourUserId + "\",\"keys\":{\"ed25519\":\"" + ourEd + "\"}}";
+
+        // Encrypt with OlmSession
+        auto encResult = session.encrypt(plaintext);
+        if (!encResult.success || encResult.data.empty()) {
+            std::fprintf(stderr, "[e2ee] Olm encrypt failed for %s/%s\n",
+                         ck.userId.c_str(), ck.deviceId.c_str());
+            continue;
+        }
+
+        // Build the per-device ciphertext entry
+        if (!first) sendBody << ",";
+        first = false;
+        sendBody << "\"" << ck.userId << "\":{"
+                 << "\"" << ck.deviceId << "\":{"
+                 << "\"algorithm\":\"m.olm.v1.curve25519-aes-sha2\","
+                 << "\"ciphertext\":{\"" << ourCurve << "\":{"
+                 << "\"body\":\"" << encResult.data << "\","
+                 << "\"type\":0}},"
+                 << "\"sender_key\":\"" << ourCurve << "\""
+                 << "}}";
+        shared++;
+    }
+    sendBody << "}}";
+
+    if (shared == 0) {
+        std::fprintf(stderr, "[e2ee] failed to encrypt room_key for any device\n");
+        return false;
+    }
+
+    // Step 4: Send m.room.encrypted to-device event.
+    std::string txnId = "pdkey" + std::to_string(std::time(nullptr) * 1000 + (rand() % 1000));
+    std::string url = homeserverUrl + "/_matrix/client/v3/sendToDevice/m.room.encrypted/" + txnId;
+    auto sendResp = httpPut(url, sendBody.str(), hdrs, 15000);
+    if (!sendResp.success) {
+        std::fprintf(stderr, "[e2ee] sendToDevice failed: %s\n", sendResp.errorMessage.c_str());
+        return false;
+    }
+
+    std::fprintf(stderr, "[e2ee] shared room_key with %d device(s) for room %s\n",
+                 shared, roomId.c_str());
+    return true;
 }
 
 } // namespace progressive::desktop

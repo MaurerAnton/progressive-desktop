@@ -102,6 +102,23 @@ public:
     // Drop the outbound session for a room (e.g. when room is left).
     void dropOutboundSession(const std::string& roomId);
 
+    // ---- Room key sharing (full E2EE outbound) ----
+    // Shares the outbound megolm session key with all room members' devices.
+    // Steps:
+    //   1. Query device keys for the given user IDs via /keys/query
+    //   2. Claim one-time keys for each device via /keys/claim
+    //   3. For each device: create OlmSession outbound, encrypt m.room_key
+    //   4. Send m.room.encrypted to-device events via /sendToDevice
+    // Returns true on success. Logs progress to stderr.
+    // userIds: list of room member user IDs (excluding our own).
+    // userId/deviceId: our identity (for excluding self + signing).
+    bool shareRoomKey(const std::string& roomId,
+                        const std::vector<std::string>& userIds,
+                        const std::string& ourUserId,
+                        const std::string& ourDeviceId,
+                        const std::string& homeserverUrl,
+                        const std::string& accessToken);
+
     // Access internal stores for direct manipulation (e.g. persistence).
     OlmAccountStore* account() { return account_.get(); }
     MegolmStore* megolm() { return megolm_.get(); }

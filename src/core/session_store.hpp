@@ -39,6 +39,11 @@ public:
     std::optional<std::string> loadSyncToken();
     bool clearSyncToken();
 
+    // ---- Olm account (E2EE) ----
+    // Stores the pickled olm account + the pickle key used to encrypt it.
+    bool saveOlmAccount(const std::string& pickle, const std::string& pickleKey);
+    std::optional<std::pair<std::string, std::string>> loadOlmAccount();
+
     // Force a WAL checkpoint. Called after each save.
     void checkpoint();
 

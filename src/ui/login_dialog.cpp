@@ -70,28 +70,81 @@ void LoginDialog::onShowPasswordToggled(bool checked) {
 }
 
 void LoginDialog::onRegisterClicked() {
-    // matrix.org (and most homeservers) require a captcha for registration,
-    // which we can't do from C++. Open the browser to the homeserver's web
-    // registration page instead.
     auto server = serverEdit_->text().trimmed();
+    auto user = userEdit_->text().trimmed();
+    auto pass = passEdit_->text();
+
     if (server.isEmpty()) {
-        statusLabel_->setText("Enter a server first.");
+        statusLabel_->setText("Enter a server name first.");
         return;
     }
-    // For matrix.org, element.io's registration page is the standard.
-    // For other servers, try /_matrix/client/v3/register/available to check,
-    // but for simplicity, just open the server URL in a browser.
-    QString regUrl;
-    if (server == "matrix.org" || server.contains("matrix.org")) {
-        regUrl = "https://app.element.io/#/register";
-    } else {
-        // Try the server's web client — many have a register page at /register
-        regUrl = "https://" + server + "/#/register";
+    if (user.isEmpty() || pass.isEmpty()) {
+        statusLabel_->setText("Enter username and password to register.\n"
+                              "Username is just the name (e.g. 'alice').");
+        return;
     }
-    QDesktopServices::openUrl(QUrl(regUrl));
-    statusLabel_->setText(QString("Opened registration page in your browser:\n%1\n"
-                                  "After registering, come back here and login.")
-        .arg(regUrl));
+
+    // Strip @ and :server from username if user entered the full Matrix ID
+    std::string userStr = user.toStdString();
+    if (userStr.size() > 0 && userStr[0] == '@') {
+        auto colon = userStr.find(':');
+        if (colon != std::string::npos) userStr = userStr.substr(1, colon - 1);
+        else userStr = userStr.substr(1);
+    }
+
+    statusLabel_->setText("Discovering homeserver...");
+    QApplication::processEvents();
+
+    // Discover the homeserver
+    auto discovered = client_->discoverHomeserver(server.toStdString());
+    if (!discovered.ok) {
+        statusLabel_->setText(QString("Discovery failed: %1").arg(
+            QString::fromStdString(discovered.error.message)));
+        return;
+    }
+
+    statusLabel_->setText(QString("Registering on %1...").arg(
+        QString::fromStdString(discovered.data)));
+    QApplication::processEvents();
+
+    // Try in-app registration
+    auto result = client_->registerAccount(userStr, pass.toStdString(), discovered.data);
+    if (result.ok) {
+        // Registration succeeded — we're logged in!
+        client_->setAccount(result.data);
+        if (store_) {
+            QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+            QDir().mkpath(dataDir);
+            QString dbPath = dataDir + "/session.db";
+            store_->open(dbPath.toStdString());
+        }
+        client_->setSessionStore(store_);
+        client_->persistSession();
+        logged_in_ = true;
+        accept();
+        return;
+    }
+
+    // If captcha is needed, fall back to browser
+    if (result.error.code == "M_NEEDS_CAPTCHA") {
+        QString regUrl;
+        if (server == "matrix.org" || server.contains("matrix.org")) {
+            regUrl = "https://app.element.io/#/register";
+        } else {
+            regUrl = "https://" + server + "/#/register";
+        }
+        QDesktopServices::openUrl(QUrl(regUrl));
+        statusLabel_->setText(QString("This server requires captcha for registration.\n"
+                                      "Opened registration page in your browser:\n%1\n"
+                                      "After registering, come back here and login.")
+            .arg(regUrl));
+        return;
+    }
+
+    // Other error
+    statusLabel_->setText(QString("Registration failed (%1): %2")
+        .arg(QString::fromStdString(result.error.code))
+        .arg(QString::fromStdString(result.error.message)));
 }
 
 void LoginDialog::onLoginClicked() {

@@ -262,7 +262,7 @@ ApiResult<std::string> MatrixClient::sendMessage(const std::string& roomId,
     std::ostringstream jsonBody;
     jsonBody << R"({"msgtype":")" << msgtype << R"(","body":")" << escaped << R"("})";
 
-    auto resp = httpPost(url.str(), jsonBody.str(), authHeaders(), 15000);
+    auto resp = httpPut(url.str(), jsonBody.str(), authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
     if (resp.success) {
         r.data = progressive::parseJsonStringValue(resp.body, "event_id");
@@ -464,7 +464,7 @@ ApiResult<std::string> MatrixClient::sendReaction(const std::string& roomId,
     std::ostringstream body;
     body << "{\"m.relates_to\":{\"rel_type\":\"m.annotation\",\"event_id\":\""
          << jsonEscape(eventId) << "\",\"key\":\"" << jsonEscape(emoji) << "\"}}";
-    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + roomId +
+    auto resp = httpPut(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) +
                          "/send/m.reaction/" + txn, body.str(), authHeaders(), 10000);
     r.httpStatus = resp.statusCode;
     if (resp.success) {
@@ -485,7 +485,7 @@ ApiResult<bool> MatrixClient::redactEvent(const std::string& roomId,
     std::string body = reason.empty() ? "{}"
         : "{\"reason\":\"" + jsonEscape(reason) + "\"}";
     // PUT /_matrix/client/v3/rooms/{roomId}/redact/{eventId}/{txnId}
-    auto resp = httpPut(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + roomId +
+    auto resp = httpPut(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) +
                         "/redact/" + eventId + "/" + txn, body, authHeaders(), 10000);
     r.httpStatus = resp.statusCode; r.ok = resp.success; r.data = resp.success;
     if (!resp.success && !resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
@@ -556,7 +556,7 @@ ApiResult<bool> MatrixClient::unpinMessage(const std::string& roomId, const std:
 ApiResult<std::string> MatrixClient::getRoomState(const std::string& roomId) {
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
-    auto resp = httpGet(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + roomId + "/state",
+    auto resp = httpGet(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) + "/state",
                         authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
     if (resp.success) { r.ok = true; r.data = resp.body; }
@@ -571,7 +571,7 @@ ApiResult<bool> MatrixClient::sendStateEvent(const std::string& roomId,
                                               const std::string& bodyJson) {
     ApiResult<bool> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
-    std::string url = account_.homeserverUrl + "/_matrix/client/v3/rooms/" + roomId +
+    std::string url = account_.homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) +
                       "/state/" + eventType;
     if (!stateKey.empty()) url += "/" + stateKey;
     auto resp = httpPut(url, bodyJson, authHeaders(), 10000);
@@ -593,7 +593,7 @@ ApiResult<bool> MatrixClient::setRoomName(const std::string& roomId, const std::
 ApiResult<std::string> MatrixClient::getRoomMembers(const std::string& roomId) {
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
-    auto resp = httpGet(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + roomId + "/members",
+    auto resp = httpGet(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) + "/members",
                         authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
     if (resp.success) { r.ok = true; r.data = resp.body; }
@@ -607,7 +607,7 @@ ApiResult<bool> MatrixClient::kickUser(const std::string& roomId, const std::str
     std::string body = "{\"user_id\":\"" + jsonEscape(userId) + "\"";
     if (!reason.empty()) body += ",\"reason\":\"" + jsonEscape(reason) + "\"";
     body += "}";
-    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + roomId + "/kick",
+    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) + "/kick",
                          body, authHeaders(), 10000);
     r.httpStatus = resp.statusCode; r.ok = resp.success; r.data = resp.success;
     if (!resp.success && !resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
@@ -620,7 +620,7 @@ ApiResult<bool> MatrixClient::banUser(const std::string& roomId, const std::stri
     std::string body = "{\"user_id\":\"" + jsonEscape(userId) + "\"";
     if (!reason.empty()) body += ",\"reason\":\"" + jsonEscape(reason) + "\"";
     body += "}";
-    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + roomId + "/ban",
+    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) + "/ban",
                          body, authHeaders(), 10000);
     r.httpStatus = resp.statusCode; r.ok = resp.success; r.data = resp.success;
     if (!resp.success && !resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
@@ -631,7 +631,7 @@ ApiResult<bool> MatrixClient::unbanUser(const std::string& roomId, const std::st
     ApiResult<bool> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
     std::string body = "{\"user_id\":\"" + jsonEscape(userId) + "\"}";
-    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + roomId + "/unban",
+    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) + "/unban",
                          body, authHeaders(), 10000);
     r.httpStatus = resp.statusCode; r.ok = resp.success; r.data = resp.success;
     if (!resp.success && !resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
@@ -749,7 +749,7 @@ ApiResult<std::string> MatrixClient::getThreads(const std::string& roomId, const
 ApiResult<std::string> MatrixClient::getThreadReplies(const std::string& roomId, const std::string& rootEventId) {
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
-    auto resp = httpGet(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + roomId +
+    auto resp = httpGet(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) +
                         "/relations/" + rootEventId + "/m.thread", authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
     if (resp.success) { r.ok = true; r.data = resp.body; }
@@ -971,6 +971,77 @@ ApiResult<std::string> MatrixClient::uploadMedia(const std::vector<uint8_t>& dat
     } else {
         if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
         r.error.message = resp.errorMessage.empty() ? r.error.message : resp.errorMessage;
+    }
+    return r;
+}
+
+// ---- Registration ----
+
+ApiResult<AccountInfo> MatrixClient::registerAccount(const std::string& username,
+                                                        const std::string& password,
+                                                        const std::string& homeserverUrl) {
+    ApiResult<AccountInfo> r;
+    // Try m.login.dummy flow first (works for servers without captcha)
+    std::ostringstream body;
+    body << R"({"username":")" << jsonEscape(username) << R"(","password":")"
+         << jsonEscape(password) << R"(","auth":{"type":"m.login.dummy"}})";
+
+    auto hdrs = std::unordered_map<std::string, std::string>{
+        {"Content-Type", "application/json"}
+    };
+    auto resp = httpPost(homeserverUrl + "/_matrix/client/v3/register?kind=user",
+                         body.str(), hdrs, 15000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) {
+        // Parse the response: {"user_id":"...","device_id":"...","access_token":"..."}
+        AccountInfo acct;
+        acct.userId = progressive::parseJsonStringValue(resp.body, "user_id");
+        acct.deviceId = progressive::parseJsonStringValue(resp.body, "device_id");
+        acct.accessToken = progressive::parseJsonStringValue(resp.body, "access_token");
+        acct.homeserverUrl = homeserverUrl;
+        if (!acct.userId.empty() && !acct.accessToken.empty()) {
+            r.ok = true;
+            r.data = acct;
+            return r;
+        }
+        r.error.message = "register: missing user_id or access_token in response";
+        return r;
+    }
+    // 401 means the server requires additional auth stages (e.g. captcha)
+    if (resp.statusCode == 401) {
+        // Check if m.login.dummy is in the flows — if so, retry with session
+        auto session = progressive::parseJsonStringValue(resp.body, "session");
+        if (!session.empty()) {
+            // Retry with the session
+            std::ostringstream body2;
+            body2 << R"({"username":")" << jsonEscape(username) << R"(","password":")"
+                  << jsonEscape(password) << R"(","auth":{"type":"m.login.dummy","session":")"
+                  << jsonEscape(session) << R"("}})";
+            auto resp2 = httpPost(homeserverUrl + "/_matrix/client/v3/register?kind=user",
+                                  body2.str(), hdrs, 15000);
+            if (resp2.success) {
+                AccountInfo acct;
+                acct.userId = progressive::parseJsonStringValue(resp2.body, "user_id");
+                acct.deviceId = progressive::parseJsonStringValue(resp2.body, "device_id");
+                acct.accessToken = progressive::parseJsonStringValue(resp2.body, "access_token");
+                acct.homeserverUrl = homeserverUrl;
+                if (!acct.userId.empty() && !acct.accessToken.empty()) {
+                    r.ok = true;
+                    r.data = acct;
+                    return r;
+                }
+            }
+        }
+        r.error.code = "M_NEEDS_CAPTCHA";
+        r.error.message = "This server requires captcha for registration. "
+                         "Please register via browser (app.element.io/#/register).";
+        return r;
+    }
+    // Other error
+    if (!resp.body.empty()) {
+        r.error = progressive::parseMatrixErrorJson(resp.body);
+    } else {
+        r.error.message = resp.errorMessage.empty() ? "registration failed" : resp.errorMessage;
     }
     return r;
 }

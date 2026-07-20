@@ -6,7 +6,7 @@
 // which handles TLS (OpenSSL), proxy, SOCKS5 (Tor/I2P), redirects.
 
 #include "http_client.hpp"
-#include "version.h"
+#include "core/version.h"
 
 #include <curl/curl.h>
 #include <cstring>

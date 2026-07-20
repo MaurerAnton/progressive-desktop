@@ -146,6 +146,7 @@ void RoomDirectoryDialog::doSearch(const std::string& query, const std::string& 
                 auto* item = new QListWidgetItem(display);
                 item->setData(Qt::UserRole, QString::fromStdString(roomId));
                 item->setData(Qt::UserRole + 1, QString::fromStdString(alias.empty() ? roomId : alias));
+                item->setData(Qt::UserRole + 2, QString::fromStdString(name.empty() ? (alias.empty() ? roomId : alias) : name));
                 resultsList_->addItem(item);
                 added++;
                 pos = objEnd;
@@ -174,16 +175,18 @@ void RoomDirectoryDialog::onJoinClicked(QListWidgetItem* item) {
     if (!item) return;
     QString roomId = item->data(Qt::UserRole).toString();
     QString roomAlias = item->data(Qt::UserRole + 1).toString();
+    QString roomName = item->data(Qt::UserRole + 2).toString();
 
     statusLabel_->setText("Joining " + roomAlias + "...");
     QApplication::processEvents();
 
-    std::thread([this, roomId, roomAlias]() {
+    std::thread([this, roomId, roomAlias, roomName]() {
         auto r = client_->joinRoom(roomId.toStdString());
 
-        QMetaObject::invokeMethod(this, [this, r, roomAlias]() {
+        QMetaObject::invokeMethod(this, [this, r, roomAlias, roomName]() {
             if (r.ok) {
                 joinedRoomId_ = QString::fromStdString(r.data);
+                joinedRoomName_ = roomName;
                 statusLabel_->setText("Joined: " + roomAlias);
                 QMessageBox::information(this, "Joined",
                     QString("Successfully joined %1").arg(roomAlias));

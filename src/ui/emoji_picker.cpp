@@ -298,11 +298,6 @@ EmojiPicker::EmojiPicker(QWidget* parent) : QDialog(parent) {
 
 void EmojiPicker::populateEmojis() {
     allEmojis_ = EMOJI_DB;
-    filteredIndices_.clear();
-    filteredIndices_.reserve(allEmojis_.size());
-    for (int i = 0; i < allEmojis_.size(); ++i) {
-        filteredIndices_.append(i);
-    }
 }
 
 void EmojiPicker::buildGrid() {
@@ -317,38 +312,42 @@ void EmojiPicker::buildGrid() {
     static QString emojiFont = findEmojiFont();
 
     int cols = 10;
-    for (int idx = 0; idx < filteredIndices_.size(); ++idx) {
-        const auto& entry = allEmojis_[filteredIndices_[idx]];
+    // Build all buttons once — onSearchChanged will show/hide them.
+    buttons_.clear();
+    buttons_.reserve(allEmojis_.size());
+    for (int i = 0; i < allEmojis_.size(); ++i) {
+        const auto& entry = allEmojis_[i];
         auto* btn = new QPushButton(entry.emoji, this);
         btn->setFixedSize(34, 34);
         btn->setToolTip(entry.name + " — " + entry.keywords);
-        // Set font to emoji-capable + larger
         QFont f = btn->font();
         if (!emojiFont.isEmpty()) f.setFamily(emojiFont);
         f.setPointSize(14);
         btn->setFont(f);
-        grid_->addWidget(btn, idx / cols, idx % cols);
+        grid_->addWidget(btn, i / cols, i % cols);
         connect(btn, &QPushButton::clicked, this, [this, emoji = entry.emoji]() {
             onEmojiClicked(emoji);
         });
+        buttons_.push_back(btn);
     }
 }
 
 void EmojiPicker::onSearchChanged(const QString& text) {
-    filteredIndices_.clear();
+    // Show/hide buttons based on search — much faster than rebuilding.
     if (text.isEmpty()) {
-        for (int i = 0; i < allEmojis_.size(); ++i) filteredIndices_.append(i);
+        for (auto* btn : buttons_) btn->show();
     } else {
         QString needle = text.toLower().trimmed();
-        for (int i = 0; i < allEmojis_.size(); ++i) {
+        for (int i = 0; i < buttons_.size() && i < allEmojis_.size(); ++i) {
             const auto& e = allEmojis_[i];
             if (e.name.contains(needle, Qt::CaseInsensitive) ||
                 e.keywords.contains(needle, Qt::CaseInsensitive)) {
-                filteredIndices_.append(i);
+                buttons_[i]->show();
+            } else {
+                buttons_[i]->hide();
             }
         }
     }
-    buildGrid();
 }
 
 void EmojiPicker::onEmojiClicked(const QString& emoji) {

@@ -33,7 +33,7 @@ private:
     QScrollArea* scrollArea_;
     QGridLayout* grid_;
     QVector<EmojiEntry> allEmojis_;
-    QVector<int> filteredIndices_;
+    QVector<QPushButton*> buttons_;  // built once, show/hide on search
 
     void populateEmojis();
     void buildGrid();

@@ -17,6 +17,8 @@ public:
 
     // Returns the room_id that was joined (empty if none).
     QString joinedRoomId() const { return joinedRoomId_; }
+    // Returns the room name from the directory listing (for pre-populating model).
+    QString joinedRoomName() const { return joinedRoomName_; }
 
 private slots:
     void onSearchClicked();
@@ -26,6 +28,7 @@ private slots:
 private:
     MatrixClient* client_;
     QString joinedRoomId_;
+    QString joinedRoomName_;
     QString nextBatch_;
 
     QLineEdit* searchEdit_;

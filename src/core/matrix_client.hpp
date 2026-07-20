@@ -291,6 +291,15 @@ public:
                                          const std::string& filename,
                                          const std::string& contentType);
 
+    // ---- Registration ----
+    // POST /_matrix/client/v3/register?kind=user
+    // Tries to register a new account. For servers without captcha (m.login.dummy),
+    // this works in-app. For matrix.org (requires captcha), falls back to browser.
+    // Returns true on success (account created + logged in).
+    ApiResult<AccountInfo> registerAccount(const std::string& username,
+                                              const std::string& password,
+                                              const std::string& homeserverUrl);
+
     // ---- Profile ----
 
     // PUT /_matrix/client/v3/profile/{userId}/displayname

@@ -438,14 +438,40 @@ void MainWindow::startWithSavedSession() {
     userLabel_->setText(" " + QString::fromStdString(client_->account().userId) + " ");
     statusLabel_->setText("Starting sync...");
 
-    // Initialize E2EE: create or load olm account, upload device keys.
+    // Initialize E2EE: load saved olm account pickle, or create new one.
+    std::string pickleKey = client_->account().userId + "/" +
+        (client_->account().deviceId.empty() ? "PROGRESSIVE_DESKTOP" : client_->account().deviceId);
     try {
-        if (!sync_.decryptor()->init()) {
+        std::string savedPickle;
+        std::string savedKey;
+        if (store_) {
+            auto saved = store_->loadOlmAccount();
+            if (saved) {
+                savedPickle = saved->first;
+                savedKey = saved->second;
+            }
+        }
+        bool ok = false;
+        if (!savedPickle.empty()) {
+            ok = sync_.decryptor()->init(savedPickle, savedKey);
+            if (!ok) {
+                std::cerr << "[e2ee] failed to load saved olm account — creating new one\n";
+                ok = sync_.decryptor()->init();
+            }
+        } else {
+            ok = sync_.decryptor()->init();
+        }
+        if (!ok) {
             std::cerr << "[e2ee] failed to create olm account — continuing without E2EE\n";
         } else {
             auto keys = sync_.decryptor()->identityKeys();
             std::cerr << "[e2ee] olm account ready: curve25519=" << keys.curve25519
                       << " ed25519=" << keys.ed25519 << "\n";
+            // Save the account pickle for next launch
+            std::string newPickle = sync_.decryptor()->saveAccountPickle(pickleKey);
+            if (!newPickle.empty() && store_) {
+                store_->saveOlmAccount(newPickle, pickleKey);
+            }
             // Upload device keys in a background thread (so UI doesn't block).
             std::thread([this]() {
                 sync_.uploadDeviceKeys();
@@ -714,8 +740,6 @@ void MainWindow::onSendMessage(const std::string& body) {
                 std::cerr << "[e2ee] failed to create outbound megolm session\n";
                 return;
             }
-            // Build the inner plaintext event JSON:
-            // {"type":"m.room.message","content":{"msgtype":"m.text","body":"..."}}
             std::string escaped;
             for (char c : body) {
                 if (c == '"') escaped += "\\\"";
@@ -733,7 +757,6 @@ void MainWindow::onSendMessage(const std::string& body) {
                 std::cerr << "[e2ee] megolm encrypt failed\n";
                 return;
             }
-            // Send as m.room.encrypted event
             std::string txn = "pd" + std::to_string(std::time(nullptr) * 1000 + (rand() % 1000));
             auto r = client->sendEncryptedEvent(roomId, encryptedContent, txn);
             if (!r.ok) {
@@ -742,11 +765,42 @@ void MainWindow::onSendMessage(const std::string& body) {
                 std::cerr << "[e2ee] encrypted message sent (" << r.data << ")\n";
             }
 
-            // TODO: share the room_key with all room members via Olm 1:1.
-            // For now, other clients won't be able to decrypt our messages
-            // until they query our device keys + we share the session key.
-            // This requires /keys/query + /keys/claim + OlmSession creation.
-            // Will be implemented in the next iteration.
+            // Share the room_key with all room members (if not already shared).
+            // This is needed only once per outbound session — the first message
+            // triggers the share. Subsequent messages use the same session.
+            // TODO: track whether we've already shared for this session.
+            std::string ourUserId = client->account().userId;
+            std::string ourDeviceId = client->account().deviceId;
+            if (ourDeviceId.empty()) ourDeviceId = "PROGRESSIVE_DESKTOP";
+
+            // Get room members
+            auto membersResp = client->getRoomMembers(roomId);
+            if (membersResp.ok) {
+                // Parse the chunk to extract user IDs with membership == "join"
+                std::vector<std::string> userIds;
+                simdjson::dom::parser parser;
+                auto root = parser.parse(membersResp.data);
+                if (root.error() == simdjson::SUCCESS) {
+                    auto chunk = root.value()["chunk"].get_array();
+                    if (chunk.error() == simdjson::SUCCESS) {
+                        for (auto evt : chunk.value()) {
+                            auto membership = evt["content"]["membership"].get_string();
+                            if (membership.error() == simdjson::SUCCESS &&
+                                std::string(membership.value()) == "join") {
+                                auto sk = evt["state_key"].get_string();
+                                if (sk.error() == simdjson::SUCCESS) {
+                                    userIds.push_back(std::string(sk.value()));
+                                }
+                            }
+                        }
+                    }
+                }
+                if (!userIds.empty()) {
+                    guard->sync_.decryptor()->shareRoomKey(
+                        roomId, userIds, ourUserId, ourDeviceId,
+                        client->account().homeserverUrl, client->account().accessToken);
+                }
+            }
         } else {
             // Plain text — send normally
             auto r = client->sendMessage(roomId, body);
@@ -889,7 +943,16 @@ void MainWindow::onBrowseRoomsClicked() {
     RoomDirectoryDialog dlg(client_, this);
     dlg.exec();
     if (!dlg.joinedRoomId().isEmpty()) {
-        statusLabel_->setText("Joined room: " + dlg.joinedRoomId());
+        // Pre-populate the room model with the name from the directory listing.
+        // This ensures the room shows up with the correct name immediately,
+        // even before /sync delivers the full state.
+        RoomData rd;
+        rd.roomId = dlg.joinedRoomId().toStdString();
+        rd.name = dlg.joinedRoomName().toStdString();
+        rd.lastMessage = "Joined";
+        rd.lastActivityTs = static_cast<int64_t>(QDateTime::currentMSecsSinceEpoch());
+        roomModel_->upsertRoom(rd);
+        statusLabel_->setText("Joined room: " + dlg.joinedRoomName());
     }
 }
 
@@ -955,10 +1018,55 @@ void MainWindow::onSettingsClicked() {
 
 void MainWindow::onImageClicked(const QString& eventId, const QString& mxcUrl) {
     if (mxcUrl.isEmpty()) return;
+
+    // Check the msgtype — videos need to be opened externally, not as QImage
+    int row = timelineModel_->findRow(eventId.toStdString());
+    QString msgtype;
+    QString mimetype;
+    if (row >= 0) {
+        auto* evt = timelineModel_->at(row);
+        if (evt) {
+            msgtype = QString::fromStdString(evt->msgtype);
+            mimetype = QString::fromStdString(evt->mimetype);
+        }
+    }
+
     std::string mxc = mxcUrl.toStdString();
     MatrixClient* client = client_;
     QPointer<MainWindow> guard(this);
 
+    // For videos/audio/files: download to temp file and open with system player
+    if (msgtype == "m.video" || msgtype == "m.audio" || msgtype == "m.file") {
+        statusLabel_->setText("Downloading " + msgtype.mid(2) + "...");
+        std::thread([guard, client, mxc, msgtype]() {
+            auto r = client->downloadMedia(mxc, 0, 0);
+            QMetaObject::invokeMethod(guard, [guard, r, msgtype]() {
+                if (guard.isNull()) return;
+                if (!r.ok || r.data.empty()) {
+                    QMessageBox::warning(guard, "Error", "Failed to download " + msgtype + ".");
+                    guard->statusLabel_->setText("Failed.");
+                    return;
+                }
+                // Save to temp file
+                QString suffix = msgtype == "m.video" ? ".mp4" : (msgtype == "m.audio" ? ".mp3" : ".bin");
+                QString tempPath = QDir::tempPath() + "/progressive_" +
+                    QString::number(QDateTime::currentMSecsSinceEpoch()) + suffix;
+                QFile f(tempPath);
+                if (!f.open(QIODevice::WriteOnly)) {
+                    QMessageBox::warning(guard, "Error", "Failed to create temp file.");
+                    return;
+                }
+                f.write(reinterpret_cast<const char*>(r.data.data()), r.data.size());
+                f.close();
+                // Open with system default app
+                QDesktopServices::openUrl(QUrl::fromLocalFile(tempPath));
+                guard->statusLabel_->setText("Opened " + msgtype.mid(2) + ".");
+            }, Qt::QueuedConnection);
+        }).detach();
+        return;
+    }
+
+    // For images: show in the image viewer dialog
     statusLabel_->setText("Loading full image...");
     std::thread([guard, client, mxc]() {
         auto r = client->downloadMedia(mxc, 0, 0);
@@ -1311,6 +1419,10 @@ DisplayedEvent MainWindow::fastEventToDisplayed(const FastEvent& fe) {
 }
 
 void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
+    std::fprintf(stderr, "[rooms] sync: %zu joined, %zu invited, %zu left (model has %d)\n",
+                 resp.joinedRooms.size(), resp.invitedRoomIds.size(),
+                 resp.leftRoomIds.size(), roomModel_->rowCount());
+
     // Remove rooms we've left (or been kicked from) since the last sync.
     // The server includes them in rooms.leave ONE TIME so we can clean up.
     for (const auto& leftId : resp.leftRoomIds) {

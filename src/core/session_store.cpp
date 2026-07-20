@@ -45,7 +45,7 @@ void SessionStore::close() {
 bool SessionStore::createSchema() {
     const char* sql =
         "CREATE TABLE IF NOT EXISTS account ("
-        "  id INTEGER PRIMARY KEY CHECK (id = 1),"  // singleton row
+        "  id INTEGER PRIMARY KEY CHECK (id = 1),"
         "  user_id TEXT NOT NULL,"
         "  device_id TEXT,"
         "  homeserver_url TEXT NOT NULL,"
@@ -55,6 +55,11 @@ bool SessionStore::createSchema() {
         "CREATE TABLE IF NOT EXISTS sync_state ("
         "  id INTEGER PRIMARY KEY CHECK (id = 1),"
         "  since_token TEXT"
+        ");"
+        "CREATE TABLE IF NOT EXISTS olm_account ("
+        "  id INTEGER PRIMARY KEY CHECK (id = 1),"
+        "  pickle TEXT NOT NULL,"
+        "  pickle_key TEXT NOT NULL"
         ");";
     char* err = nullptr;
     int rc = sqlite3_exec(db_, sql, nullptr, nullptr, &err);
@@ -157,6 +162,39 @@ bool SessionStore::clearSyncToken() {
     if (rc != SQLITE_OK) return false;
     checkpoint();
     return true;
+}
+
+// ---- Olm account ----
+
+bool SessionStore::saveOlmAccount(const std::string& pickle, const std::string& pickleKey) {
+    if (!db_) return false;
+    const char* sql =
+        "INSERT INTO olm_account (id, pickle, pickle_key) VALUES (1, ?, ?) "
+        "ON CONFLICT(id) DO UPDATE SET pickle=excluded.pickle, pickle_key=excluded.pickle_key;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, pickle.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, pickleKey.c_str(), -1, SQLITE_TRANSIENT);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) return false;
+    checkpoint();
+    return true;
+}
+
+std::optional<std::pair<std::string, std::string>> SessionStore::loadOlmAccount() {
+    if (!db_) return std::nullopt;
+    const char* sql = "SELECT pickle, pickle_key FROM olm_account WHERE id=1;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
+    std::optional<std::pair<std::string, std::string>> result;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        std::string pickle(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
+        std::string pickleKey(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)));
+        result = std::make_pair(pickle, pickleKey);
+    }
+    sqlite3_finalize(stmt);
+    return result;
 }
 
 } // namespace progressive::desktop

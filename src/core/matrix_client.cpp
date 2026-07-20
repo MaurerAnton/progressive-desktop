@@ -19,6 +19,46 @@ namespace progressive::desktop {
 
 namespace {
 
+// ---- Helper: URL-encode a room ID or alias for use in paths.
+std::string urlEncodePath(const std::string& s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char c : s) {
+        if (c == '#') out += "%23";
+        else if (c == ' ') out += "%20";
+        else out += c;
+    }
+    return out;
+}
+
+// ---- Helper: generate unique txn ID ----
+std::string genTxnId(const std::string& prefix = "pd") {
+    static std::atomic<uint64_t> counter{0};
+    uint64_t t = static_cast<uint64_t>(std::time(nullptr)) * 1000 + (counter.fetch_add(1) % 1000);
+    return prefix + std::to_string(t);
+}
+
+// ---- Helper: JSON escape ----
+std::string jsonEscape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 8);
+    for (char c : s) {
+        switch (c) {
+            case '"':  out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    char buf[8]; std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+                    out += buf;
+                } else out += c;
+        }
+    }
+    return out;
+}
+
 // Build a JSON body for m.login.password login.
 std::string buildLoginBody(const std::string& username,
                            const std::string& password,
@@ -195,7 +235,7 @@ ApiResult<std::string> MatrixClient::sendMessage(const std::string& roomId,
                     (txnCounter.fetch_add(1) % 1000);
     std::ostringstream url;
     url << account_.homeserverUrl << "/_matrix/client/v3/rooms/"
-        << roomId << "/send/m.room.message/" << "pd" << txn;
+        << urlEncodePath(roomId) << "/send/m.room.message/" << "pd" << txn;
 
     // Escape body for JSON
     std::string escaped;
@@ -371,34 +411,6 @@ ApiResult<std::string> MatrixClient::getUserProfile(const std::string& userId) {
         r.error.message = resp.errorMessage.empty() ? r.error.message : resp.errorMessage;
     }
     return r;
-}
-
-// ---- Helper: generate unique txn ID ----
-static std::string genTxnId(const std::string& prefix = "pd") {
-    static std::atomic<uint64_t> counter{0};
-    uint64_t t = static_cast<uint64_t>(std::time(nullptr)) * 1000 + (counter.fetch_add(1) % 1000);
-    return prefix + std::to_string(t);
-}
-
-// ---- Helper: JSON escape ----
-static std::string jsonEscape(const std::string& s) {
-    std::string out;
-    out.reserve(s.size() + 8);
-    for (char c : s) {
-        switch (c) {
-            case '"':  out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\n': out += "\\n"; break;
-            case '\r': out += "\\r"; break;
-            case '\t': out += "\\t"; break;
-            default:
-                if (static_cast<unsigned char>(c) < 0x20) {
-                    char buf[8]; std::snprintf(buf, sizeof(buf), "\\u%04x", c);
-                    out += buf;
-                } else out += c;
-        }
-    }
-    return out;
 }
 
 ApiResult<std::string> MatrixClient::joinRoom(const std::string& roomIdOrAlias,

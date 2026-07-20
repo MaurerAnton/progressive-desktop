@@ -59,61 +59,98 @@ std::string_view extractLastMessageBody(const std::vector<FastEvent>& events) {
     return {};
 }
 
-std::string computeRoomName(const std::vector<FastEvent>& stateEvents, const std::string& roomId) {
-    // m.room.name
+// Helper: extract a JSON string value from contentJson, handling both
+// "key":"value" and "key": "value" (with space) patterns.
+std::string extractJsonString(std::string_view json, std::string_view key) {
+    // Try without space: "key":"..."
+    std::string pattern1 = std::string("\"") + std::string(key) + "\":\"";
+    auto pos = json.find(pattern1);
+    if (pos != std::string_view::npos) {
+        pos += pattern1.size();
+        auto end = json.find('"', pos);
+        if (end != std::string_view::npos) return std::string(json.substr(pos, end - pos));
+    }
+    // Try with space: "key": "..."
+    std::string pattern2 = std::string("\"") + std::string(key) + "\": \"";
+    pos = json.find(pattern2);
+    if (pos != std::string_view::npos) {
+        pos += pattern2.size();
+        auto end = json.find('"', pos);
+        if (end != std::string_view::npos) return std::string(json.substr(pos, end - pos));
+    }
+    return {};
+}
+
+// Compute room name from state events AND timeline events.
+// Returns EMPTY STRING if no name found — caller should keep old name.
+std::string computeRoomName(const std::vector<FastEvent>& stateEvents,
+                              const std::vector<FastEvent>& timelineEvents,
+                              const std::string& roomId) {
+    // 1. m.room.name in state events
     for (const auto& e : stateEvents) {
         if (e.type == "m.room.name" && !e.contentJson.empty()) {
-            auto pos = e.contentJson.find("\"name\":\"");
-            if (pos != std::string::npos) {
-                pos += 7;
-                auto start = e.contentJson.find('"', pos) + 1;
-                auto end = e.contentJson.find('"', start);
-                if (end != std::string::npos && start < end) {
-                    auto name = e.contentJson.substr(start, end - start);
-                    if (!name.empty()) return std::string(name);
-                }
-            }
+            auto name = extractJsonString(e.contentJson, "name");
+            if (!name.empty()) return name;
         }
     }
-    // m.room.canonical_alias
+    // 2. m.room.name in timeline events (initial sync often puts state here)
+    for (const auto& e : timelineEvents) {
+        if (e.type == "m.room.name" && !e.contentJson.empty()) {
+            auto name = extractJsonString(e.contentJson, "name");
+            if (!name.empty()) return name;
+        }
+    }
+    // 3. m.room.canonical_alias in state events
     for (const auto& e : stateEvents) {
         if (e.type == "m.room.canonical_alias" && !e.contentJson.empty()) {
-            auto pos = e.contentJson.find("\"alias\":\"");
-            if (pos != std::string::npos) {
-                pos += 8;
-                auto start = e.contentJson.find('"', pos) + 1;
-                auto end = e.contentJson.find('"', start);
-                if (end != std::string::npos) return std::string(e.contentJson.substr(start, end - start));
-            }
+            auto alias = extractJsonString(e.contentJson, "alias");
+            if (!alias.empty()) return alias;
         }
     }
-    // Members
+    // 4. m.room.canonical_alias in timeline events
+    for (const auto& e : timelineEvents) {
+        if (e.type == "m.room.canonical_alias" && !e.contentJson.empty()) {
+            auto alias = extractJsonString(e.contentJson, "alias");
+            if (!alias.empty()) return alias;
+        }
+    }
+    // 5. Members: collect displaynames from m.room.member (joined)
     std::vector<std::string> members;
     for (const auto& e : stateEvents) {
         if (e.type == "m.room.member" && !e.contentJson.empty()) {
-            auto mpos = e.contentJson.find("\"membership\":\"");
-            std::string_view membership;
-            if (mpos != std::string::npos) {
-                mpos += 13;
-                auto mend = e.contentJson.find('"', mpos);
-                if (mend != std::string::npos) membership = e.contentJson.substr(mpos, mend - mpos);
-            }
+            auto membership = extractJsonString(e.contentJson, "membership");
             if (membership != "join") continue;
-            auto dpos = e.contentJson.find("\"displayname\":\"");
-            if (dpos != std::string::npos) {
-                dpos += 14;
-                auto dstart = e.contentJson.find('"', dpos) + 1;
-                auto dend = e.contentJson.find('"', dstart);
-                if (dend != std::string::npos && dstart < dend) {
-                    members.push_back(std::string(e.contentJson.substr(dstart, dend - dstart)));
-                    continue;
-                }
+            auto displayname = extractJsonString(e.contentJson, "displayname");
+            if (!displayname.empty()) {
+                members.push_back(displayname);
+                continue;
             }
             if (!e.senderId.empty()) {
                 std::string_view uid = e.senderId;
                 if (uid[0] == '@') {
                     auto colon = uid.find(':');
                     if (colon != std::string::npos) members.push_back(std::string(uid.substr(1, colon - 1)));
+                    else members.push_back(std::string(uid.substr(1)));
+                }
+            }
+        }
+    }
+    // Also check timeline for member events
+    for (const auto& e : timelineEvents) {
+        if (e.type == "m.room.member" && !e.contentJson.empty()) {
+            auto membership = extractJsonString(e.contentJson, "membership");
+            if (membership != "join") continue;
+            auto displayname = extractJsonString(e.contentJson, "displayname");
+            if (!displayname.empty()) {
+                members.push_back(displayname);
+                continue;
+            }
+            if (!e.senderId.empty()) {
+                std::string_view uid = e.senderId;
+                if (uid[0] == '@') {
+                    auto colon = uid.find(':');
+                    if (colon != std::string::npos) members.push_back(std::string(uid.substr(1, colon - 1)));
+                    else members.push_back(std::string(uid.substr(1)));
                 }
             }
         }
@@ -123,7 +160,8 @@ std::string computeRoomName(const std::vector<FastEvent>& stateEvents, const std
     if (members.size() == 1) return members[0];
     if (members.size() == 2) return members[0] + ", " + members[1];
     if (members.size() > 2) return members[0] + " + " + std::to_string(members.size() - 1);
-    return "Без названия";
+    // 6. No name found — return empty so caller keeps old name
+    return {};
 }
 
 // Extract mxc URL from image content JSON
@@ -272,6 +310,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     wireSyncCallbacks();
 
     connect(roomList_, &QListView::clicked, this, &MainWindow::onRoomClicked);
+    connect(roomList_, &QListView::customContextMenuRequested, this, &MainWindow::onRoomListContextMenu);
+    roomList_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(messageEdit_, &MessageEdit::sendMessage, this, &MainWindow::onSendMessage);
     connect(messageEdit_, &MessageEdit::slashCommand, this, &MainWindow::onSlashCommand);
 
@@ -322,6 +362,49 @@ void MainWindow::onToggleFullscreen() {
     else { showNormal(); isFullscreen_ = false; fullscreenAction_->setText("Fullscreen"); }
 }
 
+void MainWindow::onRoomListContextMenu(const QPoint& pos) {
+    auto idx = roomList_->indexAt(pos);
+    if (!idx.isValid()) return;
+    const RoomData* r = roomModel_->at(idx.row());
+    if (!r) return;
+
+    QMenu menu(this);
+    auto* leaveAction = menu.addAction("Leave room");
+
+    auto* selected = menu.exec(roomList_->mapToGlobal(pos));
+    if (!selected) return;
+
+    if (selected == leaveAction) {
+        auto reply = QMessageBox::question(this, "Leave room",
+            QString("Leave '%1'?").arg(QString::fromStdString(r->name)),
+            QMessageBox::Yes | QMessageBox::No);
+        if (reply != QMessageBox::Yes) return;
+
+        std::string roomId = r->roomId;
+        MatrixClient* client = client_;
+        statusLabel_->setText("Leaving room...");
+        std::thread([this, client, roomId]() {
+            auto r = client->leaveRoom(roomId);
+            QMetaObject::invokeMethod(this, [this, r, roomId]() {
+                if (r.ok) {
+                    statusLabel_->setText("Left room.");
+                    // The room will disappear from the list on next sync.
+                    // Also clear it if it was the current room.
+                    if (currentRoomId_.toStdString() == roomId) {
+                        currentRoomId_.clear();
+                        timelineModel_->clear();
+                        timelineView_->hide();
+                        timelinePlaceholder_->show();
+                        messageEdit_->hide();
+                    }
+                } else {
+                    statusLabel_->setText("Failed to leave: " + QString::fromStdString(r.error.message));
+                }
+            }, Qt::QueuedConnection);
+        }).detach();
+    }
+}
+
 void MainWindow::onRoomClicked(const QModelIndex& idx) {
     const RoomData* r = roomModel_->at(idx.row());
     if (!r) return;
@@ -332,6 +415,145 @@ void MainWindow::onRoomClicked(const QModelIndex& idx) {
     messageEdit_->show();
     messageEdit_->setFocus();
     setWindowTitle(QString("Progressive Chat — %1").arg(QString::fromStdString(r->name)));
+
+    // Load room history via /messages endpoint
+    loadRoomHistory(r->roomId);
+}
+
+void MainWindow::loadRoomHistory(const std::string& roomId) {
+    if (!client_ || !client_->isLoggedIn()) return;
+
+    statusLabel_->setText("Loading history...");
+    MatrixClient* client = client_;
+
+    std::thread([this, client, roomId]() {
+        // GET /_matrix/client/v3/rooms/{roomId}/messages?dir=b&limit=30
+        auto result = client->getMessages(roomId, "", 30);
+
+        QMetaObject::invokeMethod(this, [this, result, roomId]() {
+            if (!result.ok) {
+                statusLabel_->setText("Failed to load history: " +
+                    QString::fromStdString(result.error.message));
+                return;
+            }
+
+            // Parse the /messages response: { "chunk": [...events...], "end": "token" }
+            // The events are in REVERSE chronological order (dir=b = backwards).
+            // We need to reverse them before appending.
+            auto body = result.data;
+
+            // Find "chunk" array
+            auto chunkPos = body.find("\"chunk\"");
+            if (chunkPos == std::string::npos) {
+                statusLabel_->setText("No history found.");
+                return;
+            }
+            auto arrStart = body.find('[', chunkPos);
+            auto arrEnd = body.find(']', arrStart);
+            if (arrStart == std::string::npos || arrEnd == std::string::npos) {
+                statusLabel_->setText("No history found.");
+                return;
+            }
+
+            // Parse each event object from the chunk array
+            std::vector<FastEvent> events;
+            size_t pos = arrStart + 1;
+            while (pos < arrEnd) {
+                auto objStart = body.find('{', pos);
+                if (objStart == std::string::npos || objStart >= arrEnd) break;
+                int depth = 1;
+                size_t objEnd = objStart + 1;
+                while (objEnd < arrEnd && depth > 0) {
+                    if (body[objEnd] == '{') depth++;
+                    else if (body[objEnd] == '}') depth--;
+                    objEnd++;
+                }
+                // We need to parse this event object with simdjson
+                // For simplicity, extract fields via string search
+                std::string evtJson = body.substr(objStart, objEnd - objStart);
+
+                FastEvent fe;
+                // Extract type
+                auto typePos = evtJson.find("\"type\":\"");
+                if (typePos != std::string::npos) {
+                    typePos += 8;
+                    auto end = evtJson.find('"', typePos);
+                    if (end != std::string::npos) fe.type = evtJson.substr(typePos, end - typePos);
+                }
+                // Try with space
+                if (fe.type.empty()) {
+                    typePos = evtJson.find("\"type\": \"");
+                    if (typePos != std::string::npos) {
+                        typePos += 9;
+                        auto end = evtJson.find('"', typePos);
+                        if (end != std::string::npos) fe.type = evtJson.substr(typePos, end - typePos);
+                    }
+                }
+                // Extract event_id
+                auto eidPos = evtJson.find("\"event_id\":\"");
+                if (eidPos != std::string::npos) {
+                    eidPos += 12;
+                    auto end = evtJson.find('"', eidPos);
+                    if (end != std::string::npos) fe.eventId = evtJson.substr(eidPos, end - eidPos);
+                }
+                if (fe.eventId.empty()) {
+                    eidPos = evtJson.find("\"event_id\": \"");
+                    if (eidPos != std::string::npos) {
+                        eidPos += 13;
+                        auto end = evtJson.find('"', eidPos);
+                        if (end != std::string::npos) fe.eventId = evtJson.substr(eidPos, end - eidPos);
+                    }
+                }
+                // Extract sender
+                auto senderPos = evtJson.find("\"sender\":\"");
+                if (senderPos != std::string::npos) {
+                    senderPos += 10;
+                    auto end = evtJson.find('"', senderPos);
+                    if (end != std::string::npos) fe.senderId = evtJson.substr(senderPos, end - senderPos);
+                }
+                if (fe.senderId.empty()) {
+                    senderPos = evtJson.find("\"sender\": \"");
+                    if (senderPos != std::string::npos) {
+                        senderPos += 11;
+                        auto end = evtJson.find('"', senderPos);
+                        if (end != std::string::npos) fe.senderId = evtJson.substr(senderPos, end - senderPos);
+                    }
+                }
+                // Extract origin_server_ts
+                auto tsPos = evtJson.find("\"origin_server_ts\":");
+                if (tsPos != std::string::npos) {
+                    tsPos += 19;
+                    while (tsPos < evtJson.size() && !std::isdigit(static_cast<unsigned char>(evtJson[tsPos]))) tsPos++;
+                    fe.originServerTs = std::strtoll(evtJson.c_str() + tsPos, nullptr, 10);
+                }
+                // Extract content object
+                auto contentPos = evtJson.find("\"content\":");
+                if (contentPos != std::string::npos) {
+                    auto braceStart = evtJson.find('{', contentPos);
+                    if (braceStart != std::string::npos) {
+                        int depth2 = 1;
+                        size_t braceEnd = braceStart + 1;
+                        while (braceEnd < evtJson.size() && depth2 > 0) {
+                            if (evtJson[braceEnd] == '{') depth2++;
+                            else if (evtJson[braceEnd] == '}') depth2--;
+                            braceEnd++;
+                        }
+                        fe.contentJson = evtJson.substr(braceStart, braceEnd - braceStart);
+                    }
+                }
+
+                events.push_back(fe);
+                pos = objEnd;
+            }
+
+            // Events from /messages?dir=b are newest-first. Reverse to oldest-first.
+            std::reverse(events.begin(), events.end());
+
+            // Append to timeline
+            appendTimelineForRoom(roomId, events);
+            statusLabel_->setText(QString("Loaded %1 message(s) from history.").arg(events.size()));
+        }, Qt::QueuedConnection);
+    }).detach();
 }
 
 void MainWindow::onSendMessage(const std::string& body) {
@@ -482,8 +704,13 @@ void MainWindow::onBrowseRoomsClicked() {
 }
 
 void MainWindow::onAllThreadsClicked() {
-    if (currentRoomId_.isEmpty() || !client_) {
-        QMessageBox::information(this, "Threads", "Select a room first.");
+    if (!client_ || !client_->isLoggedIn()) {
+        QMessageBox::information(this, "Threads", "Please login first.");
+        return;
+    }
+    if (currentRoomId_.isEmpty()) {
+        QMessageBox::information(this, "Threads",
+            "No room selected.\n\nSelect a chat from the list first, then click 'All threads' to see threads in that room.");
         return;
     }
     ThreadsDialog dlg(client_, currentRoomId_.toStdString(), this);
@@ -680,7 +907,27 @@ void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
         std::string roomId(roomIdView);
         RoomData rd;
         rd.roomId = roomId;
-        rd.name = computeRoomName(room.stateEvents, roomId);
+
+        // Compute name from BOTH state and timeline events.
+        // Returns empty if no name found — then we keep the old name.
+        std::string name = computeRoomName(room.stateEvents, room.timeline.events, roomId);
+        if (!name.empty()) {
+            rd.name = name;
+        } else {
+            // No name found in this sync — check if we already have a name.
+            int existingRow = roomModel_->findRowByRoomId(roomId);
+            if (existingRow >= 0) {
+                const RoomData* existing = roomModel_->at(existingRow);
+                if (existing && !existing->name.empty() && existing->name != roomId) {
+                    rd.name = existing->name;  // keep old name
+                } else {
+                    rd.name = roomId;  // first time seeing this room, fallback to ID
+                }
+            } else {
+                rd.name = roomId;  // new room, fallback to ID
+            }
+        }
+
         rd.lastMessage = std::string(extractLastMessageBody(room.timeline.events));
         rd.lastActivityTs = room.timeline.events.empty() ? 0 : room.timeline.events.back().originServerTs;
         if (rd.lastActivityTs == 0 && !room.timeline.events.empty())

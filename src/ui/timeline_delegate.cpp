@@ -194,20 +194,35 @@ void TimelineDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         if (imageLoaded) {
             QImage img = index.data(TimelineModel::ImageRole).value<QImage>();
             if (!img.isNull()) {
-                int imgY = contentRect.y() + 40;  // below sender+time
+                int imgY = contentRect.y() + 40;
                 QRect imgRect(contentX, imgY, qMin(300, img.width()), qMin(200, img.height()));
                 painter->drawImage(imgRect, img.scaled(imgRect.size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
             }
         } else {
-            // Trigger async load
+            // Trigger async load — when complete, the model's setImage()
+            // will emit dataChanged and this row will be repainted.
+            // We use a const_cast to call the non-const fetchThumbnail.
+            // The callback updates the model via setImage().
+            QString eventId = index.data(TimelineModel::EventIdRole).toString();
             const_cast<TimelineDelegate*>(this)->loader_->fetchThumbnail(
                 mxcUrl.toStdString(), 300, 200,
-                [this, eventId = index.data(TimelineModel::EventIdRole).toString().toStdString()]
+                [eventId, model = const_cast<QAbstractItemModel*>(index.model())]
                 (const QImage& img) {
-                    // Model will be updated by caller — we just trigger the fetch here.
-                    // The actual model update happens via setImage().
+                    if (!img.isNull() && model) {
+                        // Find the row and update it
+                        for (int i = 0; i < model->rowCount(); ++i) {
+                            auto idx = model->index(i, 0);
+                            if (idx.data(TimelineModel::EventIdRole).toString() == eventId) {
+                                // Cast to TimelineModel to call setImage
+                                auto* tm = qobject_cast<TimelineModel*>(model);
+                                if (tm) {
+                                    tm->setImage(eventId.toStdString(), img);
+                                }
+                                break;
+                            }
+                        }
+                    }
                 });
-            // Draw placeholder
             painter->setPen(QColor("#969696"));
             painter->drawText(contentRect.x(), contentRect.y() + 50, "[loading image...]");
         }

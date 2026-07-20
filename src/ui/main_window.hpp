@@ -44,6 +44,7 @@ protected:
 
 private slots:
     void onRoomClicked(const QModelIndex& idx);
+    void onRoomListContextMenu(const QPoint& pos);
     void onSendMessage(const std::string& body);
     void onSlashCommand(const std::string& cmd, const std::string& args);
     void onLogoutClicked();
@@ -62,11 +63,13 @@ private slots:
 private:
     void rebuildRoomList(const FastSyncResponse& resp);
     void appendTimelineForRoom(const std::string& roomId, const std::vector<FastEvent>& events);
+    void loadRoomHistory(const std::string& roomId);
     void wireSyncCallbacks();
     void showLoginDialog();
     void updateRoomListHeader();
     DisplayedEvent fastEventToDisplayed(const FastEvent& fe);
     void showTimelineContextMenu(const QString& eventId, const QPoint& globalPos);
+    void onRoomJoined(const std::string& roomId);
 
     MatrixClient* client_ = nullptr;
     SessionStore* store_ = nullptr;

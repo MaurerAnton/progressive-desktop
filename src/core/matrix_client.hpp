@@ -305,11 +305,19 @@ public:
 
     // ---- Send message with thread relation ----
 
+    // PUT /_matrix/client/v3/rooms/{roomId}/send/m.room.encrypted/{txnId}
+    // Sends a pre-encrypted m.room.encrypted event.
     // Same as sendMessage, but adds m.relates_to: {rel_type: "m.thread", event_id}
     ApiResult<std::string> sendThreadReply(const std::string& roomId,
                                               const std::string& body,
                                               const std::string& rootEventId,
                                               const std::string& msgtype = "m.text");
+
+    // PUT /_matrix/client/v3/rooms/{roomId}/send/m.room.encrypted/{txnId}
+    // Sends a pre-encrypted m.room.encrypted event.
+    ApiResult<std::string> sendEncryptedEvent(const std::string& roomId,
+                                                 const std::string& contentJson,
+                                                 const std::string& txnId);
 
 private:
     AccountInfo account_;

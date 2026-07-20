@@ -25,10 +25,11 @@ void MessageEdit::setupUi() {
     attachBtn_->setToolTip("Attach file (image, document, PDF)");
     attachBtn_->setFocusPolicy(Qt::NoFocus);
 
-    // Try to set emoji font for the button
+    // Try to set emoji font for the buttons — use bundled OpenMoji if no
+    // system emoji font is available.
     QFont btnFont = attachBtn_->font();
     btnFont.setPointSize(16);
-    QStringList emojiFonts = {"Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji"};
+    QStringList emojiFonts = {"Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", "OpenMoji Color"};
     QStringList families = QFontDatabase::families();
     for (const QString& f : emojiFonts) {
         if (families.contains(f, Qt::CaseInsensitive)) { btnFont.setFamily(f); break; }

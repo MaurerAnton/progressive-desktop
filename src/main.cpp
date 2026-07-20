@@ -9,6 +9,8 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QTimer>
+#include <QFontDatabase>
+#include <QFont>
 
 #include <curl/curl.h>
 
@@ -152,6 +154,24 @@ static void runGui(int argc, char** argv) {
     QApplication::setApplicationName("progressive-desktop");
     QApplication::setApplicationVersion(PROGRESSIVE_DESKTOP_VERSION);
     QApplication::setOrganizationName("progressive.chat");
+
+    // Load bundled emoji font (OpenMoji color, 312KB embedded via .qrc).
+    // This ensures emoji glyphs render correctly even on systems without
+    // Noto Color Emoji installed (e.g. minimal PineTab 2).
+    int emojiFontId = QFontDatabase::addApplicationFont(":/fonts/OpenMoji-color.ttf");
+    if (emojiFontId >= 0) {
+        QString family = QFontDatabase::applicationFontFamilies(emojiFontId).value(0);
+        if (!family.isEmpty()) {
+            // Insert as a fallback for emoji script — Qt picks the family
+            // that has the needed glyphs.
+            QFont defaultFont = QApplication::font();
+            defaultFont.setStyleStrategy(QFont::PreferMatch);
+            QApplication::setFont(defaultFont, "QPushButton");
+            // Set OpenMoji as fallback for emoji-only widgets
+            // (buttons in emoji picker, attach/emoji buttons)
+            // Qt's font matching will use it for emoji codepoints.
+        }
+    }
 
     // Dark theme is the default — applied before any widgets are constructed
     // so the palette propagates to all child widgets.

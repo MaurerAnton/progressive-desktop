@@ -733,12 +733,20 @@ void MainWindow::onSendMessage(const std::string& body) {
                 std::cerr << "[e2ee] megolm encrypt failed\n";
                 return;
             }
-            // Send as m.room.encrypted (not m.room.message)
-            // We need a different send path — construct the URL manually.
-            // For now, use sendMessage with the encrypted content.
-            // TODO: add MatrixClient::sendEncrypted(roomId, contentJson)
-            // For now, the simplest approach: log that we'd send it.
-            std::cerr << "[e2ee] encrypted message ready but send not yet wired\n";
+            // Send as m.room.encrypted event
+            std::string txn = "pd" + std::to_string(std::time(nullptr) * 1000 + (rand() % 1000));
+            auto r = client->sendEncryptedEvent(roomId, encryptedContent, txn);
+            if (!r.ok) {
+                std::cerr << "[e2ee] send encrypted failed: " << r.error.message << "\n";
+            } else {
+                std::cerr << "[e2ee] encrypted message sent (" << r.data << ")\n";
+            }
+
+            // TODO: share the room_key with all room members via Olm 1:1.
+            // For now, other clients won't be able to decrypt our messages
+            // until they query our device keys + we share the session key.
+            // This requires /keys/query + /keys/claim + OlmSession creation.
+            // Will be implemented in the next iteration.
         } else {
             // Plain text — send normally
             auto r = client->sendMessage(roomId, body);

@@ -237,14 +237,17 @@ const QVector<EmojiEntry> EMOJI_DB = {
 
 // Find a font that supports emoji rendering on this system.
 // Tries Noto Color Emoji first (standard on most Linux), then falls back
-// to "Apple Color Emoji", "Segoe UI Emoji", and finally the default.
+// to "Apple Color Emoji", "Segoe UI Emoji", the bundled "OpenMoji Color",
+// and finally the default.
 QString findEmojiFont() {
     static const QStringList candidates = {
         "Noto Color Emoji",
         "Apple Color Emoji",
         "Segoe UI Emoji",
-        "EmojiOne",
+        "OpenMoji Color",
+        "OpenMoji",
         "Twemoji Mozilla",
+        "EmojiOne",
     };
     QStringList families = QFontDatabase::families();
     for (const QString& name : candidates) {

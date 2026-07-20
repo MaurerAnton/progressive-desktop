@@ -76,6 +76,7 @@ add_executable(progressive-desktop
     src/ui/login_dialog.cpp
     src/ui/main_window.cpp
     src/ui/room_list_model.cpp
+    src/ui/room_list_delegate.cpp
     src/ui/timeline_model.cpp
     src/ui/timeline_delegate.cpp
     src/ui/image_loader.cpp
@@ -84,11 +85,12 @@ add_executable(progressive-desktop
     src/ui/threads_dialog.cpp
     src/ui/emoji_picker.cpp
     src/ui/room_settings_dialog.cpp
-    src/ui/message_edit.cpp
-    src/ui/room_list_delegate.cpp
     src/ui/profile_dialog.cpp
+    src/ui/message_edit.cpp
     src/ui/theme.cpp
+    resources/resources.qrc
 )
+qt_add_resources(progressive-desktop "resources/resources.qrc")
 target_link_libraries(progressive-desktop PRIVATE
     progressive_core
     Qt6::Widgets

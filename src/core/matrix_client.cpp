@@ -1044,4 +1044,25 @@ ApiResult<std::string> MatrixClient::sendThreadReply(const std::string& roomId,
     return r;
 }
 
+ApiResult<std::string> MatrixClient::sendEncryptedEvent(const std::string& roomId,
+                                                            const std::string& contentJson,
+                                                            const std::string& txnId) {
+    ApiResult<std::string> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    std::ostringstream url;
+    url << account_.homeserverUrl << "/_matrix/client/v3/rooms/"
+        << urlEncodePath(roomId) << "/send/m.room.encrypted/" << txnId;
+    auto resp = httpPut(url.str(), contentJson, authHeaders(), 15000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) {
+        r.data = progressive::parseJsonStringValue(resp.body, "event_id");
+        r.ok = !r.data.empty();
+        if (!r.ok) r.error.message = "send: no event_id in response";
+    } else {
+        if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+        r.error.message = resp.errorMessage.empty() ? r.error.message : resp.errorMessage;
+    }
+    return r;
+}
+
 } // namespace progressive::desktop

@@ -10,6 +10,7 @@
 #include "matrix_client.hpp"
 #include "session_store.hpp"
 #include "fast_sync.hpp"
+#include "crypto/decryptor.hpp"
 
 #include <atomic>
 #include <condition_variable>
@@ -33,6 +34,8 @@ struct SyncEngineStats {
     int invites = 0;
     int timelineEvents = 0;     // cumulative timeline events received
     int toDeviceEvents = 0;
+    int decryptedEvents = 0;   // E2EE events successfully decrypted
+    int decryptErrors = 0;     // E2EE events that failed to decrypt
     int errors = 0;             // consecutive error count
     int syncs = 0;              // total successful syncs
     std::string lastError;
@@ -56,6 +59,9 @@ public:
     // clear the saved session and show the login dialog.
     void onAuthError(AuthErrorCallback cb) { authErrCb_ = std::move(cb); }
 
+    // Access the E2EE decryptor (for setup at login time).
+    Decryptor* decryptor() { return &decryptor_; }
+
     const SyncEngineStats& stats() const { return stats_; }
 
     // Start the loop. If a saved since-token exists, continues incremental;
@@ -73,12 +79,17 @@ private:
     void run();
     void setState(SyncEngineState s);
     int computeBackoffMs(int consecutiveErrors) const;
+    // Process to-device events from a sync response — handles m.room_key
+    // (adds megolm inbound sessions) and m.room.encrypted (Olm 1:1, future).
+    void processToDeviceEvents(const FastSyncResponse& resp);
 
     MatrixClient* client_ = nullptr;
     SessionStore* store_ = nullptr;
     SyncCallback syncCb_;
     StateCallback stateCb_;
     AuthErrorCallback authErrCb_;
+
+    Decryptor decryptor_;
 
     std::thread worker_;
     std::mutex mtx_;

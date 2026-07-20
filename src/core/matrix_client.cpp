@@ -10,6 +10,7 @@
 #include <progressive/json_parser.hpp>
 #include <progressive/content_utils.hpp>
 
+#include <simdjson.h>
 #include <sstream>
 #include <chrono>
 #include <atomic>
@@ -638,63 +639,96 @@ ApiResult<bool> MatrixClient::unbanUser(const std::string& roomId, const std::st
 }
 
 ApiResult<bool> MatrixClient::setUserPowerLevel(const std::string& roomId, const std::string& userId, int level) {
-    // Fetch current power_levels, modify the user's level, PUT back.
+    // GET current m.room.power_levels, modify the user's level, PUT back.
+    // Uses simdjson to parse safely — preserves all other power levels.
     auto state = getRoomState(roomId);
-    if (!state.ok) { ApiResult<bool> r; r.error = state.error; return r; }
-    // Find m.room.power_levels event content
-    auto plPos = state.data.find("\"m.room.power_levels\"");
-    if (plPos == std::string::npos) {
-        ApiResult<bool> r; r.error.message = "no m.room.power_levels in state"; return r;
+    ApiResult<bool> r;
+    if (!state.ok) { r.error = state.error; return r; }
+
+    // Parse state events array, find m.room.power_levels
+    simdjson::dom::parser parser;
+    auto rootResult = parser.parse(state.data);
+    if (rootResult.error() != simdjson::SUCCESS) {
+        r.error.message = "failed to parse state response";
+        return r;
     }
-    // Find the content object after it — this is tricky with raw JSON.
-    // For simplicity, we build a new power_levels body from scratch using
-    // the user's level. This is NOT correct for a real client (we'd lose
-    // other users' levels), but works for the common case of promoting/demoting
-    // a single user when the caller has fetched the full state first.
-    // TODO: properly parse and modify the existing power_levels object.
-    std::string body = "{\"users\":{\"@*:" + std::string("server") + "\":0},\"users_default\":0,"
-                       "\"events_default\":0,\"state_default\":50,\"ban\":50,\"kick\":50,\"redact\":50}";
-    // Actually, let's just use the raw state approach: find the power_levels content
-    // and modify the user entry inline.
-    auto contentStart = state.data.find('{', plPos);
-    if (contentStart == std::string::npos) {
-        ApiResult<bool> r; r.error.message = "can't find power_levels content"; return r;
+    auto arrResult = rootResult.value().get_array();
+    if (arrResult.error() != simdjson::SUCCESS) {
+        r.error.message = "state response is not an array";
+        return r;
     }
-    int depth = 0;
-    size_t contentEnd = contentStart;
-    for (size_t i = contentStart; i < state.data.size(); ++i) {
-        if (state.data[i] == '{') depth++;
-        else if (state.data[i] == '}') { depth--; if (depth == 0) { contentEnd = i; break; } }
+    std::string plContent;
+    bool found = false;
+    for (auto evt : arrResult.value()) {
+        auto t = evt["type"].get_string();
+        if (t.error() == simdjson::SUCCESS && t.value() == "m.room.power_levels") {
+            auto contentRes = evt["content"];
+            if (contentRes.error() == simdjson::SUCCESS) {
+                plContent = simdjson::to_string(contentRes.value());
+                found = true;
+            }
+            break;
+        }
     }
-    std::string plContent = state.data.substr(contentStart, contentEnd - contentStart + 1);
-    // Find "users" object inside
+    if (!found) {
+        r.error.message = "no m.room.power_levels in state";
+        return r;
+    }
+
+    // Parse the power_levels content, modify the user's level, re-serialize.
+    // We need a second parse to navigate into "users" object.
+    simdjson::dom::parser plParser;
+    auto plRoot = plParser.parse(plContent);
+    if (plRoot.error() != simdjson::SUCCESS) {
+        r.error.message = "failed to parse power_levels content";
+        return r;
+    }
+
+    // Build new JSON by string manipulation since simdjson DOM is read-only.
+    // Find the "users" object, modify or insert the user's level.
     auto usersPos = plContent.find("\"users\"");
     if (usersPos == std::string::npos) {
-        ApiResult<bool> r; r.error.message = "no users key in power_levels"; return r;
-    }
-    // Find the user entry
-    std::string userKey = "\"" + userId + "\":" + std::to_string(level);
-    auto userPos = plContent.find("\"" + userId + "\"");
-    if (userPos != std::string::npos && userPos < plContent.size()) {
-        // Replace existing level
-        auto colonPos = plContent.find(':', userPos + userId.size() + 2);
-        auto valueEnd = colonPos + 1;
-        while (valueEnd < plContent.size() && (std::isdigit(static_cast<unsigned char>(plContent[valueEnd])) || plContent[valueEnd] == '-')) valueEnd++;
-        plContent.replace(colonPos + 1, valueEnd - colonPos - 1, std::to_string(level));
+        // No users map — add one
+        if (plContent.back() == '}') {
+            std::string ins = ",\"users\":{\"" + userId + "\":" + std::to_string(level) + "}";
+            plContent.insert(plContent.size() - 1, ins);
+        }
     } else {
-        // Insert new user entry — find end of users object
+        // Find the user's existing entry inside the users object
         auto usersObjStart = plContent.find('{', usersPos);
-        int ud = 0;
+        if (usersObjStart == std::string::npos) {
+            r.error.message = "malformed users object in power_levels";
+            return r;
+        }
+        // Find end of users object by depth counting
+        int depth = 0;
         size_t usersObjEnd = usersObjStart;
         for (size_t i = usersObjStart; i < plContent.size(); ++i) {
-            if (plContent[i] == '{') ud++;
-            else if (plContent[i] == '}') { ud--; if (ud == 0) { usersObjEnd = i; break; } }
+            if (plContent[i] == '{') depth++;
+            else if (plContent[i] == '}') { depth--; if (depth == 0) { usersObjEnd = i; break; } }
         }
-        // Insert before closing }
-        std::string insert = (usersObjEnd - usersObjStart > 1) ? "," : "";
-        insert += userKey;
-        plContent.insert(usersObjEnd, insert);
+        std::string userNeedle = "\"" + userId + "\"";
+        auto userPos = plContent.find(userNeedle, usersObjStart);
+        if (userPos != std::string::npos && userPos < usersObjEnd) {
+            // Replace existing level — find the colon and number after it
+            auto colonPos = plContent.find(':', userPos + userNeedle.size());
+            if (colonPos == std::string::npos || colonPos > usersObjEnd) {
+                r.error.message = "malformed user entry in power_levels";
+                return r;
+            }
+            size_t valueEnd = colonPos + 1;
+            while (valueEnd < plContent.size() &&
+                   (std::isdigit(static_cast<unsigned char>(plContent[valueEnd])) ||
+                    plContent[valueEnd] == '-')) valueEnd++;
+            plContent.replace(colonPos + 1, valueEnd - colonPos - 1, std::to_string(level));
+        } else {
+            // Insert new user entry before closing } of users object
+            std::string ins = (usersObjEnd - usersObjStart > 1) ? "," : "";
+            ins += userNeedle + ":" + std::to_string(level);
+            plContent.insert(usersObjEnd, ins);
+        }
     }
+
     return sendStateEvent(roomId, "m.room.power_levels", "", plContent);
 }
 
@@ -851,6 +885,59 @@ bool MatrixClient::loadSavedSession() {
         return true;
     }
     return false;
+}
+
+// ---- E2EE endpoints ----
+
+ApiResult<std::string> MatrixClient::uploadKeys(const std::string& body) {
+    ApiResult<std::string> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/keys/upload",
+                         body, authHeaders(), 15000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) { r.ok = true; r.data = resp.body; }
+    else { if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+           r.error.message = resp.errorMessage.empty() ? r.error.message : resp.errorMessage; }
+    return r;
+}
+
+ApiResult<std::string> MatrixClient::queryKeys(const std::string& body) {
+    ApiResult<std::string> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/keys/query",
+                         body, authHeaders(), 30000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) { r.ok = true; r.data = resp.body; }
+    else { if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+           r.error.message = resp.errorMessage.empty() ? r.error.message : resp.errorMessage; }
+    return r;
+}
+
+ApiResult<std::string> MatrixClient::claimKeys(const std::string& body) {
+    ApiResult<std::string> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/keys/claim",
+                         body, authHeaders(), 15000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) { r.ok = true; r.data = resp.body; }
+    else { if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+           r.error.message = resp.errorMessage.empty() ? r.error.message : resp.errorMessage; }
+    return r;
+}
+
+ApiResult<bool> MatrixClient::sendToDevice(const std::string& eventType,
+                                              const std::string& txnId,
+                                              const std::string& body) {
+    ApiResult<bool> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    std::string url = account_.homeserverUrl + "/_matrix/client/v3/sendToDevice/" +
+                      eventType + "/" + txnId;
+    auto resp = httpPut(url, body, authHeaders(), 15000);
+    r.httpStatus = resp.statusCode;
+    r.ok = resp.success;
+    r.data = resp.success;
+    if (!resp.success && !resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+    return r;
 }
 
 } // namespace progressive::desktop

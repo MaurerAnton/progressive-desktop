@@ -31,6 +31,8 @@ QVariant RoomListModel::data(const QModelIndex& index, int role) const {
         case IsEncryptedRole:  return r.isEncrypted;
         case IsSpaceRole:      return r.isSpace;
         case AvatarUrlRole:    return QString::fromStdString(r.avatarUrl);
+        case IsInviteRole:     return r.isInvite;
+        case InviterRole:      return QString::fromStdString(r.inviterId);
         case Qt::ToolTipRole:
             return QString("%1\n%2\nunread: %3")
                 .arg(QString::fromStdString(r.name))
@@ -60,6 +62,22 @@ bool RoomListModel::upsertRoom(const RoomData& room) {
             existing.unreadCount = room.unreadCount;
             changed = true;
         }
+        if (existing.avatarUrl != room.avatarUrl && !room.avatarUrl.empty()) {
+            existing.avatarUrl = room.avatarUrl;
+            changed = true;
+        }
+        if (existing.isEncrypted != room.isEncrypted) {
+            existing.isEncrypted = room.isEncrypted;
+            changed = true;
+        }
+        if (existing.isInvite != room.isInvite) {
+            existing.isInvite = room.isInvite;
+            changed = true;
+        }
+        if (existing.inviterId != room.inviterId && !room.inviterId.empty()) {
+            existing.inviterId = room.inviterId;
+            changed = true;
+        }
         if (changed) {
             emit dataChanged(index(row), index(row));
         }
@@ -74,6 +92,10 @@ bool RoomListModel::upsertRoom(const RoomData& room) {
     int newRow = static_cast<int>(std::distance(rooms_.begin(), it));
     beginInsertRows(QModelIndex(), newRow, newRow);
     rooms_.insert(it, room);
+    // Rebuild index from newRow onwards (insertion shifted later rows)
+    for (int i = newRow; i < (int)rooms_.size(); ++i) {
+        index_[rooms_[i].roomId] = i;
+    }
     endInsertRows();
     return true;
 }
@@ -82,6 +104,7 @@ void RoomListModel::clear() {
     if (rooms_.empty()) return;
     beginResetModel();
     rooms_.clear();
+    index_.clear();
     endResetModel();
 }
 
@@ -90,6 +113,11 @@ bool RoomListModel::removeRoom(const std::string& roomId) {
     if (row < 0) return false;
     beginRemoveRows(QModelIndex(), row, row);
     rooms_.erase(rooms_.begin() + row);
+    index_.erase(roomId);
+    // Rebuild index for rows after the removed one
+    for (int i = row; i < (int)rooms_.size(); ++i) {
+        index_[rooms_[i].roomId] = i;
+    }
     endRemoveRows();
     return true;
 }
@@ -100,10 +128,14 @@ const RoomData* RoomListModel::at(int row) const {
 }
 
 int RoomListModel::findRowByRoomId(const std::string& roomId) const {
-    for (size_t i = 0; i < rooms_.size(); ++i) {
-        if (rooms_[i].roomId == roomId) return static_cast<int>(i);
+    auto it = index_.find(roomId);
+    if (it == index_.end()) return -1;
+    // Validate index still in sync (defensive)
+    if (it->second < 0 || it->second >= (int)rooms_.size() ||
+        rooms_[it->second].roomId != roomId) {
+        return -1;
     }
-    return -1;
+    return it->second;
 }
 
 } // namespace progressive::desktop

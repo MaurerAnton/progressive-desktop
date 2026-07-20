@@ -36,6 +36,7 @@
 #include <progressive/permalink.hpp>
 
 #include <simdjson.h>
+#include "core/version.h"
 
 #include <iostream>
 #include <chrono>
@@ -407,9 +408,30 @@ void MainWindow::wireSyncCallbacks() {
 void MainWindow::startWithSavedSession() {
     if (!client_ || !client_->isLoggedIn()) return;
     // Set client on image loader
-    imageLoader_->setClient(client_);  // Note: need to add setClient method
+    imageLoader_->setClient(client_);
     userLabel_->setText(" " + QString::fromStdString(client_->account().userId) + " ");
     statusLabel_->setText("Starting sync...");
+
+    // Initialize E2EE: create or load olm account, upload device keys.
+    // We do this before starting sync so we receive to-device events.
+    try {
+        if (!sync_.decryptor()->init()) {
+            std::cerr << "[e2ee] failed to create olm account — continuing without E2EE\n";
+        } else {
+            auto keys = sync_.decryptor()->identityKeys();
+            std::cerr << "[e2ee] olm account ready: curve25519=" << keys.curve25519
+                      << " ed25519=" << keys.ed25519 << "\n";
+            // TODO: upload device keys + one-time keys via /keys/upload.
+            // For now, the account exists so we can decrypt room_key events
+            // that arrive via to-device (once Olm 1:1 decryption is wired).
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "[e2ee] init failed: " << e.what() << "\n";
+    }
+
+    // Init desktop notifications (best-effort — fails silently if no tray)
+    notifier_.init();
+
     sync_.setClient(client_);
     sync_.setSessionStore(store_);
     sync_.start();
@@ -435,6 +457,15 @@ void MainWindow::onRoomListContextMenu(const QPoint& pos) {
 
     QMenu menu(this);
     auto* leaveAction = menu.addAction("Leave room");
+    auto* acceptAction = menu.addAction("Accept invite");
+    auto* rejectAction = menu.addAction("Reject invite");
+    // Show only the relevant action based on room state
+    if (r->isInvite) {
+        leaveAction->setVisible(false);
+    } else {
+        acceptAction->setVisible(false);
+        rejectAction->setVisible(false);
+    }
 
     auto* selected = menu.exec(roomList_->mapToGlobal(pos));
     if (!selected) return;
@@ -455,9 +486,6 @@ void MainWindow::onRoomListContextMenu(const QPoint& pos) {
                 if (guard.isNull()) return;
                 if (r.ok) {
                     guard->statusLabel_->setText("Left room.");
-                    // Remove from model IMMEDIATELY — don't wait for next sync.
-                    // The next /sync will also include it in rooms.leave but
-                    // rebuildRoomList will just no-op (room already removed).
                     guard->roomModel_->removeRoom(roomId);
                     if (guard->currentRoomId_.toStdString() == roomId) {
                         guard->currentRoomId_.clear();
@@ -468,6 +496,51 @@ void MainWindow::onRoomListContextMenu(const QPoint& pos) {
                     }
                 } else {
                     guard->statusLabel_->setText("Failed to leave: " + QString::fromStdString(r.error.message));
+                }
+            }, Qt::QueuedConnection);
+        }).detach();
+    } else if (selected == acceptAction) {
+        std::string roomId = r->roomId;
+        MatrixClient* client = client_;
+        QPointer<MainWindow> guard(this);
+        statusLabel_->setText("Joining room...");
+        std::thread([guard, client, roomId]() {
+            auto r = client->joinRoom(roomId);
+            QMetaObject::invokeMethod(guard, [guard, r, roomId]() {
+                if (guard.isNull()) return;
+                if (r.ok) {
+                    guard->statusLabel_->setText("Joined room.");
+                    // Mark room as no longer invite — next sync will update properly.
+                    RoomData* rd = const_cast<RoomData*>(guard->roomModel_->at(
+                        guard->roomModel_->findRowByRoomId(roomId)));
+                    if (rd) {
+                        rd->isInvite = false;
+                        // Trigger a model update via dataChanged
+                        int row = guard->roomModel_->findRowByRoomId(roomId);
+                        if (row >= 0) {
+                            QModelIndex idx = guard->roomModel_->index(row);
+                            emit guard->roomModel_->dataChanged(idx, idx);
+                        }
+                    }
+                } else {
+                    guard->statusLabel_->setText("Failed to join: " + QString::fromStdString(r.error.message));
+                }
+            }, Qt::QueuedConnection);
+        }).detach();
+    } else if (selected == rejectAction) {
+        std::string roomId = r->roomId;
+        MatrixClient* client = client_;
+        QPointer<MainWindow> guard(this);
+        statusLabel_->setText("Rejecting invite...");
+        std::thread([guard, client, roomId]() {
+            auto r = client->leaveRoom(roomId);  // leave == reject invite
+            QMetaObject::invokeMethod(guard, [guard, r, roomId]() {
+                if (guard.isNull()) return;
+                if (r.ok) {
+                    guard->statusLabel_->setText("Invite rejected.");
+                    guard->roomModel_->removeRoom(roomId);
+                } else {
+                    guard->statusLabel_->setText("Failed to reject: " + QString::fromStdString(r.error.message));
                 }
             }, Qt::QueuedConnection);
         }).detach();
@@ -767,19 +840,20 @@ void MainWindow::onRoomSettingsClicked() {
 
 void MainWindow::onSettingsClicked() {
     QMessageBox::information(this, "Settings",
-        "Progressive Chat — Desktop\n\nVersion: 0.0.4\nPhase: 3 (full UI)\n\n"
-        "Toolbar buttons:\n"
-        "  + New chat — start a DM\n"
-        "  Join by ID — join room by ID/alias\n"
-        "  Browse rooms — search public rooms\n"
-        "  All threads — view threads in current room\n"
-        "  Room settings — topic, name, members, kick/ban/promote\n"
-        "  Fullscreen — toggle fullscreen (F11)\n"
-        "  Logout — sign out\n\n"
-        "In chat:\n"
-        "  Right-click message — react, pin, copy link, redact\n"
-        "  Click image — zoom + open externally\n\n"
-        "Slash commands: /help /clear /logout /me <action>");
+        QString("Progressive Chat — Desktop\n\nVersion: %1\nPhase: 4 (E2EE)\n\n"
+                "Toolbar buttons:\n"
+                "  + New chat — start a DM\n"
+                "  Join by ID — join room by ID/alias\n"
+                "  Browse rooms — search public rooms\n"
+                "  All threads — view threads in current room\n"
+                "  Room settings — topic, name, members, kick/ban/promote\n"
+                "  Fullscreen — toggle fullscreen (F11)\n"
+                "  Logout — sign out\n\n"
+                "In chat:\n"
+                "  Right-click message — react, pin, copy link, redact\n"
+                "  Click image — zoom + open externally\n\n"
+                "Slash commands: /help /clear /logout /me <action>")
+            .arg(QString::fromUtf8(PROGRESSIVE_DESKTOP_VERSION)));
 }
 
 void MainWindow::onImageClicked(const QString& eventId, const QString& mxcUrl) {
@@ -896,6 +970,34 @@ void MainWindow::showTimelineContextMenu(const QString& eventId, const QPoint& g
 
 void MainWindow::onSync(const FastSyncResponse& resp) {
     rebuildRoomList(resp);
+
+    // Desktop notification: if any room has highlight_count > 0, notify the user.
+    // We do this only after the first sync (so initial sync doesn't spam).
+    static bool firstSync = true;
+    if (!firstSync) {
+        for (const auto& [roomIdView, room] : resp.joinedRooms) {
+            if (room.highlightCount > 0) {
+                std::string roomId(roomIdView);
+                QString roomName = QString::fromStdString(roomId);
+                // Find the room name from the model
+                int row = roomModel_->findRowByRoomId(roomId);
+                if (row >= 0) {
+                    const RoomData* rd = roomModel_->at(row);
+                    if (rd) roomName = QString::fromStdString(rd->name);
+                }
+                // Find the last message body from the timeline
+                QString body = "You have " + QString::number(room.highlightCount) + " highlight(s)";
+                if (!room.timeline.events.empty()) {
+                    auto lastBody = extractLastMessageBody(room.timeline.events);
+                    if (!lastBody.empty()) body = QString::fromUtf8(jsonUnescape(lastBody).data(), (int)jsonUnescape(lastBody).size());
+                }
+                notifier_.notify(roomName, body);
+                break;  // only notify once per sync
+            }
+        }
+    }
+    firstSync = false;
+
     statusLabel_->setText(QString("synced: %1 chat(s), %2 event(s)")
         .arg(resp.joinedRooms.size()).arg(sync_.stats().timelineEvents));
 }
@@ -929,6 +1031,39 @@ DisplayedEvent MainWindow::fastEventToDisplayed(const FastEvent& fe) {
         auto colon = de.senderId.find(':');
         if (colon != std::string::npos) de.senderName = de.senderId.substr(1, colon - 1);
         else de.senderName = de.senderId.substr(1);
+    }
+
+    // Decrypt m.room.encrypted if possible. We need the current room ID to
+    // match against the megolm session store. For events arriving via /sync,
+    // the caller (rebuildRoomList) sets currentRoomId_ first.
+    if (de.type == "m.room.encrypted") {
+        std::string roomId = currentRoomId_.toStdString();
+        auto result = sync_.decryptor()->decryptMegolmEvent(roomId, de.senderId, de.contentJson);
+        if (result.ok) {
+            // The decrypted plaintext is a JSON object with the inner event:
+            //   {"type":"m.room.message","content":{"msgtype":"m.text","body":"..."}}
+            // Parse it and transform to look like a regular message event.
+            // We use simdjson for safe parsing.
+            simdjson::dom::parser parser;
+            auto rootResult = parser.parse(result.plaintext);
+            if (rootResult.error() == simdjson::SUCCESS) {
+                auto root = rootResult.value();
+                auto t = root["type"].get_string();
+                if (t.error() == simdjson::SUCCESS) {
+                    de.type = std::string(t.value());
+                }
+                auto contentResult = root["content"];
+                if (contentResult.error() == simdjson::SUCCESS) {
+                    de.contentJson = simdjson::to_string(contentResult.value());
+                }
+            }
+        } else {
+            // Decryption failed — show a placeholder with the error reason.
+            // If the error is "no megolm session", we'll retry when a room_key
+            // arrives (handled via pending queue in MegolmStore).
+            de.body = "[encrypted — " + result.error + "]";
+            de.msgtype = "m.notice";
+        }
     }
 
     if (de.type == "m.room.message") {
@@ -1015,6 +1150,35 @@ void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
             appendTimelineForRoom(roomId, room.timeline.events);
         }
     }
+
+    // Process invitations — add them to the model with isInvite=true.
+    // The /sync "invite" section is {"rooms":{"invite":{"!id:server":{"invite_state":{"events":[...]}}}}}
+    // We currently only capture the room IDs (in invitedRoomIds). The room
+    // name for invites comes from the invite_state events — which we don't
+    // capture in FastSyncResponse yet. For now, we use the room ID as the
+    // display name and show "[Invite]" in the room list.
+    // TODO: extend FastSyncResponse to capture invite_state.events.
+    for (const auto& invView : resp.invitedRoomIds) {
+        std::string roomId(invView);
+        RoomData rd;
+        rd.roomId = roomId;
+        rd.isInvite = true;
+        // Try to find an existing entry (in case we already had the room)
+        int existingRow = roomModel_->findRowByRoomId(roomId);
+        if (existingRow >= 0) {
+            const RoomData* existing = roomModel_->at(existingRow);
+            if (existing && !existing->name.empty() && existing->name != roomId) {
+                rd.name = existing->name;
+            } else {
+                rd.name = roomId;
+            }
+        } else {
+            rd.name = roomId;
+        }
+        rd.lastMessage = "Invitation";
+        roomModel_->upsertRoom(rd);
+    }
+
     updateRoomListHeader();
 }
 

@@ -228,11 +228,33 @@ void TimelineDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         }
     }
 
-    // Draw reactions (below message)
-    // Reactions are stored as a vector — we can't easily get them from the model
-    // as QVariant without custom registration. For now, skip rendering reactions
-    // in the delegate — they'll be shown in a separate panel below the message.
-    // TODO: register ReactionData as Qt metatype and render here.
+    // Draw reactions (below message) — render emoji pills.
+    // We retrieve the reactions as a QStringList via ReactionsRole.
+    // The TimelineModel doesn't natively expose them via data(), so we use
+    // the TimelineModel::findRow + at() path via a custom ReactionsSummaryRole.
+    // For simplicity, we draw reaction pills via the model's data() returning
+    // a QStringList of "emoji (count)" entries — registered via Q_DECLARE_METATYPE.
+    auto reactionsVar = index.data(TimelineModel::ReactionsRole);
+    QStringList reactions = reactionsVar.value<QStringList>();
+    if (!reactions.isEmpty()) {
+        int rx = contentX;
+        int ry = option.rect.y() + option.rect.height() - 24;
+        QFont pillFont = painter->font();
+        pillFont.setPointSize(9);
+        painter->setFont(pillFont);
+        QFontMetrics fm(pillFont);
+        for (const QString& pill : reactions) {
+            int textWidth = fm.horizontalAdvance(pill);
+            QRect pillRect(rx, ry, textWidth + 16, 20);
+            painter->setPen(QColor("#3a3a3a"));
+            painter->setBrush(QColor("#2a2a2a"));
+            painter->drawRoundedRect(pillRect, 8, 8);
+            painter->setPen(QColor("#e8e8e8"));
+            painter->drawText(pillRect, Qt::AlignCenter, pill);
+            rx += pillRect.width() + 4;
+            if (rx > contentRect.right() - 60) break;  // wrap not implemented — stop
+        }
+    }
 
     painter->restore();
 }

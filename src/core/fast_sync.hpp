@@ -82,6 +82,13 @@ struct FastSyncResponse {
     int totalTimelineEvents = 0;
     int toDeviceEvents = 0;
 
+    // To-device events (Phase 4 E2EE). Each entry is a serialized JSON
+    // string stored in ownedContentStrings — string_views point into the deque.
+    // For m.room_key events, we extract sender (the sender's curve25519) from
+    // the OUTER event, but we don't have it here. The content has the room_id,
+    // session_id, session_key, and (often) the sender_key.
+    std::vector<FastEvent> toDeviceEventList;
+
     bool empty() const {
         return nextBatch.empty() && joinedRooms.empty();
     }

@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <algorithm>
+#include <iostream>
 
 namespace progressive::desktop {
 
@@ -105,6 +106,10 @@ void SyncEngine::run() {
         stats_.timelineEvents += result.data.totalTimelineEvents;
         stats_.toDeviceEvents += result.data.toDeviceEvents;
 
+        // Process to-device events (E2EE): m.room_key adds megolm sessions,
+        // m.room.encrypted handles Olm 1:1 (decrypts room_key delivery).
+        processToDeviceEvents(result.data);
+
         // Persist token.
         if (store_ && !sinceToken_.empty()) {
             store_->saveSyncToken(sinceToken_);
@@ -117,6 +122,37 @@ void SyncEngine::run() {
     }
 
     setState(SyncEngineState::Stopped);
+}
+
+void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
+    // Process each to-device event:
+    //   - m.room_key: add an inbound megolm session
+    //   - m.room.encrypted: Olm 1:1 (decryption of m.room_key delivery)
+    //     Not yet implemented — requires Olm session management.
+    for (const auto& evt : resp.toDeviceEventList) {
+        if (evt.type == "m.room_key") {
+            std::string contentStr(evt.contentJson);
+            if (decryptor_.handleRoomKey(contentStr)) {
+                stats_.decryptedEvents++;
+                std::cerr << "[e2ee] added megolm session (room_key from "
+                          << evt.senderId << ")\n";
+            } else {
+                stats_.decryptErrors++;
+                std::cerr << "[e2ee] failed to add room_key from "
+                          << evt.senderId << ": " << contentStr << "\n";
+            }
+        } else if (evt.type == "m.room.encrypted") {
+            // Olm 1:1 — decrypts to a m.room_key event (or m.dummy etc.).
+            // TODO: handle OlmSession (1:1) decryption. Requires:
+            //   - Server query for sender's device keys (Curve25519)
+            //   - Inbound OlmSession via createInbound
+            //   - Decryption of ciphertext
+            //   - If inner type == m.room_key, call decryptor_.handleRoomKey
+            stats_.decryptErrors++;
+            std::cerr << "[e2ee] to-device m.room.encrypted (Olm 1:1) — "
+                      << "decryption not yet implemented\n";
+        }
+    }
 }
 
 } // namespace progressive::desktop

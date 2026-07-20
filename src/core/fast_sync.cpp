@@ -201,9 +201,13 @@ FastSyncResponse parseSyncResponseFast(std::string json, std::string& errorMessa
         auto toDevice = toDeviceResult.value();
         auto eventsResult = toDevice["events"].get_array();
         if (eventsResult.error() == simdjson::SUCCESS) {
-            size_t n = 0;
-            for ([[maybe_unused]] auto _ : eventsResult.value()) n++;
-            resp.toDeviceEvents = static_cast<int>(n);
+            for (auto evt : eventsResult.value()) {
+                // Build a FastEvent for each to-device event. We serialize
+                // the content into ownedContentStrings so string_views persist.
+                FastEvent fe = buildFastEvent(evt, *ownedStrings);
+                resp.toDeviceEventList.push_back(std::move(fe));
+            }
+            resp.toDeviceEvents = static_cast<int>(resp.toDeviceEventList.size());
         }
     }
 

@@ -18,6 +18,7 @@ void ImageLoader::fetchThumbnail(const std::string& mxcUrl, int w, int h,
         cb(*cached);
         return;
     }
+    if (!client_) { cb(QImage()); return; }
 
     std::thread([this, mxcUrl, key, w, h, cb]() {
         auto result = client_->downloadMedia(mxcUrl, w, h);
@@ -41,6 +42,7 @@ void ImageLoader::fetchMovie(const std::string& mxcUrl,
         cb(existing);
         return;
     }
+    if (!client_) { cb(nullptr); return; }
 
     std::thread([this, mxcUrl, key, cb]() {
         auto result = client_->downloadMedia(mxcUrl, 0, 0);

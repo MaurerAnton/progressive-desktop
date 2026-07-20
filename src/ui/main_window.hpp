@@ -4,6 +4,7 @@
 #include "core/session_store.hpp"
 #include "core/sync_engine.hpp"
 #include "core/fast_sync.hpp"
+#include "core/notifications.hpp"
 #include "room_list_model.hpp"
 #include "timeline_model.hpp"
 #include "timeline_delegate.hpp"
@@ -75,6 +76,7 @@ private:
     SessionStore* store_ = nullptr;
     SyncEngine sync_;
     ImageLoader* imageLoader_ = nullptr;
+    DesktopNotifier notifier_;
 
     QToolBar* toolbar_ = nullptr;
     QLabel* userLabel_ = nullptr;

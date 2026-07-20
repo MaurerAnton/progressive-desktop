@@ -1,5 +1,9 @@
-// src/ui/timeline_model.cpp
 #include "timeline_model.hpp"
+
+#include <QVariantList>
+#include <QMetaType>
+
+Q_DECLARE_METATYPE(progressive::desktop::ReactionData)
 
 namespace progressive::desktop {
 
@@ -33,6 +37,15 @@ QVariant TimelineModel::data(const QModelIndex& index, int role) const {
         case ImageLoadedRole:  return e.imageLoaded;
         case IsMovieRole:      return e.isMovie;
         case EventIdRole:      return QString::fromStdString(e.eventId);
+        case ReactionsRole: {
+            // Convert reactions to a QStringList of "emoji (count)" entries
+            // for easy rendering in the delegate.
+            QStringList list;
+            for (const auto& r : e.reactions) {
+                list << QString::fromStdString(r.emoji) + " " + QString::number(r.count);
+            }
+            return list;
+        }
     }
     return {};
 }

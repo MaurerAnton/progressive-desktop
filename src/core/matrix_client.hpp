@@ -256,6 +256,33 @@ public:
     // Load saved account from session store. Returns true if restored.
     bool loadSavedSession();
 
+    // ---- End-to-End Encryption (E2EE) ----
+
+    // POST /_matrix/client/v3/keys/upload
+    // Upload device keys + one-time keys. Body is JSON:
+    //   {"device_keys":{...}, "one_time_keys":{...}}
+    // Returns raw server response (with one_time_key_counts).
+    ApiResult<std::string> uploadKeys(const std::string& body);
+
+    // POST /_matrix/client/v3/keys/query
+    // Query device keys for a list of users. Body:
+    //   {"device_keys":{"@user:server":[]}}
+    // Returns raw server response with device keys.
+    ApiResult<std::string> queryKeys(const std::string& body);
+
+    // POST /_matrix/client/v3/keys/claim
+    // Claim one-time keys for a list of (user, device) pairs. Body:
+    //   {"one_time_keys":{"@user:server":{"device_id":"signed_curve25519"}}}
+    // Returns raw server response with claimed one-time keys.
+    ApiResult<std::string> claimKeys(const std::string& body);
+
+    // PUT /_matrix/client/v3/sendToDevice/{eventType}/{txnId}
+    // Send a to-device event. Body:
+    //   {"messages":{"@user:server":{"device_id":{"...content..."}}}}
+    ApiResult<bool> sendToDevice(const std::string& eventType,
+                                  const std::string& txnId,
+                                  const std::string& body);
+
 private:
     AccountInfo account_;
     SessionStore* sessionStore_ = nullptr;

@@ -6,6 +6,7 @@
 // which handles TLS (OpenSSL), proxy, SOCKS5 (Tor/I2P), redirects.
 
 #include "http_client.hpp"
+#include "version.h"
 
 #include <curl/curl.h>
 #include <cstring>
@@ -63,11 +64,13 @@ void httpInit() {
     static std::once_flag flag;
     std::call_once(flag, []() {
         curl_global_init(CURL_GLOBAL_DEFAULT);
+        std::lock_guard<std::mutex> lk(g_proxy_mutex);
         g_initialized = true;
     });
 }
 
 void httpCleanup() {
+    std::lock_guard<std::mutex> lk(g_proxy_mutex);
     if (g_initialized) {
         curl_global_cleanup();
         g_initialized = false;
@@ -99,7 +102,7 @@ HttpResponse httpExecute(const HttpRequest& req) {
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 15000);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, req.followRedirects ? 1L : 0L);
     curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "progressive-desktop/0.0.1");
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "progressive-desktop/" PROGRESSIVE_DESKTOP_VERSION);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 
     // Method + body

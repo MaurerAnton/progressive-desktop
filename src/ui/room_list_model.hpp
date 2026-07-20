@@ -9,6 +9,7 @@
 #include <QIcon>
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 namespace progressive::desktop {
 
@@ -23,8 +24,10 @@ struct RoomData {
     bool isDirect = false;
     bool isEncrypted = false;
     bool isSpace = false;
-    std::string avatarUrl;          // mxc:// URL for room avatar
-    std::string parentId;           // parent space ID (empty if none)
+    bool isInvite = false;           // true if this room is an invite (not joined yet)
+    std::string inviterId;           // for invites: who invited us
+    std::string avatarUrl;           // mxc:// URL for room avatar
+    std::string parentId;            // parent space ID (empty if none)
 };
 
 class RoomListModel : public QAbstractListModel {
@@ -57,10 +60,13 @@ public:
         IsEncryptedRole,
         IsSpaceRole,
         AvatarUrlRole,
+        IsInviteRole,
+        InviterRole,
     };
 
 private:
     std::vector<RoomData> rooms_;
+    std::unordered_map<std::string, int> index_;  // roomId → row, O(1) lookup
 };
 
 } // namespace progressive::desktop

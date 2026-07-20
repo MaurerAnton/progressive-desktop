@@ -23,6 +23,7 @@
 #include "core/matrix_client.hpp"
 #include "core/session_store.hpp"
 #include "core/sync_engine.hpp"
+#include "core/version.h"
 #include "ui/main_window.hpp"
 #include "ui/login_dialog.hpp"
 #include "ui/theme.hpp"
@@ -149,7 +150,7 @@ static int syncTest(int count) {
 static void runGui(int argc, char** argv) {
     QApplication app(argc, argv);
     QApplication::setApplicationName("progressive-desktop");
-    QApplication::setApplicationVersion("0.0.3");
+    QApplication::setApplicationVersion(PROGRESSIVE_DESKTOP_VERSION);
     QApplication::setOrganizationName("progressive.chat");
 
     // Dark theme is the default — applied before any widgets are constructed
@@ -197,22 +198,27 @@ int main(int argc, char** argv) {
     std::signal(SIGABRT, crashHandler);
     std::signal(SIGBUS, crashHandler);
 
+    // Initialize libcurl once for the whole process
+    progressive::desktop::httpInit();
+
     if (argc >= 2) {
         std::string cmd = argv[1];
-        if (cmd == "--smoke")    return smoke();
-        if (cmd == "--discover" && argc >= 3) return discover(argv[2]);
-        if (cmd == "--login"    && argc >= 4) return loginTest(argv[2], argv[3]);
-        if (cmd == "--sync"     && argc >= 3) return syncTest(std::stoi(argv[2]));
+        if (cmd == "--smoke")    { int r = smoke(); httpCleanup(); return r; }
+        if (cmd == "--discover" && argc >= 3) { int r = discover(argv[2]); httpCleanup(); return r; }
+        if (cmd == "--login"    && argc >= 4) { int r = loginTest(argv[2], argv[3]); httpCleanup(); return r; }
+        if (cmd == "--sync"     && argc >= 3) { int r = syncTest(std::stoi(argv[2])); httpCleanup(); return r; }
     }
 
+    int rc = 0;
     try {
         runGui(argc, argv);
     } catch (const std::exception& e) {
         std::fprintf(stderr, "FATAL: unhandled exception: %s\n", e.what());
-        return 1;
+        rc = 1;
     } catch (...) {
         std::fprintf(stderr, "FATAL: unknown exception\n");
-        return 1;
+        rc = 1;
     }
-    return 0;
+    httpCleanup();
+    return rc;
 }

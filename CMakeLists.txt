@@ -7,7 +7,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 project(progressive-desktop
-    VERSION 0.0.1
+    VERSION 0.1.0
     DESCRIPTION "Pure C++/Qt6 Matrix client — sister to progressive-android-next"
     LANGUAGES C CXX
 )
@@ -18,6 +18,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug CACHE STRING "" FORCE)
 endif()
+
+# --- Version header (configured) ---
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core/version.h.in
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/core/version.h
+    @ONLY
+)
 
 # --- Options ---
 option(PROGRESSIVE_MOBILE "Fullscreen frameless UI for PinePhone/PineTab 2 (auto-detected at runtime)" OFF)
@@ -44,12 +51,20 @@ add_library(progressive_core STATIC
     src/core/session_store.cpp
     src/core/sync_engine.cpp
     src/core/fast_sync.cpp
+    src/core/crypto/olm_account.cpp
+    src/core/crypto/megolm_store.cpp
+    src/core/crypto/decryptor.cpp
+    src/core/notifications.cpp
 )
-target_include_directories(progressive_core PUBLIC src)
+target_include_directories(progressive_core PUBLIC
+    src
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
+)
 target_link_libraries(progressive_core PUBLIC
     progressive_native
     Qt6::Core
     Qt6::Network
+    Qt6::Widgets
     CURL::libcurl
     SQLite3::SQLite3
     simdjson::simdjson

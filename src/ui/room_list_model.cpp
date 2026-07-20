@@ -85,6 +85,15 @@ void RoomListModel::clear() {
     endResetModel();
 }
 
+bool RoomListModel::removeRoom(const std::string& roomId) {
+    int row = findRowByRoomId(roomId);
+    if (row < 0) return false;
+    beginRemoveRows(QModelIndex(), row, row);
+    rooms_.erase(rooms_.begin() + row);
+    endRemoveRows();
+    return true;
+}
+
 const RoomData* RoomListModel::at(int row) const {
     if (row < 0 || row >= (int)rooms_.size()) return nullptr;
     return &rooms_[row];

@@ -419,20 +419,18 @@ ApiResult<std::string> MatrixClient::joinRoom(const std::string& roomIdOrAlias,
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
     std::ostringstream body;
     if (!viaServers.empty()) {
-        body << "{\"server_name\":[";
+        // Matrix spec: body is {"via": ["server1", "server2"]}
+        body << "{\"via\":[";
         for (size_t i = 0; i < viaServers.size(); ++i) {
             if (i > 0) body << ",";
             body << "\"" << jsonEscape(viaServers[i]) << "\"";
         }
         body << "]}";
     } else body << "{}";
-    // URL-encode the room ID/alias (it may contain # which needs encoding)
-    std::string encoded;
-    for (char c : roomIdOrAlias) {
-        if (c == '#') encoded += "%23";
-        else encoded += c;
-    }
-    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/join/" + encoded,
+    // URL-encode the room ID/alias. Aliases start with '#' which MUST be
+    // %23 in URLs. Room IDs start with '!' which is usually fine but
+    // urlEncodePath handles spaces too.
+    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/join/" + urlEncodePath(roomIdOrAlias),
                          body.str(), authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
     if (resp.success) {
@@ -449,7 +447,7 @@ ApiResult<std::string> MatrixClient::joinRoom(const std::string& roomIdOrAlias,
 ApiResult<bool> MatrixClient::leaveRoom(const std::string& roomId) {
     ApiResult<bool> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
-    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + roomId + "/leave",
+    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) + "/leave",
                          "{}", authHeaders(), 15000);
     r.httpStatus = resp.statusCode; r.ok = resp.success; r.data = resp.success;
     if (!resp.success && !resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);

@@ -18,6 +18,7 @@
 #include <QListView>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPointer>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QToolBar>
@@ -446,23 +447,27 @@ void MainWindow::onRoomListContextMenu(const QPoint& pos) {
 
         std::string roomId = r->roomId;
         MatrixClient* client = client_;
+        QPointer<MainWindow> guard(this);
         statusLabel_->setText("Leaving room...");
-        std::thread([this, client, roomId]() {
+        std::thread([guard, client, roomId]() {
             auto r = client->leaveRoom(roomId);
-            QMetaObject::invokeMethod(this, [this, r, roomId]() {
+            QMetaObject::invokeMethod(guard, [guard, r, roomId]() {
+                if (guard.isNull()) return;
                 if (r.ok) {
-                    statusLabel_->setText("Left room.");
-                    // The room will disappear from the list on next sync.
-                    // Also clear it if it was the current room.
-                    if (currentRoomId_.toStdString() == roomId) {
-                        currentRoomId_.clear();
-                        timelineModel_->clear();
-                        timelineView_->hide();
-                        timelinePlaceholder_->show();
-                        messageEdit_->hide();
+                    guard->statusLabel_->setText("Left room.");
+                    // Remove from model IMMEDIATELY — don't wait for next sync.
+                    // The next /sync will also include it in rooms.leave but
+                    // rebuildRoomList will just no-op (room already removed).
+                    guard->roomModel_->removeRoom(roomId);
+                    if (guard->currentRoomId_.toStdString() == roomId) {
+                        guard->currentRoomId_.clear();
+                        guard->timelineModel_->clear();
+                        guard->timelineView_->hide();
+                        guard->timelinePlaceholder_->show();
+                        guard->messageEdit_->hide();
                     }
                 } else {
-                    statusLabel_->setText("Failed to leave: " + QString::fromStdString(r.error.message));
+                    guard->statusLabel_->setText("Failed to leave: " + QString::fromStdString(r.error.message));
                 }
             }, Qt::QueuedConnection);
         }).detach();
@@ -489,68 +494,88 @@ void MainWindow::loadRoomHistory(const std::string& roomId) {
 
     statusLabel_->setText("Loading history...");
     MatrixClient* client = client_;
+    QPointer<MainWindow> guard(this);
 
-    std::thread([this, client, roomId]() {
+    std::thread([guard, client, roomId]() {
         auto result = client->getMessages(roomId, "", 30);
 
-        QMetaObject::invokeMethod(this, [this, result, roomId]() {
+        QMetaObject::invokeMethod(guard, [guard, result, roomId]() {
+            if (guard.isNull()) return;
+
             if (!result.ok) {
-                statusLabel_->setText("Failed to load history: " +
+                guard->statusLabel_->setText("Failed to load history: " +
                     QString::fromStdString(result.error.message));
                 return;
             }
 
-            // Parse /messages response with simdjson — safe, no string-scan crashes
+            // Parse /messages response with simdjson.
+            // Build DisplayedEvent DIRECTLY (not FastEvent which uses
+            // string_view — would dangle after parser destroys the buffer).
             simdjson::dom::parser parser;
             auto rootResult = parser.parse(result.data);
             if (rootResult.error() != simdjson::SUCCESS) {
-                statusLabel_->setText("Failed to parse history.");
+                guard->statusLabel_->setText("Failed to parse history.");
                 return;
             }
 
             auto chunkResult = rootResult.value()["chunk"].get_array();
             if (chunkResult.error() != simdjson::SUCCESS) {
-                statusLabel_->setText("No history found.");
+                guard->statusLabel_->setText("No history found.");
                 return;
             }
 
-            // Build FastEvent list from the parsed JSON
-            // We need to keep the parser alive — store events with COPIED strings
-            // (not string_views) since the parser will be destroyed.
-            std::vector<FastEvent> events;
+            std::vector<DisplayedEvent> events;
             for (auto evt : chunkResult.value()) {
-                FastEvent fe;
-                // Extract fields as COPIED strings (parser is local)
+                DisplayedEvent de;
+                // Extract fields as OWNED std::string (parser is local,
+                // will be destroyed when this lambda returns)
                 auto t = evt["type"].get_string();
-                if (t.error() == simdjson::SUCCESS) fe.type = std::string(t.value());
+                if (t.error() == simdjson::SUCCESS) de.type = std::string(t.value());
 
                 auto eid = evt["event_id"].get_string();
-                if (eid.error() == simdjson::SUCCESS) fe.eventId = std::string(eid.value());
+                if (eid.error() == simdjson::SUCCESS) de.eventId = std::string(eid.value());
 
                 auto sender = evt["sender"].get_string();
-                if (sender.error() == simdjson::SUCCESS) fe.senderId = std::string(sender.value());
-
-                auto sk = evt["state_key"].get_string();
-                if (sk.error() == simdjson::SUCCESS) fe.stateKey = std::string(sk.value());
+                if (sender.error() == simdjson::SUCCESS) de.senderId = std::string(sender.value());
 
                 auto ts = evt["origin_server_ts"].get_int64();
-                if (ts.error() == simdjson::SUCCESS) fe.originServerTs = ts.value();
+                if (ts.error() == simdjson::SUCCESS) de.originServerTs = ts.value();
 
-                // Serialize content object to JSON string (COPY — parser is local)
+                // Serialize content object — owned std::string
                 auto contentResult = evt["content"];
                 if (contentResult.error() == simdjson::SUCCESS) {
-                    fe.contentJson = simdjson::to_string(contentResult.value());
+                    de.contentJson = simdjson::to_string(contentResult.value());
                 }
 
-                events.push_back(std::move(fe));
+                // Extract senderName (localpart of senderId)
+                if (!de.senderId.empty() && de.senderId[0] == '@') {
+                    auto colon = de.senderId.find(':');
+                    if (colon != std::string::npos) de.senderName = de.senderId.substr(1, colon - 1);
+                    else de.senderName = de.senderId.substr(1);
+                }
+
+                // For m.room.message, extract msgtype/body/mxcUrl/mimetype
+                if (de.type == "m.room.message") {
+                    de.msgtype = extractMsgtype(de.contentJson);
+                    de.body = extractBody(de.contentJson);
+                    if (de.msgtype == "m.image" || de.msgtype == "m.video") {
+                        de.mxcUrl = extractMxcUrl(de.contentJson);
+                        de.mimetype = extractMimetype(de.contentJson);
+                        if (de.mimetype == "image/gif") de.isMovie = true;
+                    }
+                }
+
+                events.push_back(std::move(de));
             }
 
             // Events from /messages?dir=b are newest-first. Reverse to oldest-first.
             std::reverse(events.begin(), events.end());
 
-            // Append to timeline
-            appendTimelineForRoom(roomId, events);
-            statusLabel_->setText(QString("Loaded %1 message(s) from history.").arg(events.size()));
+            // Append directly to timeline model
+            for (const auto& de : events) {
+                guard->timelineModel_->appendBack(de);
+            }
+            guard->statusLabel_->setText(QString("Loaded %1 message(s) from history.").arg(events.size()));
         }, Qt::QueuedConnection);
     }).detach();
 }
@@ -663,12 +688,14 @@ void MainWindow::onNewChatClicked() {
     statusLabel_->setText("Creating direct chat...");
     std::string uid = userId.toStdString();
     MatrixClient* client = client_;
-    std::thread([this, client, uid]() {
+    QPointer<MainWindow> guard(this);
+    std::thread([guard, client, uid]() {
         auto r = client->startDirectMessage(uid);
-        QMetaObject::invokeMethod(this, [this, r]() {
-            if (r.ok) statusLabel_->setText("Created room: " + QString::fromStdString(r.data));
-            else { QMessageBox::warning(this, "Error", QString("Failed: %1").arg(QString::fromStdString(r.error.message)));
-                   statusLabel_->setText("Failed."); }
+        QMetaObject::invokeMethod(guard, [guard, r]() {
+            if (guard.isNull()) return;
+            if (r.ok) guard->statusLabel_->setText("Created room: " + QString::fromStdString(r.data));
+            else { QMessageBox::warning(guard, "Error", QString("Failed: %1").arg(QString::fromStdString(r.error.message)));
+                   guard->statusLabel_->setText("Failed."); }
         }, Qt::QueuedConnection);
     }).detach();
 }
@@ -679,16 +706,26 @@ void MainWindow::onJoinRoomClicked() {
     QString roomIdOrAlias = QInputDialog::getText(this, "Join room",
         "Enter room ID or alias (e.g. #matrix:matrix.org):", QLineEdit::Normal, "", &ok);
     if (!ok || roomIdOrAlias.trimmed().isEmpty()) return;
+    QString input = roomIdOrAlias.trimmed();
+    // Accept matrix.to permalinks: https://matrix.to/#/#room:server
+    int hashIdx = input.indexOf("#/#");
+    if (hashIdx >= 0) input = input.mid(hashIdx + 2);
+    // Also accept matrix.to with room ID: https://matrix.to/#/!id:server
+    int idIdx = input.indexOf("#/!");
+    if (idIdx >= 0) input = input.mid(idIdx + 2);
+
     statusLabel_->setText("Joining...");
-    std::string id = roomIdOrAlias.trimmed().toStdString();
+    std::string id = input.toStdString();
     MatrixClient* client = client_;
-    std::thread([this, client, id]() {
+    QPointer<MainWindow> guard(this);
+    std::thread([guard, client, id]() {
         auto r = client->joinRoom(id);
-        QMetaObject::invokeMethod(this, [this, r]() {
-            if (r.ok) { statusLabel_->setText("Joined: " + QString::fromStdString(r.data));
-                        QMessageBox::information(this, "Joined", "Successfully joined room."); }
-            else { QMessageBox::warning(this, "Error", QString("Failed: %1").arg(QString::fromStdString(r.error.message)));
-                   statusLabel_->setText("Failed."); }
+        QMetaObject::invokeMethod(guard, [guard, r]() {
+            if (guard.isNull()) return;
+            if (r.ok) { guard->statusLabel_->setText("Joined: " + QString::fromStdString(r.data));
+                        QMessageBox::information(guard, "Joined", "Successfully joined room."); }
+            else { QMessageBox::warning(guard, "Error", QString("Failed: %1").arg(QString::fromStdString(r.error.message)));
+                   guard->statusLabel_->setText("Failed."); }
         }, Qt::QueuedConnection);
     }).detach();
 }
@@ -746,28 +783,29 @@ void MainWindow::onSettingsClicked() {
 }
 
 void MainWindow::onImageClicked(const QString& eventId, const QString& mxcUrl) {
-    // Fetch full image, then show viewer
     if (mxcUrl.isEmpty()) return;
     std::string mxc = mxcUrl.toStdString();
     MatrixClient* client = client_;
+    QPointer<MainWindow> guard(this);
 
     statusLabel_->setText("Loading full image...");
-    std::thread([this, client, mxc]() {
+    std::thread([guard, client, mxc]() {
         auto r = client->downloadMedia(mxc, 0, 0);
         QImage img;
         if (r.ok && !r.data.empty()) {
             img.loadFromData(r.data.data(), static_cast<int>(r.data.size()));
         }
-        QMetaObject::invokeMethod(this, [this, img, mxc]() {
+        QMetaObject::invokeMethod(guard, [guard, img, mxc]() {
+            if (guard.isNull()) return;
             if (img.isNull()) {
-                QMessageBox::warning(this, "Error", "Failed to load image.");
-                statusLabel_->setText("Failed to load image.");
+                QMessageBox::warning(guard, "Error", "Failed to load image.");
+                guard->statusLabel_->setText("Failed to load image.");
                 return;
             }
-            auto* dlg = new ImageViewerDialog(img, QString::fromStdString(mxc), this);
+            auto* dlg = new ImageViewerDialog(img, QString::fromStdString(mxc), guard);
             dlg->exec();
             delete dlg;
-            statusLabel_->setText("Ready.");
+            guard->statusLabel_->setText("Ready.");
         }, Qt::QueuedConnection);
     }).detach();
 }
@@ -819,12 +857,14 @@ void MainWindow::showTimelineContextMenu(const QString& eventId, const QPoint& g
         std::string roomId = currentRoomId_.toStdString();
         std::string eid = eventId.toStdString();
         MatrixClient* client = client_;
-        std::thread([this, client, roomId, eid]() {
+        QPointer<MainWindow> guard(this);
+        std::thread([guard, client, roomId, eid]() {
             auto r = client->pinMessage(roomId, eid);
-            QMetaObject::invokeMethod(this, [this, r, eid]() {
-                if (r.ok) { timelineModel_->setPinned(eid, true);
-                            statusLabel_->setText("Message pinned."); }
-                else statusLabel_->setText("Pin failed: " + QString::fromStdString(r.error.message));
+            QMetaObject::invokeMethod(guard, [guard, r, eid]() {
+                if (guard.isNull()) return;
+                if (r.ok) { guard->timelineModel_->setPinned(eid, true);
+                            guard->statusLabel_->setText("Message pinned."); }
+                else guard->statusLabel_->setText("Pin failed: " + QString::fromStdString(r.error.message));
             }, Qt::QueuedConnection);
         }).detach();
     } else if (selected == copyLinkAction) {
@@ -842,11 +882,13 @@ void MainWindow::showTimelineContextMenu(const QString& eventId, const QPoint& g
         std::string roomId = currentRoomId_.toStdString();
         std::string eid = eventId.toStdString();
         MatrixClient* client = client_;
-        std::thread([this, client, roomId, eid]() {
+        QPointer<MainWindow> guard(this);
+        std::thread([guard, client, roomId, eid]() {
             auto r = client->redactEvent(roomId, eid);
-            QMetaObject::invokeMethod(this, [this, r]() {
-                if (r.ok) statusLabel_->setText("Message redacted.");
-                else statusLabel_->setText("Redact failed: " + QString::fromStdString(r.error.message));
+            QMetaObject::invokeMethod(guard, [guard, r]() {
+                if (guard.isNull()) return;
+                if (r.ok) guard->statusLabel_->setText("Message redacted.");
+                else guard->statusLabel_->setText("Redact failed: " + QString::fromStdString(r.error.message));
             }, Qt::QueuedConnection);
         }).detach();
     }
@@ -902,6 +944,21 @@ DisplayedEvent MainWindow::fastEventToDisplayed(const FastEvent& fe) {
 }
 
 void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
+    // Remove rooms we've left (or been kicked from) since the last sync.
+    // The server includes them in rooms.leave ONE TIME so we can clean up.
+    for (const auto& leftId : resp.leftRoomIds) {
+        std::string roomId(leftId);
+        roomModel_->removeRoom(roomId);
+        // If it was the current room, clear the timeline view too
+        if (currentRoomId_.toStdString() == roomId) {
+            currentRoomId_.clear();
+            timelineModel_->clear();
+            timelineView_->hide();
+            timelinePlaceholder_->show();
+            messageEdit_->hide();
+        }
+    }
+
     for (const auto& [roomIdView, room] : resp.joinedRooms) {
         std::string roomId(roomIdView);
         RoomData rd;

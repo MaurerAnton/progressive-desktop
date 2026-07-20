@@ -40,6 +40,9 @@ public:
     bool upsertRoom(const RoomData& room);
     void clear();
 
+    // Remove a room by roomId. Returns true if a row was removed.
+    bool removeRoom(const std::string& roomId);
+
     const RoomData* at(int row) const;
     int findRowByRoomId(const std::string& roomId) const;
 

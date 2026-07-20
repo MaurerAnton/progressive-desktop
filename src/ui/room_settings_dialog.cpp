@@ -10,6 +10,7 @@
 #include <QInputDialog>
 #include <QMessageBox>
 #include <QMetaObject>
+#include <QPointer>
 #include <QThread>
 #include <thread>
 
@@ -39,28 +40,19 @@ std::vector<MemberInfo> parseMembersResponse(const std::string& json) {
 
     for (auto evt : chunkResult.value()) {
         MemberInfo m;
-        auto uid = evt["user_id"].get_string();
+        // /members API returns m.room.member state events. User ID is in
+        // "state_key" (NOT "user_id" — that field doesn't exist). The
+        // content object holds membership, displayname, avatar_url.
+        auto uid = evt["state_key"].get_string();
         if (uid.error() == simdjson::SUCCESS) m.userId = std::string(uid.value());
 
         auto dn = evt["content"]["displayname"].get_string();
         if (dn.error() == simdjson::SUCCESS) m.displayname = std::string(dn.value());
 
-        // Also try top-level displayname (members API returns it at top level)
-        if (m.displayname.empty()) {
-            auto dn2 = evt["displayname"].get_string();
-            if (dn2.error() == simdjson::SUCCESS) m.displayname = std::string(dn2.value());
-        }
-
-        auto memb = evt["membership"].get_string();
+        auto memb = evt["content"]["membership"].get_string();
         if (memb.error() == simdjson::SUCCESS) m.membership = std::string(memb.value());
 
-        // Also try content.membership
-        if (m.membership.empty()) {
-            auto memb2 = evt["content"]["membership"].get_string();
-            if (memb2.error() == simdjson::SUCCESS) m.membership = std::string(memb2.value());
-        }
-
-        auto av = evt["avatar_url"].get_string();
+        auto av = evt["content"]["avatar_url"].get_string();
         if (av.error() == simdjson::SUCCESS) m.avatarUrl = std::string(av.value());
 
         if (!m.userId.empty()) result.push_back(std::move(m));
@@ -118,11 +110,13 @@ RoomSettingsDialog::RoomSettingsDialog(MatrixClient* client, const std::string& 
     membersList_->setContextMenuPolicy(Qt::CustomContextMenu);
 
     // Load topic from current state using simdjson
-    std::thread([this]() {
+    QPointer<RoomSettingsDialog> guard(this);
+    std::thread([guard, this]() {
         auto state = client_->getRoomState(roomId_);
-        QMetaObject::invokeMethod(this, [this, state]() {
+        QMetaObject::invokeMethod(guard, [guard, state]() {
+            if (guard.isNull()) return;
             if (!state.ok) {
-                statusLabel_->setText("Failed to load state: " + QString::fromStdString(state.error.message));
+                guard->statusLabel_->setText("Failed to load state: " + QString::fromStdString(state.error.message));
                 return;
             }
             // Parse state events with simdjson — state.data is an array of events
@@ -137,13 +131,13 @@ RoomSettingsDialog::RoomSettingsDialog(MatrixClient* client, const std::string& 
                         if (t.error() == simdjson::SUCCESS && t.value() == "m.room.topic") {
                             auto topic = evt["content"]["topic"].get_string();
                             if (topic.error() == simdjson::SUCCESS) {
-                                topicEdit_->setPlainText(QString::fromUtf8(topic.value().data(), (int)topic.value().size()));
+                                guard->topicEdit_->setPlainText(QString::fromUtf8(topic.value().data(), (int)topic.value().size()));
                             }
                         }
                     }
                 }
             }
-            statusLabel_->setText("Ready.");
+            guard->statusLabel_->setText("Ready.");
         }, Qt::QueuedConnection);
     }).detach();
 
@@ -155,11 +149,13 @@ void RoomSettingsDialog::onSaveTopicClicked() {
     statusLabel_->setText("Saving topic...");
     QApplication::processEvents();
 
-    std::thread([this, topic]() {
+    QPointer<RoomSettingsDialog> guard(this);
+    std::thread([guard, this, topic]() {
         auto r = client_->setRoomTopic(roomId_, topic);
-        QMetaObject::invokeMethod(this, [this, r]() {
-            if (r.ok) statusLabel_->setText("Topic saved.");
-            else statusLabel_->setText("Failed: " + QString::fromStdString(r.error.message));
+        QMetaObject::invokeMethod(guard, [guard, r]() {
+            if (guard.isNull()) return;
+            if (r.ok) guard->statusLabel_->setText("Topic saved.");
+            else guard->statusLabel_->setText("Failed: " + QString::fromStdString(r.error.message));
         }, Qt::QueuedConnection);
     }).detach();
 }
@@ -169,11 +165,13 @@ void RoomSettingsDialog::onSaveNameClicked() {
     statusLabel_->setText("Saving name...");
     QApplication::processEvents();
 
-    std::thread([this, name]() {
+    QPointer<RoomSettingsDialog> guard(this);
+    std::thread([guard, this, name]() {
         auto r = client_->setRoomName(roomId_, name);
-        QMetaObject::invokeMethod(this, [this, r]() {
-            if (r.ok) statusLabel_->setText("Name saved.");
-            else statusLabel_->setText("Failed: " + QString::fromStdString(r.error.message));
+        QMetaObject::invokeMethod(guard, [guard, r]() {
+            if (guard.isNull()) return;
+            if (r.ok) guard->statusLabel_->setText("Name saved.");
+            else guard->statusLabel_->setText("Failed: " + QString::fromStdString(r.error.message));
         }, Qt::QueuedConnection);
     }).detach();
 }
@@ -182,17 +180,19 @@ void RoomSettingsDialog::loadMembers() {
     statusLabel_->setText("Loading members...");
     membersList_->clear();
 
-    std::thread([this]() {
+    QPointer<RoomSettingsDialog> guard(this);
+    std::thread([guard, this]() {
         auto r = client_->getRoomMembers(roomId_);
-        QMetaObject::invokeMethod(this, [this, r]() {
+        QMetaObject::invokeMethod(guard, [guard, r]() {
+            if (guard.isNull()) return;
             if (!r.ok) {
-                statusLabel_->setText("Failed to load members: " + QString::fromStdString(r.error.message));
+                guard->statusLabel_->setText("Failed to load members: " + QString::fromStdString(r.error.message));
                 return;
             }
 
             auto members = parseMembersResponse(r.data);
             if (members.empty()) {
-                statusLabel_->setText("No members found.");
+                guard->statusLabel_->setText("No members found.");
                 return;
             }
 
@@ -203,10 +203,10 @@ void RoomSettingsDialog::loadMembers() {
                 display += "  (" + QString::fromStdString(m.userId) + ")";
                 auto* item = new QListWidgetItem(display);
                 item->setData(Qt::UserRole, QString::fromStdString(m.userId));
-                membersList_->addItem(item);
+                guard->membersList_->addItem(item);
                 count++;
             }
-            statusLabel_->setText(QString("%1 members.").arg(count));
+            guard->statusLabel_->setText(QString("%1 members.").arg(count));
         }, Qt::QueuedConnection);
     }).detach();
 }

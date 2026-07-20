@@ -35,17 +35,14 @@ bool getBoolOrFalse(simdjson::dom::element parent, std::string_view key) {
     return false;
 }
 
-// Convert a simdjson string element to std::string_view. Empty on error.
-inline std::string_view sv(simdjson::dom::element e) {
-    auto r = e.get_string();
-    return r.error() == simdjson::SUCCESS ? std::string_view(r.value()) : std::string_view{};
-}
-
-// Unwrap a simdjson_result<element> → element. Returns a default-constructed
-// (null) element on error; subsequent lookups on it will just fail silently.
-inline simdjson::dom::element unwrap(simdjson::simdjson_result<simdjson::dom::element> r) {
-    if (r.error() == simdjson::SUCCESS) return r.value();
-    return {};
+// Accept a simdjson_result<element> (e.g. from evt["type"]) and extract
+// string_view. Returns empty on ANY error (missing key, wrong type, etc.).
+// This replaces the old unwrap() + sv() pattern that crashed on missing keys
+// because unwrap() returned a default-constructed element with no usable tape.
+inline std::string_view sv(simdjson::simdjson_result<simdjson::dom::element> r) {
+    if (r.error() != simdjson::SUCCESS) return {};
+    auto sr = r.value().get_string();
+    return sr.error() == simdjson::SUCCESS ? std::string_view(sr.value()) : std::string_view{};
 }
 
 // Build a FastEvent from a simdjson event object.ownedStrings — the deque to
@@ -53,10 +50,10 @@ inline simdjson::dom::element unwrap(simdjson::simdjson_result<simdjson::dom::el
 FastEvent buildFastEvent(simdjson::dom::element evt,
                           std::deque<std::string>& ownedStrings) {
     FastEvent e;
-    e.type            = sv(unwrap(evt["type"]));
-    e.eventId         = sv(unwrap(evt["event_id"]));
-    e.senderId        = sv(unwrap(evt["sender"]));
-    e.stateKey        = sv(unwrap(evt["state_key"]));
+    e.type            = sv(evt["type"]);
+    e.eventId         = sv(evt["event_id"]);
+    e.senderId        = sv(evt["sender"]);
+    e.stateKey        = sv(evt["state_key"]);
     e.originServerTs = getIntOrZero(evt, "origin_server_ts");
 
     // contentJson — serialize the "content" object back to JSON so

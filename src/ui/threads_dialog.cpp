@@ -10,6 +10,8 @@
 #include <thread>
 
 #include <progressive/json_parser.hpp>
+#include <simdjson.h>
+#include <cstdio>
 
 namespace progressive::desktop {
 
@@ -53,36 +55,41 @@ void ThreadsDialog::loadThreads() {
                 statusLabel_->setText("Error: " + QString::fromStdString(r.error.message));
                 return;
             }
-            // Parse thread_root_ids array
-            auto pos = r.data.find("\"thread_root_ids\"");
-            if (pos == std::string::npos) {
-                statusLabel_->setText("No threads found.");
-                return;
-            }
-            auto arrStart = r.data.find('[', pos);
-            auto arrEnd = r.data.find(']', arrStart);
-            if (arrStart == std::string::npos || arrEnd == std::string::npos) {
-                statusLabel_->setText("No threads found.");
-                return;
-            }
+            std::fprintf(stderr, "[threads] response: %s\n",
+                         r.data.size() > 500 ? (r.data.substr(0, 500) + "...").c_str() : r.data.c_str());
 
+            // Parse with simdjson — the /threads endpoint returns:
+            // {"chunk":[{"event_id":"$root","count":3,"current_user_participated":true}],"next_batch":"..."}
+            simdjson::dom::parser parser;
+            auto rootResult = parser.parse(r.data);
+            if (rootResult.error() != simdjson::SUCCESS) {
+                statusLabel_->setText("Failed to parse threads response.");
+                return;
+            }
+            auto chunkResult = rootResult.value()["chunk"].get_array();
+            if (chunkResult.error() != simdjson::SUCCESS) {
+                statusLabel_->setText("No threads found.");
+                return;
+            }
             int count = 0;
-            size_t p = arrStart + 1;
-            while (p < arrEnd) {
-                auto q1 = r.data.find('"', p);
-                if (q1 == std::string::npos || q1 >= arrEnd) break;
-                auto q2 = r.data.find('"', q1 + 1);
-                if (q2 == std::string::npos) break;
-                auto eventId = r.data.substr(q1 + 1, q2 - q1 - 1);
+            for (auto entry : chunkResult.value()) {
+                auto eid = entry["event_id"].get_string();
+                if (eid.error() != simdjson::SUCCESS) continue;
+                std::string eventId(eid.value());
 
-                auto* item = new QListWidgetItem(QString("Thread: %1").arg(
-                    QString::fromStdString(eventId).left(20) + "..."));
+                int replyCount = 0;
+                auto cnt = entry["count"].get_int64();
+                if (cnt.error() == simdjson::SUCCESS) replyCount = static_cast<int>(cnt.value());
+
+                QString display = QString("Thread: %1%2").arg(
+                    QString::fromStdString(eventId).left(20) + "...",
+                    replyCount > 0 ? QString(" (%1 replies)").arg(replyCount) : "");
+
+                auto* item = new QListWidgetItem(display);
                 item->setData(Qt::UserRole, QString::fromStdString(eventId));
                 list_->addItem(item);
                 count++;
-                p = q2 + 1;
             }
-
             statusLabel_->setText(QString("Found %1 thread(s). Double-click to view replies.").arg(count));
         }, Qt::QueuedConnection);
     }).detach();

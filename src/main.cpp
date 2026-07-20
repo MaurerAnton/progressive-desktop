@@ -160,17 +160,16 @@ static void runGui(int argc, char** argv) {
     // Noto Color Emoji installed (e.g. minimal PineTab 2).
     int emojiFontId = QFontDatabase::addApplicationFont(":/fonts/OpenMoji-color.ttf");
     if (emojiFontId >= 0) {
-        QString family = QFontDatabase::applicationFontFamilies(emojiFontId).value(0);
-        if (!family.isEmpty()) {
-            // Insert as a fallback for emoji script — Qt picks the family
-            // that has the needed glyphs.
-            QFont defaultFont = QApplication::font();
-            defaultFont.setStyleStrategy(QFont::PreferMatch);
-            QApplication::setFont(defaultFont, "QPushButton");
-            // Set OpenMoji as fallback for emoji-only widgets
-            // (buttons in emoji picker, attach/emoji buttons)
-            // Qt's font matching will use it for emoji codepoints.
+        QStringList families = QFontDatabase::applicationFontFamilies(emojiFontId);
+        if (!families.isEmpty()) {
+            QString family = families.first();
+            std::fprintf(stderr, "[font] loaded bundled emoji font: %s\n", family.toUtf8().data());
+            // Set as default fallback font for the whole app.
+            // Qt will use it for codepoints not covered by the primary font.
+            QFont::insertSubstitution(QApplication::font().family(), family);
         }
+    } else {
+        std::fprintf(stderr, "[font] WARNING: failed to load bundled emoji font!\n");
     }
 
     // Dark theme is the default — applied before any widgets are constructed

@@ -29,7 +29,10 @@ void SyncEngine::start() {
 void SyncEngine::stop() {
     if (!running_.exchange(false)) return;
     cv_.notify_all();
-    if (worker_.joinable()) worker_.join();
+    // Don't join — the worker may be blocked in a 10s HTTP request.
+    // Detach so it finishes on its own when running_ is checked next.
+    // The worker checks running_ after each sync cycle and exits.
+    if (worker_.joinable()) worker_.detach();
 }
 
 void SyncEngine::pause() {
@@ -66,7 +69,9 @@ void SyncEngine::run() {
         if (!running_) break;
 
         // Do one sync.
-        auto result = client_->syncFast(sinceToken_, 30000);
+        // Use 10s long-poll timeout (was 30s — caused hangs on close).
+        // The HTTP timeout is timeoutMs + 10000 = 20s.
+        auto result = client_->syncFast(sinceToken_, 10000);
 
         if (!result.ok) {
             stats_.errors++;

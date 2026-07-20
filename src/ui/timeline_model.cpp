@@ -32,6 +32,8 @@ QVariant TimelineModel::data(const QModelIndex& index, int role) const {
         case ReplyToRole:      return QString::fromStdString(e.replyToEventId);
         case IsThreadRootRole: return e.isThreadRoot;
         case ThreadCountRole:  return e.threadReplyCount;
+        case IsThreadReplyRole: return e.isThreadReply;
+        case ThreadRootIdRole: return QString::fromStdString(e.threadRootId);
         case IsPinnedRole:     return e.isPinned;
         case ImageRole:        return e.image;
         case ImageLoadedRole:  return e.imageLoaded;
@@ -93,7 +95,8 @@ void TimelineModel::setImage(const std::string& eventId, const QImage& img) {
     emit dataChanged(index(row), index(row), {ImageRole, ImageLoadedRole});
 }
 
-void TimelineModel::addReaction(const std::string& eventId, const std::string& emoji, const std::string& userId) {
+void TimelineModel::addReaction(const std::string& eventId, const std::string& emoji,
+                                  const std::string& userId, const std::string& reactionEventId) {
     int row = findRow(eventId);
     if (row < 0) return;
     auto& reactions = events_[row].reactions;
@@ -101,11 +104,13 @@ void TimelineModel::addReaction(const std::string& eventId, const std::string& e
         if (r.emoji == emoji) {
             r.count++;
             r.userIds.push_back(userId);
+            if (userId == /* our user */ "") {}  // can't check here — caller sets addedByMe
+            if (!reactionEventId.empty()) r.reactionEventId = reactionEventId;
             emit dataChanged(index(row), index(row), {ReactionsRole});
             return;
         }
     }
-    reactions.push_back({emoji, 1, false, {userId}});
+    reactions.push_back({emoji, 1, false, {userId}, reactionEventId});
     emit dataChanged(index(row), index(row), {ReactionsRole});
 }
 

@@ -10,6 +10,7 @@
 #include <QGuiApplication>
 #include <QPalette>
 #include <QAbstractItemModel>
+#include <cstdio>
 
 namespace progressive::desktop {
 
@@ -85,23 +86,25 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         // Use the cached version if available; otherwise trigger async load
         if (loader_->hasImage(avatarUrl.toStdString())) {
             avatarImg = loader_->getCached(avatarUrl.toStdString());
+            if (avatarImg.isNull()) {
+                std::fprintf(stderr, "[avatar] cached but null for %s\n", roomId.toUtf8().data());
+            }
         } else {
             // Trigger async load — the callback will update the model via
-            // dataChanged, causing a repaint. We use a const_cast to call
-            // the non-const fetchThumbnail.
+            // dataChanged, causing a repaint.
             QString roomIdCopy = roomId;
+            QString avatarUrlCopy = avatarUrl;
             auto* model = const_cast<QAbstractItemModel*>(index.model());
             const_cast<RoomListDelegate*>(this)->loader_->fetchThumbnail(
                 avatarUrl.toStdString(), 64, 64,
-                [roomIdCopy, model](const QImage& img) {
+                [roomIdCopy, avatarUrlCopy, model](const QImage& img) {
                     if (img.isNull() || !model) return;
-                    // Just trigger a dataChanged for this row — the next paint
-                    // will pick up the cached image from ImageLoader.
+                    // Trigger dataChanged for the row with this roomId —
+                    // next paint will pick up the cached image from ImageLoader.
                     for (int i = 0; i < model->rowCount(); ++i) {
                         auto idx = model->index(i, 0);
-                        if (idx.data(RoomListModel::AvatarUrlRole).toString() == roomIdCopy ||
-                            idx.data(RoomListModel::RoomIdRole).toString() == roomIdCopy) {
-                            emit model->dataChanged(idx, idx);
+                        if (idx.data(RoomListModel::RoomIdRole).toString() == roomIdCopy) {
+                            emit model->dataChanged(idx, idx, {RoomListModel::AvatarUrlRole});
                             break;
                         }
                     }

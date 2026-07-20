@@ -47,14 +47,15 @@ void MessageEdit::setupUi() {
     textEdit_ = new QTextEdit(this);
     textEdit_->setAcceptRichText(false);
     textEdit_->setPlaceholderText("Type a message — Enter to send, Shift+Enter for newline");
-    textEdit_->setMaximumHeight(100);
+    textEdit_->setMaximumHeight(120);
+    textEdit_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     textEdit_->installEventFilter(this);
 
     // Subclass key handling via eventFilter (since we can't override keyPressEvent
     // of QTextEdit directly when using composition)
     layout->addWidget(attachBtn_);
     layout->addWidget(emojiBtn_);
-    layout->addWidget(textEdit_);
+    layout->addWidget(textEdit_, 1);  // stretch factor 1 = fills width
 
     connect(attachBtn_, &QPushButton::clicked, this, &MessageEdit::onAttachClicked);
     connect(emojiBtn_, &QPushButton::clicked, this, &MessageEdit::onEmojiClicked);

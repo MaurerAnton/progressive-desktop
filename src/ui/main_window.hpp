@@ -62,6 +62,8 @@ private slots:
     void onMessageClicked(const QString& eventId);
     void onTimelineContextMenu(const QPoint& pos);
     void onAttachFile(const QString& filePath);
+    void openThreadView(const QString& rootEventId);
+    void closeThreadView();
 
 private:
     void rebuildRoomList(const FastSyncResponse& resp);
@@ -105,8 +107,10 @@ private:
 
     MessageEdit* messageEdit_ = nullptr;
     QLabel* statusLabel_ = nullptr;
+    QLabel* threadBanner_ = nullptr;  // "← Back to chat" banner (visible in thread mode)
 
     QString currentRoomId_;
+    QString currentThreadRoot_;  // if non-empty, we're viewing a thread (not main chat)
     bool isFullscreen_ = false;
 };
 

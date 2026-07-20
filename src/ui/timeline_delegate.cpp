@@ -62,10 +62,18 @@ QString TimelineDelegate::formatMessageHtml(const QModelIndex& index) const {
     int64_t ts = index.data(TimelineModel::TimeRole).toLongLong();
     bool pinned = index.data(TimelineModel::IsPinnedRole).toBool();
     int threadCount = index.data(TimelineModel::ThreadCountRole).toInt();
+    bool isThreadReply = index.data(TimelineModel::IsThreadReplyRole).toBool();
 
     QString timeStr = formatTime(ts);
     QString pinIcon = pinned ? "📌 " : "";
-    QString threadIcon = threadCount > 0 ? QString(" 💬(%1)").arg(threadCount) : "";
+    // Thread reply: add left margin + 🧵 marker
+    QString leftMargin = isThreadReply ? "margin-left:30px;" : "margin:2px 0;";
+    QString threadPrefix = isThreadReply ? "🧵 <i style='color:#6699cc'>thread reply</i><br>" : "";
+    // Thread root: show "💬 N replies" bubble below the message
+    QString threadBubble = threadCount > 0
+        ? QString("<br><span style='color:#6699cc;font-size:smaller'>💬 %1 replies</span>")
+            .arg(threadCount)
+        : "";
 
     if (type == "m.room.message") {
         QString bodyHtml;
@@ -83,14 +91,15 @@ QString TimelineDelegate::formatMessageHtml(const QModelIndex& index) const {
         } else {
             bodyHtml = body.toHtmlEscaped();
         }
-        return QString("<p style='margin:2px 0'><b style='color:%1'>%2</b> "
-                       "<span style='color:#969696;font-size:smaller'>%3</span>%4%5<br>%6</p>")
-            .arg(colorFromId(index.data(TimelineModel::SenderRole).toString()).name(),
-                 sender.toHtmlEscaped(), timeStr, pinIcon, threadIcon, bodyHtml);
+        return QString("<p style='%1'>%2<b style='color:%3'>%4</b> "
+                       "<span style='color:#969696;font-size:smaller'>%5</span>%6<br>%7%8</p>")
+            .arg(leftMargin, threadPrefix,
+                 colorFromId(index.data(TimelineModel::SenderRole).toString()).name(),
+                 sender.toHtmlEscaped(), timeStr, pinIcon, bodyHtml, threadBubble);
     } else if (type == "m.room.encrypted") {
-        return QString("<p style='margin:2px 0;color:#969696'><b>%1</b> %2<br>"
-                       "<i>[encrypted — decryption in Phase 4]</i></p>")
-            .arg(sender.toHtmlEscaped(), timeStr);
+        return QString("<p style='%1;color:#969696'><b>%2</b> %3<br>"
+                       "<i>[encrypted]</i></p>")
+            .arg(leftMargin, sender.toHtmlEscaped(), timeStr);
     } else if (type == "m.room.member") {
         QString contentJson = index.data(TimelineModel::ContentJsonRole).toString();
         QString membership;

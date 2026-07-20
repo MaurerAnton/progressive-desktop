@@ -18,6 +18,7 @@ struct ReactionData {
     int count = 0;
     bool addedByMe = false;
     std::vector<std::string> userIds;
+    std::string reactionEventId;  // event_id of the m.reaction event (for redaction)
 };
 
 struct DisplayedEvent {
@@ -35,6 +36,8 @@ struct DisplayedEvent {
     std::string replyToEventId;    // if isReply
     bool isThreadRoot = false;     // has m.thread replies
     int threadReplyCount = 0;
+    bool isThreadReply = false;    // this message is a reply in a thread
+    std::string threadRootId;      // root event_id if isThreadReply
     bool isPinned = false;
     std::vector<ReactionData> reactions;
     QImage image;                  // cached thumbnail (empty if not loaded yet)
@@ -64,6 +67,8 @@ public:
         ReplyToRole,
         IsThreadRootRole,
         ThreadCountRole,
+        IsThreadReplyRole,
+        ThreadRootIdRole,
         IsPinnedRole,
         ReactionsRole,
         ImageRole,
@@ -81,7 +86,8 @@ public:
     void setImage(const std::string& eventId, const QImage& img);
 
     // Add/update a reaction on an event.
-    void addReaction(const std::string& eventId, const std::string& emoji, const std::string& userId);
+    void addReaction(const std::string& eventId, const std::string& emoji,
+                      const std::string& userId, const std::string& reactionEventId = "");
     void removeReaction(const std::string& eventId, const std::string& emoji, const std::string& userId);
 
     // Mark an event as pinned/unpinned.

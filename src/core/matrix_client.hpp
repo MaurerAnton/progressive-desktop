@@ -328,6 +328,13 @@ public:
                                                  const std::string& contentJson,
                                                  const std::string& txnId);
 
+    // PUT /_matrix/client/v3/rooms/{roomId}/send/{eventType}/{txnId}
+    // Sends an event with a pre-built content JSON. Used for m.image, m.file,
+    // m.video, m.audio messages where the content includes mxc URL etc.
+    ApiResult<std::string> sendMessageEvent(const std::string& roomId,
+                                               const std::string& eventType,
+                                               const std::string& contentJson);
+
 private:
     AccountInfo account_;
     SessionStore* sessionStore_ = nullptr;

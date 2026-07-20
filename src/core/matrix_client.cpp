@@ -418,6 +418,7 @@ ApiResult<std::string> MatrixClient::joinRoom(const std::string& roomIdOrAlias,
                                                  const std::vector<std::string>& viaServers) {
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    std::fprintf(stderr, "[join] joinRoom called: %s\n", roomIdOrAlias.c_str());
     std::ostringstream body;
     if (!viaServers.empty()) {
         // Matrix spec: body is {"via": ["server1", "server2"]}
@@ -736,7 +737,7 @@ ApiResult<std::string> MatrixClient::getThreads(const std::string& roomId, const
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
     std::ostringstream url;
-    url << account_.homeserverUrl << "/_matrix/client/v1/rooms/" << roomId
+    url << account_.homeserverUrl << "/_matrix/client/v1/rooms/" << urlEncodePath(roomId)
         << "/threads?limit=" << limit;
     if (!from.empty()) url << "&from=" << from;
     auto resp = httpGet(url.str(), authHeaders(), 15000);
@@ -850,9 +851,15 @@ MatrixClient::FastSyncResult MatrixClient::syncFast(const std::string& since,
     }
     std::ostringstream url;
     url << account_.homeserverUrl << "/_matrix/client/v3/sync"
-        << "?timeout=" << timeoutMs
-        << "&full_state=false";
-    if (!since.empty()) url << "&since=" << since;
+        << "?timeout=" << timeoutMs;
+    // For initial sync (empty since), use full_state=true to get ALL rooms
+    // including those with no recent activity. Without this, some rooms
+    // (especially DMs) don't appear until someone sends a message.
+    if (since.empty()) {
+        url << "&full_state=true";
+    } else {
+        url << "&full_state=false&since=" << since;
+    }
 
     auto resp = httpGet(url.str(), authHeaders(), timeoutMs + 10000);
     r.httpStatus = resp.statusCode;
@@ -1123,6 +1130,28 @@ ApiResult<std::string> MatrixClient::sendEncryptedEvent(const std::string& roomI
     std::ostringstream url;
     url << account_.homeserverUrl << "/_matrix/client/v3/rooms/"
         << urlEncodePath(roomId) << "/send/m.room.encrypted/" << txnId;
+    auto resp = httpPut(url.str(), contentJson, authHeaders(), 15000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) {
+        r.data = progressive::parseJsonStringValue(resp.body, "event_id");
+        r.ok = !r.data.empty();
+        if (!r.ok) r.error.message = "send: no event_id in response";
+    } else {
+        if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+        r.error.message = resp.errorMessage.empty() ? r.error.message : resp.errorMessage;
+    }
+    return r;
+}
+
+ApiResult<std::string> MatrixClient::sendMessageEvent(const std::string& roomId,
+                                                          const std::string& eventType,
+                                                          const std::string& contentJson) {
+    ApiResult<std::string> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    std::string txn = genTxnId("pd");
+    std::ostringstream url;
+    url << account_.homeserverUrl << "/_matrix/client/v3/rooms/"
+        << urlEncodePath(roomId) << "/send/" << eventType << "/" << txn;
     auto resp = httpPut(url.str(), contentJson, authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
     if (resp.success) {

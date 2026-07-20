@@ -271,7 +271,7 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
             return {};
         }
         // After createInbound, decrypt the message body
-        auto decResult = session.decrypt(body, 1);
+        auto decResult = session.decrypt(body, 0);
         if (!decResult.success) {
             std::fprintf(stderr, "[e2ee] Olm decrypt after createInbound failed\n");
             return {};

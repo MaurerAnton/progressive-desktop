@@ -278,6 +278,100 @@ ApiResult<bool> MatrixClient::setReadMarker(const std::string& roomId,
     return r;
 }
 
+ApiResult<std::string> MatrixClient::createRoom(const std::string& name,
+                                                  const std::string& topic,
+                                                  bool isDirect,
+                                                  const std::vector<std::string>& inviteUserIds) {
+    ApiResult<std::string> r;
+    if (!isLoggedIn()) {
+        r.error.message = "not logged in";
+        return r;
+    }
+
+    // Build JSON body
+    std::ostringstream o;
+    o << R"({"name":")" << name << R"(",)";
+    if (!topic.empty()) {
+        o << R"("topic":")" << topic << R"(",)";
+    }
+    o << R"("is_direct":)" << (isDirect ? "true" : "false");
+    if (!inviteUserIds.empty()) {
+        o << R"(,"invite":[)";
+        for (size_t i = 0; i < inviteUserIds.size(); ++i) {
+            if (i > 0) o << ",";
+            o << R"(")" << inviteUserIds[i] << R"(")";
+        }
+        o << "]";
+    }
+    o << R"(,"visibility":"private"})";
+
+    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/createRoom",
+                         o.str(), authHeaders(), 15000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) {
+        r.data = progressive::parseJsonStringValue(resp.body, "room_id");
+        r.ok = !r.data.empty();
+        if (!r.ok) r.error.message = "createRoom: no room_id in response";
+    } else {
+        if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+        r.error.message = resp.errorMessage.empty() ? r.error.message : resp.errorMessage;
+    }
+    return r;
+}
+
+ApiResult<std::string> MatrixClient::startDirectMessage(const std::string& userId) {
+    // For now: create a new direct room with this user.
+    // Room name: the other user's displayname or ID (simplified to their localpart)
+    std::string otherName = userId;
+    if (otherName[0] == '@') {
+        auto colon = otherName.find(':');
+        if (colon != std::string::npos) otherName = otherName.substr(1, colon - 1);
+        else otherName = otherName.substr(1);
+    }
+    return createRoom(otherName, "", true, {userId});
+}
+
+ApiResult<std::string> MatrixClient::searchUsers(const std::string& query, int limit) {
+    ApiResult<std::string> r;
+    if (!isLoggedIn()) {
+        r.error.message = "not logged in";
+        return r;
+    }
+    std::ostringstream o;
+    o << R"({"search_term":")" << query << R"(","limit":)" << limit << "}";
+    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/user_directory/search",
+                         o.str(), authHeaders(), 15000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) {
+        r.ok = true;
+        r.data = resp.body;
+    } else {
+        if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+        r.error.message = resp.errorMessage.empty() ? r.error.message : resp.errorMessage;
+    }
+    return r;
+}
+
+ApiResult<std::string> MatrixClient::getUserProfile(const std::string& userId) {
+    ApiResult<std::string> r;
+    if (!isLoggedIn()) {
+        r.error.message = "not logged in";
+        return r;
+    }
+    std::ostringstream url;
+    url << account_.homeserverUrl << "/_matrix/client/v3/profile/" << userId;
+    auto resp = httpGet(url.str(), authHeaders(), 10000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) {
+        r.ok = true;
+        r.data = resp.body;
+    } else {
+        if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+        r.error.message = resp.errorMessage.empty() ? r.error.message : resp.errorMessage;
+    }
+    return r;
+}
+
 ApiResult<progressive::SyncResponse> MatrixClient::sync(const std::string& since,
                                                         int timeoutMs) {
     ApiResult<progressive::SyncResponse> r;

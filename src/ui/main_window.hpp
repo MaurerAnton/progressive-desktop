@@ -51,15 +51,20 @@ public:
     void onSync(const FastSyncResponse& resp);
     void onSyncState(SyncEngineState state, const SyncEngineStats& stats);
 
-protected:
-    void closeEvent(QCloseEvent* e) override;
-
 private slots:
     void onRoomClicked(const QModelIndex& idx);
     void onSendMessage(const std::string& body);
     void onSlashCommand(const std::string& cmd, const std::string& args);
     void onLogoutClicked();
     void onLoginDialogAccepted();
+    void onNewChatClicked();
+    void onJoinRoomClicked();
+    void onSettingsClicked();
+    void onToggleFullscreen();
+
+protected:
+    void keyPressEvent(QKeyEvent* e) override;
+    void closeEvent(QCloseEvent* e) override;
 
 private:
     void rebuildRoomList(const FastSyncResponse& resp);
@@ -71,11 +76,14 @@ private:
 
     MatrixClient* client_ = nullptr;
     SessionStore* store_ = nullptr;
-    SyncEngine sync_;        // owns the worker thread
+    SyncEngine sync_;
 
-    // Toolbar + status
     class QToolBar* toolbar_ = nullptr;
     class QLabel* userLabel_ = nullptr;
+    class QAction* newChatAction_ = nullptr;
+    class QAction* joinRoomAction_ = nullptr;
+    class QAction* settingsAction_ = nullptr;
+    class QAction* fullscreenAction_ = nullptr;
     class QAction* logoutAction_ = nullptr;
     class QLabel* roomListHeader_ = nullptr;
     class QLabel* timelinePlaceholder_ = nullptr;
@@ -88,6 +96,7 @@ private:
     QLabel* statusLabel_ = nullptr;
 
     QString currentRoomId_;
+    bool isFullscreen_ = false;
 };
 
 } // namespace progressive::desktop

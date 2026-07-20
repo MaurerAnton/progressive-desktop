@@ -91,6 +91,37 @@ public:
     ApiResult<bool> setReadMarker(const std::string& roomId,
                                   const std::string& eventId);
 
+    // ---- Create room ----
+
+    // POST /_matrix/client/v3/createRoom
+    // Creates a new room. If inviteUserIds is non-empty, invites them.
+    // If isDirect=true, marks as a DM (m.direct account data).
+    // Returns the new room_id.
+    ApiResult<std::string> createRoom(const std::string& name,
+                                       const std::string& topic = "",
+                                       bool isDirect = false,
+                                       const std::vector<std::string>& inviteUserIds = {});
+
+    // ---- Start DM (shortcut: createRoom + invite) ----
+
+    // Creates a direct chat with a single user. If a DM already exists
+    // with this user, we could return it (TODO: search m.direct). For now,
+    // always creates a new room.
+    ApiResult<std::string> startDirectMessage(const std::string& userId);
+
+    // ---- Search users ----
+
+    // GET /_matrix/client/v3/user_directory/search
+    // Body: {"search_term": "query", "limit": 10}
+    // Returns raw JSON: {"results": [{"user_id": "@user:server", "displayname": "Name"}]}
+    ApiResult<std::string> searchUsers(const std::string& query, int limit = 10);
+
+    // ---- Get user profile ----
+
+    // GET /_matrix/client/v3/profile/{userId}
+    // Returns raw JSON: {"displayname": "...", "avatar_url": "..."}
+    ApiResult<std::string> getUserProfile(const std::string& userId);
+
     // ---- Sync ----
 
     // GET /_matrix/client/v3/sync — long-poll.

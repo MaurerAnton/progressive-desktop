@@ -1,24 +1,13 @@
-// src/ui/main_window.hpp — top-level window for Phase 2.
-//
-// Layout:
-//   ┌──────────────┬───────────────────────────┐
-//   │ Room list    │ Timeline                  │
-//   │ (sidebar)    │ (markdown bubbles)        │
-//   │              │                           │
-//   │              ├───────────────────────────┤
-//   │              │ MessageEdit (input)        │
-//   └──────────────┴───────────────────────────┘
-//
-// SyncEngine runs in a worker thread, calls onSync callback on the UI thread
-// (via Qt::QueuedConnection) to update the room list + timeline.
-
+// src/ui/main_window.hpp — Phase 3 main window with full features.
 #pragma once
-
 #include "core/matrix_client.hpp"
 #include "core/session_store.hpp"
 #include "core/sync_engine.hpp"
+#include "core/fast_sync.hpp"
 #include "room_list_model.hpp"
-#include "timeline_view.hpp"
+#include "timeline_model.hpp"
+#include "timeline_delegate.hpp"
+#include "image_loader.hpp"
 #include "message_edit.hpp"
 
 #include <QMainWindow>
@@ -26,6 +15,10 @@
 #include <QSplitter>
 #include <QLabel>
 #include <QPointer>
+
+class QToolBar;
+class QAction;
+class QLabel;
 
 namespace progressive::desktop {
 
@@ -39,17 +32,15 @@ public:
     void setClient(MatrixClient* client) { client_ = client; }
     void setSessionStore(SessionStore* store) { store_ = store; }
 
-    // Called once at startup if a saved session exists — starts sync.
     void startWithSavedSession();
-
-    // Force-logout: called by MainWindow itself when sync returns M_UNKNOWN_TOKEN.
-    // Clears the saved session, shows the login dialog, restarts sync on success.
     void forceReLogin();
 
-    // Public UI-thread slots — called from SyncEngine callbacks (marshaled
-    // via QMetaObject::invokeMethod in main.cpp).
     void onSync(const FastSyncResponse& resp);
     void onSyncState(SyncEngineState state, const SyncEngineStats& stats);
+
+protected:
+    void keyPressEvent(QKeyEvent* e) override;
+    void closeEvent(QCloseEvent* e) override;
 
 private slots:
     void onRoomClicked(const QModelIndex& idx);
@@ -59,39 +50,51 @@ private slots:
     void onLoginDialogAccepted();
     void onNewChatClicked();
     void onJoinRoomClicked();
+    void onBrowseRoomsClicked();
     void onSettingsClicked();
     void onToggleFullscreen();
-
-protected:
-    void keyPressEvent(QKeyEvent* e) override;
-    void closeEvent(QCloseEvent* e) override;
+    void onAllThreadsClicked();
+    void onRoomSettingsClicked();
+    void onImageClicked(const QString& eventId, const QString& mxcUrl);
+    void onMessageClicked(const QString& eventId);
+    void onTimelineContextMenu(const QPoint& pos);
 
 private:
     void rebuildRoomList(const FastSyncResponse& resp);
-    void appendTimelineForRoom(const std::string& roomId,
-                                const std::vector<FastEvent>& events);
+    void appendTimelineForRoom(const std::string& roomId, const std::vector<FastEvent>& events);
     void wireSyncCallbacks();
     void showLoginDialog();
     void updateRoomListHeader();
+    DisplayedEvent fastEventToDisplayed(const FastEvent& fe);
+    void showTimelineContextMenu(const QString& eventId, const QPoint& globalPos);
 
     MatrixClient* client_ = nullptr;
     SessionStore* store_ = nullptr;
     SyncEngine sync_;
+    ImageLoader* imageLoader_ = nullptr;
 
-    class QToolBar* toolbar_ = nullptr;
-    class QLabel* userLabel_ = nullptr;
-    class QAction* newChatAction_ = nullptr;
-    class QAction* joinRoomAction_ = nullptr;
-    class QAction* settingsAction_ = nullptr;
-    class QAction* fullscreenAction_ = nullptr;
-    class QAction* logoutAction_ = nullptr;
-    class QLabel* roomListHeader_ = nullptr;
-    class QLabel* timelinePlaceholder_ = nullptr;
+    QToolBar* toolbar_ = nullptr;
+    QLabel* userLabel_ = nullptr;
+    QAction* newChatAction_ = nullptr;
+    QAction* joinRoomAction_ = nullptr;
+    QAction* browseRoomsAction_ = nullptr;
+    QAction* allThreadsAction_ = nullptr;
+    QAction* roomSettingsAction_ = nullptr;
+    QAction* settingsAction_ = nullptr;
+    QAction* fullscreenAction_ = nullptr;
+    QAction* logoutAction_ = nullptr;
+    QLabel* roomListHeader_ = nullptr;
+    QLabel* timelinePlaceholder_ = nullptr;
 
     QSplitter* splitter_ = nullptr;
     QListView* roomList_ = nullptr;
     RoomListModel* roomModel_ = nullptr;
-    TimelineView* timeline_ = nullptr;
+
+    // Timeline (replaces old TimelineView)
+    QListView* timelineView_ = nullptr;
+    TimelineModel* timelineModel_ = nullptr;
+    TimelineDelegate* timelineDelegate_ = nullptr;
+
     MessageEdit* messageEdit_ = nullptr;
     QLabel* statusLabel_ = nullptr;
 

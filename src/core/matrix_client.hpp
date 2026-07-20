@@ -122,6 +122,106 @@ public:
     // Returns raw JSON: {"displayname": "...", "avatar_url": "..."}
     ApiResult<std::string> getUserProfile(const std::string& userId);
 
+    // ---- Join / Leave room ----
+
+    // POST /_matrix/client/v3/join/{roomIdOrAlias}
+    // Body: {"server_name": ["server1", ...]} optional via hints
+    // Returns room_id from response.
+    ApiResult<std::string> joinRoom(const std::string& roomIdOrAlias,
+                                     const std::vector<std::string>& viaServers = {});
+
+    // POST /_matrix/client/v3/rooms/{roomId}/leave
+    ApiResult<bool> leaveRoom(const std::string& roomId);
+
+    // ---- Reactions ----
+
+    // POST /_matrix/client/v3/rooms/{roomId}/send/m.reaction/{txnId}
+    // Body: {"m.relates_to":{"rel_type":"m.annotation","event_id":"...","key":"emoji"}}
+    ApiResult<std::string> sendReaction(const std::string& roomId,
+                                          const std::string& eventId,
+                                          const std::string& emoji);
+
+    // ---- Redact (delete) message ----
+
+    // PUT /_matrix/client/v3/rooms/{roomId}/redact/{eventId}/{txnId}
+    ApiResult<bool> redactEvent(const std::string& roomId,
+                                 const std::string& eventId,
+                                 const std::string& reason = "");
+
+    // ---- Pin / Unpin message ----
+
+    // PUT m.room.pinned_events state — appends/removes eventId from pinned list.
+    // Uses getRoomState to fetch current pinned list, then PUTs the new one.
+    ApiResult<bool> pinMessage(const std::string& roomId, const std::string& eventId);
+    ApiResult<bool> unpinMessage(const std::string& roomId, const std::string& eventId);
+
+    // ---- Room state (topic, name, etc.) ----
+
+    // GET /_matrix/client/v3/rooms/{roomId}/state — all state events as raw JSON array.
+    ApiResult<std::string> getRoomState(const std::string& roomId);
+
+    // PUT /_matrix/client/v3/rooms/{roomId}/state/{eventType}/{stateKey}
+    ApiResult<bool> sendStateEvent(const std::string& roomId,
+                                    const std::string& eventType,
+                                    const std::string& stateKey,
+                                    const std::string& bodyJson);
+
+    // PUT m.room.topic state
+    ApiResult<bool> setRoomTopic(const std::string& roomId, const std::string& topic);
+
+    // PUT m.room.name state
+    ApiResult<bool> setRoomName(const std::string& roomId, const std::string& name);
+
+    // ---- Room members ----
+
+    // GET /_matrix/client/v3/rooms/{roomId}/members
+    ApiResult<std::string> getRoomMembers(const std::string& roomId);
+
+    // ---- Kick / Ban / Power levels ----
+
+    // POST /_matrix/client/v3/rooms/{roomId}/kick  body: {"user_id":"...","reason":"..."}
+    ApiResult<bool> kickUser(const std::string& roomId, const std::string& userId, const std::string& reason = "");
+
+    // POST /_matrix/client/v3/rooms/{roomId}/ban  body: {"user_id":"...","reason":"..."}
+    ApiResult<bool> banUser(const std::string& roomId, const std::string& userId, const std::string& reason = "");
+
+    // POST /_matrix/client/v3/rooms/{roomId}/unban
+    ApiResult<bool> unbanUser(const std::string& roomId, const std::string& userId);
+
+    // PUT m.room.power_levels state — set a single user's power level.
+    // Fetches current power_levels, modifies the user's level, PUTs back.
+    ApiResult<bool> setUserPowerLevel(const std::string& roomId, const std::string& userId, int level);
+
+    // ---- Threads ----
+
+    // GET /_matrix/client/v1/rooms/{roomId}/threads?from=...&limit=...
+    // Returns raw JSON: {"thread_root_ids":[...], "next_batch":"..."}
+    ApiResult<std::string> getThreads(const std::string& roomId, const std::string& from = "", int limit = 20);
+
+    // GET /_matrix/client/v3/rooms/{roomId}/relations/{eventId}/m.thread
+    // Returns the thread's replies as a messages response (chunk + end).
+    ApiResult<std::string> getThreadReplies(const std::string& roomId, const std::string& rootEventId);
+
+    // ---- Public rooms directory ----
+
+    // POST /_matrix/client/v3/publicRooms  body: {"server":"...","limit":20,"filter":{"generic_search_term":"..."}}
+    // Returns raw JSON: {"chunk":[...], "next_batch":"..."}
+    ApiResult<std::string> searchPublicRooms(const std::string& server, const std::string& query, int limit = 20, const std::string& from = "");
+
+    // ---- Space hierarchy ----
+
+    // GET /_matrix/client/v1/rooms/{spaceId}/hierarchy?max_depth=2
+    // Returns raw JSON: {"rooms":[...], "next_batch":"..."}
+    ApiResult<std::string> getSpaceHierarchy(const std::string& spaceId, int maxDepth = 2);
+
+    // ---- Media download ----
+
+    // Resolve mxc:// to HTTP thumbnail URL and download.
+    // If width/height > 0, uses thumbnail endpoint; else full download.
+    // Returns raw bytes of the image.
+    ApiResult<std::vector<uint8_t>> downloadMedia(const std::string& mxcUrl,
+                                                     int width = 0, int height = 0);
+
     // ---- Sync ----
 
     // GET /_matrix/client/v3/sync — long-poll.

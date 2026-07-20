@@ -15,7 +15,6 @@ project(progressive-desktop
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug CACHE STRING "" FORCE)
 endif()
@@ -62,7 +61,14 @@ add_executable(progressive-desktop
     src/ui/login_dialog.cpp
     src/ui/main_window.cpp
     src/ui/room_list_model.cpp
-    src/ui/timeline_view.cpp
+    src/ui/timeline_model.cpp
+    src/ui/timeline_delegate.cpp
+    src/ui/image_loader.cpp
+    src/ui/image_viewer_dialog.cpp
+    src/ui/room_directory_dialog.cpp
+    src/ui/threads_dialog.cpp
+    src/ui/emoji_picker.cpp
+    src/ui/room_settings_dialog.cpp
     src/ui/message_edit.cpp
     src/ui/theme.cpp
 )

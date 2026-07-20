@@ -27,6 +27,10 @@ QVariant RoomListModel::data(const QModelIndex& index, int role) const {
         case LastSenderRole:   return QString::fromStdString(r.lastSender);
         case LastActivityRole: return static_cast<qulonglong>(r.lastActivityTs);
         case UnreadRole:       return r.unreadCount;
+        case IsDirectRole:     return r.isDirect;
+        case IsEncryptedRole:  return r.isEncrypted;
+        case IsSpaceRole:      return r.isSpace;
+        case AvatarUrlRole:    return QString::fromStdString(r.avatarUrl);
         case Qt::ToolTipRole:
             return QString("%1\n%2\nunread: %3")
                 .arg(QString::fromStdString(r.name))

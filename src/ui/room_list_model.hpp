@@ -13,15 +13,18 @@
 namespace progressive::desktop {
 
 struct RoomData {
-    std::string roomId;             // "!abc:server"
-    std::string name;               // display name (m.room.name or computed)
-    std::string lastMessage;        // preview text from last m.room.message
-    std::string lastSender;         // display name of last sender
-    int64_t lastActivityTs = 0;     // epoch ms
+    std::string roomId;
+    std::string name;
+    std::string lastMessage;
+    std::string lastSender;
+    int64_t lastActivityTs = 0;
     int unreadCount = 0;
     int highlightCount = 0;
     bool isDirect = false;
     bool isEncrypted = false;
+    bool isSpace = false;
+    std::string avatarUrl;          // mxc:// URL for room avatar
+    std::string parentId;           // parent space ID (empty if none)
 };
 
 class RoomListModel : public QAbstractListModel {
@@ -47,6 +50,10 @@ public:
         LastSenderRole,
         LastActivityRole,
         UnreadRole,
+        IsDirectRole,
+        IsEncryptedRole,
+        IsSpaceRole,
+        AvatarUrlRole,
     };
 
 private:

@@ -16,6 +16,7 @@ SyncEngine::~SyncEngine() {
 
 void SyncEngine::start() {
     if (running_.exchange(true)) return;  // already running
+    isFirstSync_ = true;  // first sync will use full_state=true to load ALL rooms
 
     // Load saved since-token if available.
     if (store_) {
@@ -69,10 +70,12 @@ void SyncEngine::run() {
         if (!running_) break;
 
         // Do one sync.
-        // Use 10s long-poll timeout (was 30s — caused hangs on close).
-        // full_state=true only when since is empty (initial/first sync).
-        // Otherwise incremental sync is much smaller and uses less memory.
-        auto result = client_->syncFast(sinceToken_, 10000, sinceToken_.empty());
+        // Use 10s long-poll timeout.
+        // First sync after start() always uses full_state=true to load ALL
+        // rooms including their state events (names, avatars, members).
+        // Without this, rooms appear with random names and no avatars.
+        bool fullState = isFirstSync_.exchange(false) || sinceToken_.empty();
+        auto result = client_->syncFast(sinceToken_, 10000, fullState);
 
         if (!result.ok) {
             stats_.errors++;

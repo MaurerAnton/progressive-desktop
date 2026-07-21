@@ -7,7 +7,10 @@
 #include <QFontDatabase>
 #include <QPushButton>
 #include <QWidget>
+#include <QPixmap>
+#include <QPainter>
 #include <algorithm>
+#include <cstdio>
 
 namespace progressive::desktop {
 
@@ -311,18 +314,40 @@ void EmojiPicker::buildGrid() {
     static QString emojiFont = findEmojiFont();
 
     int cols = 10;
-    // Build all buttons once — onSearchChanged will show/hide them.
     buttons_.clear();
     buttons_.reserve(allEmojis_.size());
+
+    // Build a hidden QLabel to render emoji text into QPixmaps.
+    // QLabel supports color glyphs; QPushButton text does not on Linux/Qt6.
+    // We render each emoji to a 28x28 pixmap and use it as QIcon.
+    QLabel renderLabel;
+    QFont emojiF = renderLabel.font();
+    if (!emojiFont.isEmpty()) emojiF.setFamily(emojiFont);
+    emojiF.setPixelSize(24);
+    renderLabel.setFont(emojiF);
+    renderLabel.setAlignment(Qt::AlignCenter);
+    renderLabel.setFixedSize(32, 32);
+
     for (int i = 0; i < allEmojis_.size(); ++i) {
         const auto& entry = allEmojis_[i];
-        auto* btn = new QPushButton(entry.emoji, this);
+
+        // Render emoji to pixmap via QLabel
+        renderLabel.setText(entry.emoji);
+        QPixmap pix(32, 32);
+        pix.fill(Qt::transparent);
+        QPainter p(&pix);
+        p.setRenderHint(QPainter::Antialiasing);
+        renderLabel.render(&p, QPoint(0, 0), QRegion(0, 0, 32, 32));
+        p.end();
+
+        auto* btn = new QPushButton(this);
         btn->setFixedSize(34, 34);
-        btn->setToolTip(entry.name + " — " + entry.keywords);
-        QFont f = btn->font();
-        if (!emojiFont.isEmpty()) f.setFamily(emojiFont);
-        f.setPointSize(14);
-        btn->setFont(f);
+        btn->setIcon(QIcon(pix));
+        btn->setIconSize(QSize(28, 28));
+        btn->setToolTip(entry.emoji + " " + entry.name + " — " + entry.keywords);
+        btn->setFlat(true);
+        btn->setStyleSheet("QPushButton { border: none; background: transparent; }"
+                           "QPushButton:hover { background: #3a3a3a; border-radius: 4px; }");
         grid_->addWidget(btn, i / cols, i % cols);
         connect(btn, &QPushButton::clicked, this, [this, emoji = entry.emoji]() {
             onEmojiClicked(emoji);

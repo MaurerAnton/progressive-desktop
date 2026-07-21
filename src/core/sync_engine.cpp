@@ -238,6 +238,7 @@ void SyncEngine::uploadDeviceKeys() {
     if (result.ok) {
         std::cerr << "[e2ee] device keys uploaded. Server response: "
                   << (result.data.size() > 200 ? result.data.substr(0, 200) + "..." : result.data) << "\n";
+        if (store_) store_->saveE2eeFlag("keys_published", true);
     } else {
         std::cerr << "[e2ee] device key upload FAILED: " << result.error.message << "\n";
     }

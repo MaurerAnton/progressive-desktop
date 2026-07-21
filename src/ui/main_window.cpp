@@ -689,10 +689,25 @@ void MainWindow::startWithSavedSession() {
             if (!newPickle.empty() && store_) {
                 store_->saveOlmAccount(newPickle, pickleKey);
             }
-            // Upload device keys in a background thread (so UI doesn't block).
-            std::thread([this]() {
-                sync_.uploadDeviceKeys();
-            }).detach();
+
+            // Load saved megolm sessions (survive app restart)
+            if (store_) {
+                auto megolmData = store_->loadMegolmSessions();
+                if (megolmData && !megolmData->empty()) {
+                    sync_.decryptor()->megolm()->unpickleAll(pickleKey, *megolmData);
+                    std::cerr << "[e2ee] loaded megolm sessions: " << sync_.decryptor()->megolm()->sessionCount() << "\n";
+                }
+            }
+
+            // Only upload device keys if not already published
+            bool published = store_ ? store_->loadE2eeFlag("keys_published").value_or(false) : false;
+            if (!published) {
+                std::thread([this]() {
+                    sync_.uploadDeviceKeys();
+                }).detach();
+            } else {
+                std::cerr << "[e2ee] device keys already published — skipping upload\n";
+            }
         }
     } catch (const std::exception& e) {
         std::cerr << "[e2ee] init failed: " << e.what() << "\n";
@@ -707,7 +722,16 @@ void MainWindow::startWithSavedSession() {
     sync_.start();
 }
 
-void MainWindow::closeEvent(QCloseEvent* e) { sync_.stop(); e->accept(); }
+void MainWindow::closeEvent(QCloseEvent* e) {
+    // Persist E2EE sessions before shutdown
+    if (store_ && sync_.decryptor()->isInitialized()) {
+        std::string pickleKey = client_->account().userId + "/" + client_->account().deviceId;
+        auto megolmPickle = sync_.decryptor()->megolm()->pickleAll(pickleKey);
+        if (!megolmPickle.empty()) store_->saveMegolmSessions(megolmPickle);
+    }
+    sync_.stop();
+    e->accept();
+}
 
 void MainWindow::keyPressEvent(QKeyEvent* e) {
     if (e->key() == Qt::Key_F11) { onToggleFullscreen(); e->accept(); return; }

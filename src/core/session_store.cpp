@@ -45,7 +45,6 @@ void SessionStore::close() {
 bool SessionStore::createSchema() {
     const char* sql =
         "CREATE TABLE IF NOT EXISTS account ("
-        "  id INTEGER PRIMARY KEY CHECK (id = 1),"
         "  user_id TEXT NOT NULL,"
         "  device_id TEXT,"
         "  homeserver_url TEXT NOT NULL,"
@@ -60,6 +59,10 @@ bool SessionStore::createSchema() {
         "  id INTEGER PRIMARY KEY CHECK (id = 1),"
         "  pickle TEXT NOT NULL,"
         "  pickle_key TEXT NOT NULL"
+        ");"
+        "CREATE TABLE IF NOT EXISTS e2ee_data ("
+        "  key TEXT PRIMARY KEY,"
+        "  value TEXT"
         ");";
     char* err = nullptr;
     int rc = sqlite3_exec(db_, sql, nullptr, nullptr, &err);
@@ -79,10 +82,10 @@ void SessionStore::checkpoint() {
 bool SessionStore::saveAccount(const AccountInfo& a) {
     if (!db_) return false;
     const char* sql =
-        "INSERT INTO account (id, user_id, device_id, homeserver_url, access_token, refresh_token) "
-        "VALUES (1, ?, ?, ?, ?, ?) "
-        "ON CONFLICT(id) DO UPDATE SET "
-        "  user_id=excluded.user_id, device_id=excluded.device_id, "
+        "INSERT INTO account (user_id, device_id, homeserver_url, access_token, refresh_token) "
+        "VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET "
+        "  device_id=excluded.device_id, "
         "  homeserver_url=excluded.homeserver_url, access_token=excluded.access_token, "
         "  refresh_token=excluded.refresh_token;";
     sqlite3_stmt* stmt = nullptr;
@@ -101,7 +104,7 @@ bool SessionStore::saveAccount(const AccountInfo& a) {
 
 std::optional<AccountInfo> SessionStore::loadAccount() {
     if (!db_) return std::nullopt;
-    const char* sql = "SELECT user_id, device_id, homeserver_url, access_token, refresh_token FROM account WHERE id=1;";
+    const char* sql = "SELECT user_id, device_id, homeserver_url, access_token, refresh_token FROM account ORDER BY rowid DESC LIMIT 1;";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
     std::optional<AccountInfo> result;
@@ -122,7 +125,7 @@ std::optional<AccountInfo> SessionStore::loadAccount() {
 
 bool SessionStore::clearAccount() {
     if (!db_) return false;
-    int rc = sqlite3_exec(db_, "DELETE FROM account WHERE id=1;", nullptr, nullptr, nullptr);
+    int rc = sqlite3_exec(db_, "DELETE FROM account;", nullptr, nullptr, nullptr);
     if (rc != SQLITE_OK) return false;
     checkpoint();
     return true;
@@ -195,6 +198,86 @@ std::optional<std::pair<std::string, std::string>> SessionStore::loadOlmAccount(
     }
     sqlite3_finalize(stmt);
     return result;
+}
+
+// ---- E2EE data store (key-value) ----
+
+bool SessionStore::saveMegolmSessions(const std::string& data) {
+    if (!db_) return false;
+    const char* sql = "INSERT INTO e2ee_data(key,value) VALUES('megolm',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, data.c_str(), -1, SQLITE_TRANSIENT);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) return false;
+    checkpoint();
+    return true;
+}
+
+std::optional<std::string> SessionStore::loadMegolmSessions() {
+    if (!db_) return std::nullopt;
+    const char* sql = "SELECT value FROM e2ee_data WHERE key='megolm';";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
+    std::optional<std::string> r;
+    if (sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL)
+        r = std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
+    sqlite3_finalize(stmt);
+    return r;
+}
+
+bool SessionStore::saveOlmSessions(const std::string& data) {
+    if (!db_) return false;
+    const char* sql = "INSERT INTO e2ee_data(key,value) VALUES('olm_sessions',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, data.c_str(), -1, SQLITE_TRANSIENT);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) return false;
+    checkpoint();
+    return true;
+}
+
+std::optional<std::string> SessionStore::loadOlmSessions() {
+    if (!db_) return std::nullopt;
+    const char* sql = "SELECT value FROM e2ee_data WHERE key='olm_sessions';";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
+    std::optional<std::string> r;
+    if (sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL)
+        r = std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
+    sqlite3_finalize(stmt);
+    return r;
+}
+
+bool SessionStore::saveE2eeFlag(const std::string& key, bool value) {
+    if (!db_) return false;
+    const char* sql = "INSERT INTO e2ee_data(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, ("flag_" + key).c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, (value ? "1" : "0"), -1, SQLITE_TRANSIENT);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) return false;
+    checkpoint();
+    return true;
+}
+
+std::optional<bool> SessionStore::loadE2eeFlag(const std::string& key) {
+    if (!db_) return std::nullopt;
+    const char* sql = "SELECT value FROM e2ee_data WHERE key=?1;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
+    std::string fk = "flag_" + key;
+    sqlite3_bind_text(stmt, 1, fk.c_str(), -1, SQLITE_TRANSIENT);
+    std::optional<bool> r;
+    if (sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL)
+        r = (std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0))) == "1");
+    sqlite3_finalize(stmt);
+    return r;
 }
 
 } // namespace progressive::desktop

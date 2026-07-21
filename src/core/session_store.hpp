@@ -40,9 +40,20 @@ public:
     bool clearSyncToken();
 
     // ---- Olm account (E2EE) ----
-    // Stores the pickled olm account + the pickle key used to encrypt it.
     bool saveOlmAccount(const std::string& pickle, const std::string& pickleKey);
     std::optional<std::pair<std::string, std::string>> loadOlmAccount();
+
+    // ---- Megolm sessions (E2EE) ----
+    bool saveMegolmSessions(const std::string& data);
+    std::optional<std::string> loadMegolmSessions();
+
+    // ---- Olm 1:1 sessions (E2EE) ----
+    bool saveOlmSessions(const std::string& data);
+    std::optional<std::string> loadOlmSessions();
+
+    // ---- E2EE flags ----
+    bool saveE2eeFlag(const std::string& key, bool value);
+    std::optional<bool> loadE2eeFlag(const std::string& key);
 
     // Force a WAL checkpoint. Called after each save.
     void checkpoint();

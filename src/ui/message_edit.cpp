@@ -7,6 +7,8 @@
 #include <QFont>
 #include <QFontDatabase>
 #include <QMenu>
+#include <QAbstractItemView>
+#include <QScrollBar>
 
 namespace progressive::desktop {
 
@@ -112,6 +114,52 @@ bool MessageEdit::eventFilter(QObject* obj, QEvent* event) {
         }
     }
     return QWidget::eventFilter(obj, event);
+}
+
+void MessageEdit::setMembers(const QStringList& names) {
+    if (!mentionModel_) {
+        mentionModel_ = new QStringListModel(this);
+        mentionCompleter_ = new QCompleter(mentionModel_, this);
+        mentionCompleter_->setCompletionMode(QCompleter::PopupCompletion);
+        mentionCompleter_->setCaseSensitivity(Qt::CaseInsensitive);
+        mentionCompleter_->setFilterMode(Qt::MatchContains);
+    }
+    mentionModel_->setStringList(names);
+    // Manual trigger: when @ is typed, show popup
+    connect(textEdit_, &QTextEdit::textChanged, this, [this]() {
+        QString text = textEdit_->toPlainText();
+        int cursor = textEdit_->textCursor().position();
+        // Find the @mention fragment
+        int atPos = text.lastIndexOf('@', cursor - 1);
+        if (atPos >= 0 && (atPos == 0 || text[atPos - 1].isSpace())) {
+            QString fragment = text.mid(atPos + 1, cursor - atPos - 1);
+            if (fragment.size() >= 0) {
+                mentionCompleter_->setCompletionPrefix(fragment);
+                if (mentionCompleter_->completionCount() > 0) {
+                    QRect cr = textEdit_->cursorRect();
+                    cr.setWidth(mentionCompleter_->popup()->sizeHintForColumn(0)
+                                + mentionCompleter_->popup()->verticalScrollBar()->sizeHint().width() + 4);
+                    mentionCompleter_->complete(cr);
+                    return;
+                }
+            }
+        }
+        mentionCompleter_->popup()->hide();
+    });
+    // Insert selected name
+    connect(mentionCompleter_, QOverload<const QString&>::of(&QCompleter::activated),
+            this, [this](const QString& name) {
+        QTextCursor c = textEdit_->textCursor();
+        QString text = textEdit_->toPlainText();
+        int cursor = c.position();
+        int atPos = text.lastIndexOf('@', cursor - 1);
+        if (atPos >= 0) {
+            c.setPosition(atPos);
+            c.setPosition(cursor, QTextCursor::KeepAnchor);
+            c.insertText("@" + name + " ");
+            textEdit_->setTextCursor(c);
+        }
+    });
 }
 
 } // namespace progressive::desktop

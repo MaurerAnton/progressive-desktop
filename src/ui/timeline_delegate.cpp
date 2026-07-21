@@ -472,11 +472,42 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
         QRect emoteRect(bubbleX + PAD, bubbleY + 6, textW, L.bubbleH - 10);
         p->drawText(emoteRect, Qt::AlignLeft | Qt::TextWordWrap, emoteText);
     } else if (!body.isEmpty()) {
-        int textBottom = bubbleY + L.bubbleH - 18; // room for timestamp row
+        int textBottom = bubbleY + L.bubbleH - 18;
         int textH = textBottom - curY;
         if (textH < 20) textH = 20;
-        drawRichText(p, QRect(textX, curY, textW, textH), body, msgtype);
-        curY += textH;
+        if (msgtype == "m.file" || msgtype == "m.audio") {
+            // File card: left border + icon + filename
+            int cardH = 38;
+            int cardW = qMin(textW, 250);
+            QRect cardRect(textX, curY, cardW, cardH);
+            p->setPen(QPen(QColor("#444"), 1));
+            p->setBrush(QColor("#1e1e2e"));
+            p->drawRoundedRect(cardRect, 6, 6);
+            // Left accent border
+            p->setPen(QPen(QColor(msgtype == "m.audio" ? "#4a6" : "#48a"), 3));
+            p->drawLine(textX + 2, curY + 4, textX + 2, curY + cardH - 4);
+            // Icon
+            QFont iconFont = p->font(); iconFont.setPointSize(14); p->setFont(iconFont);
+            p->setPen(QColor("#ccc"));
+            p->drawText(textX + 12, curY + 4, 24, 30, Qt::AlignCenter,
+                        msgtype == "m.audio" ? "🎵" : "📄");
+            // Filename
+            QFont nameF = p->font(); nameF.setPointSize(10); nameF.setBold(true);
+            p->setFont(nameF);
+            p->setPen(QColor("#ddd"));
+            QFontMetrics nfm(nameF);
+            p->drawText(textX + 40, curY + 6, cardW - 48, 18, Qt::AlignLeft,
+                        nfm.elidedText(body, Qt::ElideMiddle, cardW - 48));
+            // Type label
+            QFont typeF = p->font(); typeF.setPointSize(8); p->setFont(typeF);
+            p->setPen(QColor("#888"));
+            p->drawText(textX + 40, curY + 22, cardW - 48, 14, Qt::AlignLeft,
+                        msgtype == "m.audio" ? "Audio file" : "File");
+            curY += cardH + 4;
+        } else {
+            drawRichText(p, QRect(textX, curY, textW, textH), body, msgtype);
+            curY += textH;
+        }
     }
 
     // Image

@@ -568,45 +568,17 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(roomList_, &QListView::clicked, this, &MainWindow::onRoomClicked);
     connect(roomList_, &QListView::customContextMenuRequested, this, &MainWindow::onRoomListContextMenu);
     roomList_->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(messageEdit_, &MessageEdit::sendMessage, this, &MainWindow::onSendMessage);
-    connect(messageEdit_, &MessageEdit::slashCommand, this, &MainWindow::onSlashCommand);
-    connect(messageEdit_, &MessageEdit::attachFileRequested, this, [this]() {
-        if (currentRoomId_.isEmpty() || !client_) return;
-        QString filePath = QFileDialog::getOpenFileName(this, "Attach file",
-            QString(), "All files (*.*)");
-        if (filePath.isEmpty()) return;
-        onAttachFile(filePath);
-    });
+
+    // ChatView handles message sending, file attach, slash commands, quick react
+    chatView_ = new ChatView(client_, timelineModel_, messageEdit_, &sync_, this);
     connect(messageEdit_, &MessageEdit::emojiPickerRequested, this, [this]() {
         EmojiPicker picker(this);
         connect(&picker, &EmojiPicker::emojiSelected, this, [this](const QString& emoji) {
-            // Insert emoji at cursor position in the text edit
             QTextCursor c = messageEdit_->textEdit()->textCursor();
             c.insertText(emoji);
             messageEdit_->setFocus();
         });
         picker.exec();
-    });
-
-    connect(messageEdit_, &MessageEdit::quickReact, this, [this](const QString& emoji) {
-        if (currentRoomId_.isEmpty() || !client_) return;
-        // Find the last message in the timeline to react to
-        int lastRow = timelineModel_->rowCount(QModelIndex()) - 1;
-        if (lastRow < 0) return;
-        auto* lastEvt = timelineModel_->at(lastRow);
-        if (!lastEvt || lastEvt->eventId.empty()) return;
-        std::string eid = lastEvt->eventId;
-        std::string em = emoji.toStdString();
-        std::string roomId = currentRoomId_.toStdString();
-        MatrixClient* client = client_;
-        QPointer<MainWindow> guard(this);
-        std::thread([guard, client, roomId, eid, em]() {
-            auto r = client->sendReaction(roomId, eid, em);
-            QMetaObject::invokeMethod(guard, [guard, r, eid, em]() {
-                if (guard.isNull()) return;
-                if (r.ok) guard->timelineModel_->addReaction(eid, em, guard->client_->account().userId, r.data);
-            }, Qt::QueuedConnection);
-        }).detach();
     });
 
     // Timeline delegate signals
@@ -881,6 +853,7 @@ void MainWindow::onRoomClicked(const QModelIndex& idx) {
     chatLogBtn_->setChecked(false);
     chatLogFile_.reset();
     memberAvatarCache_.clear();
+    chatView_->setCurrentRoom(r->roomId, currentThreadRoot_.toStdString(), r->isEncrypted);
     timelineModel_->clear();
     timelinePlaceholder_->hide();
     timelineView_->show();
@@ -910,6 +883,15 @@ void MainWindow::onRoomClicked(const QModelIndex& idx) {
 
     // Pre-load member avatars from room state for better timeline display
     loadMemberAvatarsForRoom(r->roomId);
+
+    // Set mention autocomplete names
+    QStringList memberNames;
+    for (const auto& [key, val] : memberAvatarCache_) {
+        if (key.find("/name") != std::string::npos) {
+            memberNames << QString::fromStdString(val);
+        }
+    }
+    messageEdit_->setMembers(memberNames);
 
     // Load room history via /messages endpoint
     loadRoomHistory(r->roomId);

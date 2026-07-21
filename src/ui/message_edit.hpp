@@ -6,6 +6,8 @@
 #include <QWidget>
 #include <QTextEdit>
 #include <QPushButton>
+#include <QCompleter>
+#include <QStringListModel>
 #include <string>
 
 namespace progressive::desktop {
@@ -23,6 +25,9 @@ public:
     void setFocus() { textEdit_->setFocus(); }
     void show() { QWidget::show(); textEdit_->show(); }
     void hide() { QWidget::hide(); }
+
+    // Set member names for @mention autocomplete
+    void setMembers(const QStringList& names);
 
 signals:
     void sendMessage(const std::string& body);
@@ -42,6 +47,8 @@ private:
     QTextEdit* textEdit_ = nullptr;
     QPushButton* attachBtn_ = nullptr;
     QPushButton* emojiBtn_ = nullptr;
+    QCompleter* mentionCompleter_ = nullptr;
+    QStringListModel* mentionModel_ = nullptr;
 
     void setupUi();
 };

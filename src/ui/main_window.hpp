@@ -11,6 +11,7 @@
 #include "timeline_delegate.hpp"
 #include "image_loader.hpp"
 #include "message_edit.hpp"
+#include "chat_view.hpp"
 
 #include <QMainWindow>
 #include <QListView>
@@ -127,6 +128,7 @@ private:
     QPushButton* loadMoreBtn_ = nullptr;   // "↑ Load older messages" at top of timeline
     QPushButton* chatLogBtn_ = nullptr;    // "Save chat" toggle button
     QPushButton* threadBtn_ = nullptr;     // "Threads" sidebar toggle
+    ChatView* chatView_ = nullptr;          // message sending extracted
 
     QString currentRoomId_;
     QString currentThreadRoot_;  // if non-empty, we're viewing a thread (not main chat)

@@ -161,10 +161,43 @@ void TimelineDelegate::drawBubbleAvatar(QPainter* p, int x, int y,
 }
 
 void TimelineDelegate::drawBubble(QPainter* p, int x, int y, int w, int h,
-                                    const QColor& color) const {
+                                    const QColor& color, int tlRadius, int trRadius,
+                                    int brRadius, int blRadius) const {
     p->setPen(Qt::NoPen);
     p->setBrush(color);
-    p->drawRoundedRect(x, y, w, h, RADIUS, RADIUS);
+    QPainterPath path;
+    // Start top-left
+    path.moveTo(x + tlRadius, y);
+    // Top edge
+    path.lineTo(x + w - trRadius, y);
+    // Top-right corner
+    if (trRadius > 0)
+        path.arcTo(x + w - trRadius * 2, y, trRadius * 2, trRadius * 2, 90, -90);
+    else
+        path.lineTo(x + w, y);
+    // Right edge
+    path.lineTo(x + w, y + h - brRadius);
+    // Bottom-right corner
+    if (brRadius > 0)
+        path.arcTo(x + w - brRadius * 2, y + h - brRadius * 2, brRadius * 2, brRadius * 2, 0, -90);
+    else
+        path.lineTo(x + w, y + h);
+    // Bottom edge
+    path.lineTo(x + blRadius, y + h);
+    // Bottom-left corner
+    if (blRadius > 0)
+        path.arcTo(x, y + h - blRadius * 2, blRadius * 2, blRadius * 2, 270, -90);
+    else
+        path.lineTo(x, y + h);
+    // Left edge
+    path.lineTo(x, y + tlRadius);
+    // Top-left corner
+    if (tlRadius > 0)
+        path.arcTo(x, y, tlRadius * 2, tlRadius * 2, 180, -90);
+    else
+        path.lineTo(x, y);
+    path.closeSubpath();
+    p->drawPath(path);
 }
 
 void TimelineDelegate::drawSystemRow(QPainter* p, const QRect& rect,
@@ -215,8 +248,10 @@ struct BubbleLayout {
     int threadReplyH = 0;
     int threadCountH = 0;
     int bubbleH     = 0;
+    bool isFirstInGroup = true;
+    bool isLastInGroup  = true;
+    bool isEmote     = false;
 
-    // Sum all parts: name + PAD_TOP + text + optional image + indicators + PAD_BOTTOM + time row
     int totalBubbleH() const {
         int h = nameH + PAD_TOP;
         if (pinnedH)     h += pinnedH;
@@ -244,16 +279,45 @@ static BubbleLayout computeLayout(const QModelIndex& idx,
     bool isOutgoing = !myUserId.isEmpty() && senderId == myUserId;
     bool isEmote = (msgtype == "m.emote");
     bool hasImage = (msgtype == "m.image" || msgtype == "m.video") && !mxcUrl.isEmpty();
+    L.isEmote = isEmote;
 
-    int prevRow = idx.row() - 1;
-    bool sameSender = false;
-    if (prevRow >= 0) {
-        auto prevIdx = idx.model()->index(prevRow, 0);
-        if (prevIdx.isValid())
-            sameSender = (prevIdx.data(TimelineModel::SenderRole).toString() == senderId);
+    // Group position: skip system messages when checking prev/next
+    auto isSystem = [](const QModelIndex& i) {
+        QString t = i.data(TimelineModel::TypeRole).toString();
+        return t == "m.room.member" || t == "m.room.redaction";
+    };
+    auto isMsg = [&](const QModelIndex& i) {
+        return !isSystem(i) && i.data(TimelineModel::MsgTypeRole).toString() != "m.emote";
+    };
+
+    // Emotes always stand alone (no grouping)
+    if (isEmote) {
+        L.isFirstInGroup = true;
+        L.isLastInGroup = true;
+    } else {
+        // Check prev (walk back skipping system/emote rows)
+        int p = idx.row() - 1;
+        while (p >= 0) {
+            auto pi = idx.model()->index(p, 0);
+            if (isMsg(pi)) {
+                L.isFirstInGroup = (pi.data(TimelineModel::SenderRole).toString() != senderId);
+                break;
+            }
+            p--;
+        }
+        // Check next (walk forward skipping system/emote rows)
+        int n = idx.row() + 1;
+        while (n < idx.model()->rowCount()) {
+            auto ni = idx.model()->index(n, 0);
+            if (isMsg(ni)) {
+                L.isLastInGroup = (ni.data(TimelineModel::SenderRole).toString() != senderId);
+                break;
+            }
+            n++;
+        }
     }
 
-    if (!isOutgoing && !isEmote && !sameSender && !senderName.isEmpty())
+    if (!isOutgoing && !isEmote && L.isFirstInGroup && !senderName.isEmpty())
         L.nameH = 18;
 
     int textW = bubbleW - PAD * 2;
@@ -307,23 +371,15 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
         bubbleX = avatarX + AVATAR + GAP;
     }
 
-    int prevRow = idx.row() - 1;
-    bool sameSender = false;
-    if (prevRow >= 0) {
-        auto prevIdx = idx.model()->index(prevRow, 0);
-        if (prevIdx.isValid())
-            sameSender = (prevIdx.data(TimelineModel::SenderRole).toString() == senderId);
-    }
+    int topY = rowRect.y() + (L.isFirstInGroup ? 4 : SAME_SENDER_GAP);
 
-    int topY = rowRect.y() + (sameSender ? SAME_SENDER_GAP : 4);
-
-    // Avatar
-    if (!isEmote && !sameSender) {
+    // Avatar — only first message in group
+    if (!isEmote && L.isFirstInGroup) {
         drawBubbleAvatar(p, avatarX, topY, idx, senderId, senderName, avatarUrl);
     }
 
-    // Sender name
-    if (!isOutgoing && !isEmote && !sameSender && !senderName.isEmpty()) {
+    // Sender name above bubble (incoming only, first in group)
+    if (!isOutgoing && !isEmote && L.isFirstInGroup && !senderName.isEmpty()) {
         QFont nameFont = p->font();
         nameFont.setPointSize(10);
         nameFont.setBold(true);
@@ -334,11 +390,18 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
 
     int bubbleY = topY + L.nameH;
 
+    // Per-corner radii: only first/last in group rounded, middle = flat
+    int r = RADIUS;
+    int tl = L.isFirstInGroup ? r : 0;
+    int tr = L.isFirstInGroup ? r : 0;
+    int br = L.isLastInGroup ? r : 0;
+    int bl = L.isLastInGroup ? r : 0;
+
     // Bubble background
     QColor bubbleColor = isOutgoing ? QColor("#0f3460") : QColor("#2a2a3e");
     if (isEmote) bubbleColor = QColor(0, 0, 0, 0);
     if (bubbleColor.alpha() > 0) {
-        drawBubble(p, bubbleX, bubbleY, bubbleW, L.bubbleH, bubbleColor);
+        drawBubble(p, bubbleX, bubbleY, bubbleW, L.bubbleH, bubbleColor, tl, tr, br, bl);
     }
 
     int textX = bubbleX + PAD;
@@ -523,21 +586,16 @@ QSize TimelineDelegate::sizeHint(const QStyleOptionViewItem& opt,
 
     BubbleLayout L = computeLayout(idx, myUserId_, bubbleW);
 
-    // Same-sender gap
-    QString senderId = idx.data(TimelineModel::SenderRole).toString();
-    int prevRow = idx.row() - 1;
-    bool sameSender = false;
-    if (prevRow >= 0) {
-        auto prevIdx = idx.model()->index(prevRow, 0);
-        if (prevIdx.isValid())
-            sameSender = (prevIdx.data(TimelineModel::SenderRole).toString() == senderId);
+    // Reactions height: estimate rows dynamically (each pill ~100px wide, 20px tall)
+    auto rxns = idx.data(TimelineModel::ReactionsRole).value<QStringList>();
+    int reactionH = 0;
+    if (!rxns.isEmpty()) {
+        int perRow = qMax(1, (bubbleW - PAD * 2) / 100);
+        int rows = qMin(2, ((int)rxns.size() + perRow - 1) / perRow);
+        reactionH = rows * 20 + 2;
     }
 
-    // Reactions
-    auto rxns = idx.data(TimelineModel::ReactionsRole).value<QStringList>();
-    int reactionH = rxns.isEmpty() ? 0 : 22;
-
-    int totalH = (sameSender ? SAME_SENDER_GAP : 4) + L.bubbleH + reactionH + 2;
+    int totalH = (L.isFirstInGroup ? 4 : SAME_SENDER_GAP) + L.bubbleH + reactionH + 2;
     return QSize(width, qMax(totalH, AVATAR + 8));
 }
 

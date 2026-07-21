@@ -168,7 +168,7 @@ void SyncEngine::run() {
         sinceToken_ = std::string(result.data.nextBatch);
 
         stats_.roomsJoined += static_cast<int>(result.data.joinedRooms.size());
-        stats_.invites     += static_cast<int>(result.data.invitedRoomIds.size());
+        stats_.invites     += static_cast<int>(result.data.invitedRooms.size());
         stats_.timelineEvents += result.data.totalTimelineEvents;
         stats_.toDeviceEvents += result.data.toDeviceEvents;
 

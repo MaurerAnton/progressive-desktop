@@ -139,7 +139,37 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     painter->setFont(msgFont);
     if (isInvite) {
         painter->setPen(QColor("#ffaa44"));
-        painter->drawText(msgRect, Qt::AlignLeft | Qt::AlignVCenter, "Right-click → Accept / Decline");
+        QString inviterName = index.data(RoomListModel::InviterRole).toString();
+        // Clean up inviter MXID: @bob:matrix.org → bob
+        if (!inviterName.isEmpty() && inviterName[0] == '@') {
+            auto colon = inviterName.indexOf(':');
+            if (colon > 1) inviterName = inviterName.mid(1, colon - 1);
+            else inviterName = inviterName.mid(1);
+        }
+        if (inviterName.isEmpty()) inviterName = "Someone";
+        QString hint = inviterName + " invited you";
+        painter->drawText(msgRect, Qt::AlignLeft | Qt::AlignVCenter,
+                          QFontMetrics(msgFont).elidedText(hint, Qt::ElideRight, textWidth - 60));
+        // Draw small [✓] [✗] buttons on the right
+        QFont btnFont = painter->font();
+        btnFont.setPointSize(11);
+        btnFont.setBold(true);
+        painter->setFont(btnFont);
+        int btnY = option.rect.y() + (option.rect.height() - 22) / 2;
+        // Accept (green circle)
+        QRect acceptRect(option.rect.right() - 52, btnY, 22, 22);
+        painter->setBrush(QColor("#2d6a2d"));
+        painter->setPen(Qt::NoPen);
+        painter->drawRoundedRect(acceptRect, 4, 4);
+        painter->setPen(QColor("#6c6"));
+        painter->drawText(acceptRect, Qt::AlignCenter, "✓");
+        // Reject (red circle)
+        QRect rejectRect(option.rect.right() - 26, btnY, 22, 22);
+        painter->setBrush(QColor("#6a2d2d"));
+        painter->setPen(Qt::NoPen);
+        painter->drawRoundedRect(rejectRect, 4, 4);
+        painter->setPen(QColor("#f66"));
+        painter->drawText(rejectRect, Qt::AlignCenter, "✗");
     } else {
         painter->setPen(QColor("#969696"));
         painter->drawText(msgRect, Qt::AlignLeft | Qt::AlignVCenter,
@@ -166,6 +196,29 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
 QSize RoomListDelegate::sizeHint(const QStyleOptionViewItem& option,
                                    const QModelIndex& index) const {
     return QSize(option.rect.width(), 56);
+}
+
+bool RoomListDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
+                                     const QStyleOptionViewItem& option,
+                                     const QModelIndex& index) {
+    if (event->type() != QEvent::MouseButtonRelease) return false;
+    auto* me = static_cast<QMouseEvent*>(event);
+    bool isInvite = index.data(RoomListModel::IsInviteRole).toBool();
+    if (!isInvite) return false;
+
+    int btnY = option.rect.y() + (option.rect.height() - 22) / 2;
+    QRect acceptRect(option.rect.right() - 52, btnY, 22, 22);
+    QRect rejectRect(option.rect.right() - 26, btnY, 22, 22);
+
+    if (acceptRect.contains(me->pos())) {
+        emit inviteAccepted(index.data(RoomListModel::RoomIdRole).toString());
+        return true;
+    }
+    if (rejectRect.contains(me->pos())) {
+        emit inviteRejected(index.data(RoomListModel::RoomIdRole).toString());
+        return true;
+    }
+    return false;
 }
 
 } // namespace progressive::desktop

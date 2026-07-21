@@ -29,6 +29,7 @@ signals:
     void slashCommand(const std::string& command, const std::string& args);
     void attachFileRequested();
     void emojiPickerRequested();
+    void quickReact(const QString& emoji);
 
 private slots:
     void onAttachClicked();

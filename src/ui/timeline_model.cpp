@@ -154,9 +154,12 @@ void TimelineModel::addReaction(const std::string& eventId, const std::string& e
     auto& reactions = events_[row].reactions;
     for (auto& r : reactions) {
         if (r.emoji == emoji) {
+            // Deduplicate: local echo may call addReaction twice (pre + post server)
+            for (const auto& u : r.userIds) {
+                if (u == userId) return;
+            }
             r.count++;
             r.userIds.push_back(userId);
-            if (userId == /* our user */ "") {}  // can't check here — caller sets addedByMe
             if (!reactionEventId.empty()) r.reactionEventId = reactionEventId;
             emit dataChanged(index(row), index(row), {ReactionsRole});
             return;

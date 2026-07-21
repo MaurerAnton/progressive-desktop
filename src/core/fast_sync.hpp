@@ -61,6 +61,15 @@ struct FastRoom {
     std::string_view name() const;
 };
 
+struct InvitedRoom {
+    std::string_view roomId;
+    std::string_view inviterId;
+    std::string_view roomName;
+    std::string_view roomAvatar;
+    std::string_view reason;
+    bool isEncrypted = false;
+};
+
 struct FastSyncResponse {
     // Shared ownership of the original JSON string + simdjson parser (whose
     // internal buffer is what all string_views point into). Both must outlive
@@ -77,7 +86,7 @@ struct FastSyncResponse {
 
     std::string_view nextBatch;             // "next_batch"
     std::vector<std::pair<std::string_view, FastRoom>> joinedRooms;
-    std::vector<std::string_view> invitedRoomIds;
+    std::vector<InvitedRoom> invitedRooms;   // invites with state
     std::vector<std::string_view> leftRoomIds;
     int totalTimelineEvents = 0;
     int toDeviceEvents = 0;

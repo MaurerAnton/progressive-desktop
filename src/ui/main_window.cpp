@@ -402,6 +402,42 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     roomList_->setModel(roomModel_ = new RoomListModel(roomList_));
     roomListDelegate_ = new RoomListDelegate(imageLoader_, roomList_);
     roomList_->setItemDelegate(roomListDelegate_);
+    connect(roomListDelegate_, &RoomListDelegate::inviteAccepted, this, [this](const QString& roomId) {
+        if (!client_) return;
+        statusLabel_->setText("Accepting invite...");
+        MatrixClient* client = client_;
+        QPointer<MainWindow> guard(this);
+        std::thread([guard, client, roomId]() {
+            auto r = client->joinRoom(roomId.toStdString());
+            QMetaObject::invokeMethod(guard, [guard, r, roomId]() {
+                if (guard.isNull()) return;
+                if (r.ok) {
+                    RoomData* rd = const_cast<RoomData*>(guard->roomModel_->at(
+                        guard->roomModel_->findRowByRoomId(roomId.toStdString())));
+                    if (rd) { rd->isInvite = false; emit guard->roomModel_->dataChanged(
+                        guard->roomModel_->index(guard->roomModel_->findRowByRoomId(roomId.toStdString())),
+                        guard->roomModel_->index(guard->roomModel_->findRowByRoomId(roomId.toStdString()))); }
+                    guard->statusLabel_->setText("Joined room.");
+                } else {
+                    guard->statusLabel_->setText("Failed: " + QString::fromStdString(r.error.message));
+                }
+            }, Qt::QueuedConnection);
+        }).detach();
+    });
+    connect(roomListDelegate_, &RoomListDelegate::inviteRejected, this, [this](const QString& roomId) {
+        if (!client_) return;
+        statusLabel_->setText("Rejecting invite...");
+        MatrixClient* client = client_;
+        QPointer<MainWindow> guard(this);
+        std::thread([guard, client, roomId]() {
+            auto r = client->leaveRoom(roomId.toStdString());
+            QMetaObject::invokeMethod(guard, [guard, r, roomId]() {
+                if (guard.isNull()) return;
+                if (r.ok) { guard->roomModel_->removeRoom(roomId.toStdString()); guard->statusLabel_->setText("Invite rejected."); }
+                else guard->statusLabel_->setText("Failed: " + QString::fromStdString(r.error.message));
+            }, Qt::QueuedConnection);
+        }).detach();
+    });
     roomList_->setMinimumWidth(280);
     roomList_->setMaximumWidth(400);
     roomList_->setAlternatingRowColors(false);
@@ -517,6 +553,27 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             messageEdit_->setFocus();
         });
         picker.exec();
+    });
+
+    connect(messageEdit_, &MessageEdit::quickReact, this, [this](const QString& emoji) {
+        if (currentRoomId_.isEmpty() || !client_) return;
+        // Find the last message in the timeline to react to
+        int lastRow = timelineModel_->rowCount(QModelIndex()) - 1;
+        if (lastRow < 0) return;
+        auto* lastEvt = timelineModel_->at(lastRow);
+        if (!lastEvt || lastEvt->eventId.empty()) return;
+        std::string eid = lastEvt->eventId;
+        std::string em = emoji.toStdString();
+        std::string roomId = currentRoomId_.toStdString();
+        MatrixClient* client = client_;
+        QPointer<MainWindow> guard(this);
+        std::thread([guard, client, roomId, eid, em]() {
+            auto r = client->sendReaction(roomId, eid, em);
+            QMetaObject::invokeMethod(guard, [guard, r, eid, em]() {
+                if (guard.isNull()) return;
+                if (r.ok) guard->timelineModel_->addReaction(eid, em, guard->client_->account().userId, r.data);
+            }, Qt::QueuedConnection);
+        }).detach();
     });
 
     // Timeline delegate signals
@@ -2077,7 +2134,7 @@ void MainWindow::toggleThreadPanel() {
 
 void MainWindow::onSync(FastSyncResponse resp) {
     bool hasData = !resp.joinedRooms.empty() || !resp.leftRoomIds.empty()
-                   || !resp.invitedRoomIds.empty();
+                   || !resp.invitedRooms.empty();
 
     if (hasData) {
         rebuildRoomList(resp);
@@ -2311,7 +2368,7 @@ DisplayedEvent MainWindow::fastEventToDisplayed(const FastEvent& fe) {
 
 void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
     std::fprintf(stderr, "[rooms] sync: %zu joined, %zu invited, %zu left (model has %d)\n",
-                 resp.joinedRooms.size(), resp.invitedRoomIds.size(),
+                 resp.joinedRooms.size(), resp.invitedRooms.size(),
                  resp.leftRoomIds.size(), roomModel_->rowCount());
 
     // Remove rooms we've left (or been kicked from) since the last sync.
@@ -2442,25 +2499,39 @@ void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
     // Process invitations — add them to the model with isInvite=true.
     // They appear in a separate "Invitations" section above the chat list.
     int inviteCount = 0;
-    for (const auto& invView : resp.invitedRoomIds) {
-        std::string roomId(invView);
+    for (const auto& inv : resp.invitedRooms) {
+        std::string roomId(inv.roomId);
         RoomData rd;
         rd.roomId = roomId;
         rd.isInvite = true;
-        rd.lastActivityTs = 0;  // show at top (sorted by activity)
-        // Try to find an existing entry (in case we already had the room)
+        rd.lastActivityTs = 0;
+        rd.inviterId = std::string(inv.inviterId);
         int existingRow = roomModel_->findRowByRoomId(roomId);
         if (existingRow >= 0) {
             const RoomData* existing = roomModel_->at(existingRow);
             if (existing && !existing->name.empty() && existing->name != roomId) {
                 rd.name = existing->name;
             } else {
-                rd.name = roomId;
+                rd.name = inv.roomName.empty() ? roomId : std::string(inv.roomName);
             }
         } else {
-            rd.name = roomId;
+            rd.name = inv.roomName.empty() ? roomId : std::string(inv.roomName);
         }
-        rd.lastMessage = "Invitation";
+        if (!inv.roomAvatar.empty()) rd.avatarUrl = std::string(inv.roomAvatar);
+        rd.isEncrypted = inv.isEncrypted;
+
+        // Build a human-readable last message
+        std::string inviterName = inv.inviterId.empty() ? "Someone" : std::string(inv.inviterId);
+        if (!inviterName.empty() && inviterName[0] == '@') {
+            auto colon = inviterName.find(':');
+            if (colon != std::string::npos) inviterName = inviterName.substr(1, colon - 1);
+            else if (inviterName.size() > 1) inviterName = inviterName.substr(1);
+        }
+        rd.lastMessage = inviterName + " invited you";
+        if (!inv.reason.empty()) {
+            rd.lastMessage += " (" + std::string(inv.reason) + ")";
+        }
+
         roomModel_->upsertRoom(rd);
         inviteCount++;
     }

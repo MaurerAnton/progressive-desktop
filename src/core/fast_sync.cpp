@@ -184,7 +184,37 @@ FastSyncResponse parseSyncResponseFast(std::string json, std::string& errorMessa
         auto inviteResult = rooms["invite"].get_object();
         if (inviteResult.error() == simdjson::SUCCESS) {
             for (auto field : inviteResult.value()) {
-                resp.invitedRoomIds.emplace_back(field.key);
+                InvitedRoom inv;
+                inv.roomId = field.key;
+                auto inviteData = field.value();
+                // Parse invite_state.events for inviter, room name, avatar, encryption
+                auto stateEvents = inviteData["invite_state"]["events"].get_array();
+                if (stateEvents.error() == simdjson::SUCCESS) {
+                    for (auto se : stateEvents.value()) {
+                        auto type = se["type"].get_string();
+                        if (type.error() != simdjson::SUCCESS) continue;
+                        std::string_view t(type.value());
+                        if (t == "m.room.member") {
+                            auto sender = se["sender"].get_string();
+                            if (sender.error() == simdjson::SUCCESS)
+                                inv.inviterId = sender.value();
+                            auto reason = se["content"]["reason"].get_string();
+                            if (reason.error() == simdjson::SUCCESS)
+                                inv.reason = reason.value();
+                        } else if (t == "m.room.name") {
+                            auto name = se["content"]["name"].get_string();
+                            if (name.error() == simdjson::SUCCESS)
+                                inv.roomName = name.value();
+                        } else if (t == "m.room.avatar") {
+                            auto av = se["content"]["url"].get_string();
+                            if (av.error() == simdjson::SUCCESS)
+                                inv.roomAvatar = av.value();
+                        } else if (t == "m.room.encryption") {
+                            inv.isEncrypted = true;
+                        }
+                    }
+                }
+                resp.invitedRooms.push_back(inv);
             }
         }
 

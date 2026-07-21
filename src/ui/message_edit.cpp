@@ -6,6 +6,7 @@
 #include <QKeyEvent>
 #include <QFont>
 #include <QFontDatabase>
+#include <QMenu>
 
 namespace progressive::desktop {
 
@@ -43,6 +44,23 @@ void MessageEdit::setupUi() {
     emojiBtn_->setFocusPolicy(Qt::NoFocus);
     emojiBtn_->setFont(btnFont);
 
+    // Quick-react button — opens popup of recent emojis for fast reaction
+    auto* reactBtn = new QPushButton("😍", this);
+    reactBtn->setFixedSize(36, 36);
+    reactBtn->setToolTip("Quick react to last message");
+    reactBtn->setFocusPolicy(Qt::NoFocus);
+    reactBtn->setFont(btnFont);
+
+    QStringList quickEmojis = {"❤", "👍", "😂", "😮", "🎉", "👎"};
+    connect(reactBtn, &QPushButton::clicked, this, [this, quickEmojis]() {
+        QMenu menu;
+        for (const QString& e : quickEmojis) {
+            auto* a = menu.addAction(e);
+            connect(a, &QAction::triggered, this, [this, e]() { emit quickReact(e); });
+        }
+        menu.exec(QCursor::pos());
+    });
+
     // Text edit
     textEdit_ = new QTextEdit(this);
     textEdit_->setAcceptRichText(false);
@@ -55,6 +73,7 @@ void MessageEdit::setupUi() {
     // of QTextEdit directly when using composition)
     layout->addWidget(attachBtn_);
     layout->addWidget(emojiBtn_);
+    layout->addWidget(reactBtn);
     layout->addWidget(textEdit_, 1);  // stretch factor 1 = fills width
 
     connect(attachBtn_, &QPushButton::clicked, this, &MessageEdit::onAttachClicked);

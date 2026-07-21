@@ -35,9 +35,14 @@ public:
     // Get from cache (returns empty if not cached).
     QImage getCached(const std::string& mxcUrl) const;
 
+    // Change cache size. Default is 20. Set to 0 for unlimited (not recommended).
+    void setCacheSize(int maxItems) { imageCache_.setMaxCost(maxItems > 0 ? maxItems : 1); }
+
+    int cacheSize() const { return imageCache_.maxCost(); }
+
 private:
     MatrixClient* client_;
-    QCache<QString, QImage> imageCache_{50};
+    QCache<QString, QImage> imageCache_{20};
     QHash<QString, QMovie*> moviePool_;
 };
 

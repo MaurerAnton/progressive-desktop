@@ -7,6 +7,7 @@
 #include "emoji_picker.hpp"
 #include "room_settings_dialog.hpp"
 #include "profile_dialog.hpp"
+#include "prefs_dialog.hpp"
 
 #include <QApplication>
 #include <QCloseEvent>
@@ -550,6 +551,9 @@ void MainWindow::startWithSavedSession() {
 
     // Set client on image loader
     imageLoader_->setClient(client_);
+    int cacheSize = PrefsDialog::imageCacheSize();
+    imageLoader_->setCacheSize(cacheSize);
+    std::fprintf(stderr, "[mem] image cache size: %d\n", cacheSize);
     userLabel_->setText(" " + QString::fromStdString(client_->account().userId) + " ");
     statusLabel_->setText("Starting sync...");
 
@@ -1294,10 +1298,11 @@ void MainWindow::onRoomSettingsClicked() {
 }
 
 void MainWindow::onSettingsClicked() {
-    // Show a small menu: About / My Profile
+    // Show a small menu: About / My Profile / Preferences
     QMenu menu(this);
     auto* aboutAction = menu.addAction("About");
     auto* profileAction = menu.addAction("My profile...");
+    auto* prefsAction = menu.addAction("Preferences...");
     auto* selected = menu.exec(QCursor::pos());
     if (!selected) return;
 
@@ -1324,6 +1329,12 @@ void MainWindow::onSettingsClicked() {
         }
         ProfileDialog dlg(client_, this);
         dlg.exec();
+    } else if (selected == prefsAction) {
+        PrefsDialog dlg(this);
+        if (dlg.exec() == QDialog::Accepted && imageLoader_) {
+            imageLoader_->setCacheSize(PrefsDialog::imageCacheSize());
+            statusLabel_->setText("Preferences saved. Restart for full effect.");
+        }
     }
 }
 

@@ -929,32 +929,52 @@ void MainWindow::loadMemberAvatarsForRoom(const std::string& roomId) {
 
     std::thread([guard, client, roomId, relevantIds = std::move(relevantIds)]() {
         auto membersResp = client->getRoomMembers(roomId);
-        QMetaObject::invokeMethod(guard, [guard, roomId, membersResp, relevantIds]() {
-            if (guard.isNull() || !membersResp.ok) return;
-
-            simdjson::dom::parser parser;
-            auto root = parser.parse(membersResp.data);
-            if (root.error() != simdjson::SUCCESS) return;
-            auto chunk = root.value()["chunk"].get_array();
-            if (chunk.error() != simdjson::SUCCESS) return;
-
-            for (auto evt : chunk.value()) {
-                auto membership = evt["content"]["membership"].get_string();
-                if (membership.error() != simdjson::SUCCESS ||
-                    std::string(membership.value()) != "join") continue;
-                auto sk = evt["state_key"].get_string();
-                if (sk.error() != simdjson::SUCCESS) continue;
-                std::string userId(sk.value());
-                if (!relevantIds.count(userId)) continue;  // skip users not in timeline
-
-                auto content = evt["content"];
-                if (content.error() != simdjson::SUCCESS) continue;
-                std::string contentStr = simdjson::to_string(content.value());
-
-                auto avatarUrl = extractJsonStringDecoded(contentStr, "avatar_url");
-                if (!avatarUrl.empty()) guard->memberAvatarCache_[userId] = avatarUrl;
-                auto displayname = extractJsonString(contentStr, "displayname");
-                if (!displayname.empty()) guard->memberAvatarCache_[userId + "/name"] = displayname;
+        auto usedMembers = std::make_shared<bool>(false);
+        QMetaObject::invokeMethod(guard, [guard, roomId, membersResp, relevantIds, usedMembers, client]() {
+            if (guard.isNull()) return;
+            if (membersResp.ok) {
+                simdjson::dom::parser parser;
+                auto root = parser.parse(membersResp.data);
+                if (root.error() == simdjson::SUCCESS) {
+                    auto chunk = root.value()["chunk"].get_array();
+                    if (chunk.error() == simdjson::SUCCESS) {
+                        for (auto evt : chunk.value()) {
+                            auto membership = evt["content"]["membership"].get_string();
+                            if (membership.error() != simdjson::SUCCESS ||
+                                std::string(membership.value()) != "join") continue;
+                            auto sk = evt["state_key"].get_string();
+                            if (sk.error() != simdjson::SUCCESS) continue;
+                            std::string userId(sk.value());
+                            if (!relevantIds.count(userId)) continue;
+                            auto content = evt["content"];
+                            if (content.error() != simdjson::SUCCESS) continue;
+                            std::string contentStr = simdjson::to_string(content.value());
+                            auto avatarUrl = extractJsonStringDecoded(contentStr, "avatar_url");
+                            if (!avatarUrl.empty()) guard->memberAvatarCache_[userId] = avatarUrl;
+                            auto displayname = extractJsonString(contentStr, "displayname");
+                            if (!displayname.empty()) guard->memberAvatarCache_[userId + "/name"] = displayname;
+                        }
+                        *usedMembers = true;
+                    }
+                }
+            }
+            // Fallback: use getUserProfile for users not resolved yet
+            if (!*usedMembers && !relevantIds.empty()) {
+                for (const auto& uid : relevantIds) {
+                    auto profileResp = client->getUserProfile(uid);
+                    if (profileResp.ok && !profileResp.data.empty()) {
+                        simdjson::dom::parser pp;
+                        auto pr = pp.parse(profileResp.data);
+                        if (pr.error() == simdjson::SUCCESS) {
+                            auto av = pr.value()["avatar_url"].get_string();
+                            if (av.error() == simdjson::SUCCESS)
+                                guard->memberAvatarCache_[uid] = std::string(av.value());
+                            auto dn = pr.value()["displayname"].get_string();
+                            if (dn.error() == simdjson::SUCCESS)
+                                guard->memberAvatarCache_[uid + "/name"] = std::string(dn.value());
+                        }
+                    }
+                }
             }
         }, Qt::QueuedConnection);
     }).detach();

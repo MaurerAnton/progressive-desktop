@@ -90,7 +90,6 @@ std::vector<PendingEncryptedEvent> MegolmStore::takePendingForSession(
 
 std::string MegolmStore::pickleAll(const std::string& key) {
     std::lock_guard<std::mutex> lk(mtx_);
-    (void)key;
     if (impl_->params.empty()) return "[]";
     std::ostringstream os;
     os << "[";
@@ -102,30 +101,56 @@ std::string MegolmStore::pickleAll(const std::string& key) {
            << ",\"d\":\"" << impl_->params[i].sessionKeyBase64 << "\"}";
     }
     os << "]";
-    return os.str();
+    std::string raw = os.str();
+    // XOR-encrypt with pickleKey (simple obfuscation on disk)
+    if (key.empty()) return raw;
+    for (size_t i = 0; i < raw.size(); ++i)
+        raw[i] ^= key[i % key.size()];
+    // Hex-encode for safe storage
+    std::string hex;
+    for (unsigned char c : raw) {
+        static const char h[] = "0123456789abcdef";
+        hex += h[c >> 4];
+        hex += h[c & 15];
+    }
+    return hex;
 }
 
 bool MegolmStore::unpickleAll(const std::string& key, const std::string& data) {
     std::lock_guard<std::mutex> lk(mtx_);
-    (void)key;
     if (data.empty() || data == "[]") return true;
+    // Hex-decode
+    std::string raw;
+    if (data.size() % 2 == 0) {
+        for (size_t i = 0; i < data.size(); i += 2)
+            raw += (char)strtol(data.substr(i, 2).c_str(), nullptr, 16);
+    } else {
+        raw = data;
+    }
+    // XOR-decrypt
+    if (!key.empty()) {
+        for (size_t i = 0; i < raw.size(); ++i)
+            raw[i] ^= key[i % key.size()];
+    }
     // Parse JSON array
-    size_t pos = data.find('{');
+    size_t pos = raw.find('{');
     while (pos != std::string::npos) {
-        size_t end = data.find("}}", pos);
-        if (end == std::string::npos) end = data.find('}', data.find('}', pos + 1) + 1);
+        size_t end = raw.find("}}", pos);
+        if (end == std::string::npos) end = raw.find('}', raw.find('}', pos + 1) + 1);
         if (end == std::string::npos) break;
-        std::string obj = data.substr(pos, end - pos + 2);
-        // Extract fields
+        std::string obj = raw.substr(pos, end - pos + 2);
         auto r = mgExtractStr(obj, "r");
         auto k = mgExtractStr(obj, "k");
         auto s = mgExtractStr(obj, "s");
         auto d = mgExtractStr(obj, "d");
         if (!r.empty() && !k.empty() && !s.empty() && !d.empty()) {
-            impl_->mgr.addSession(r, k, s, d);
-            impl_->params.push_back({r, k, s, d});
+            // Dedup: skip if session already exists
+            if (!impl_->mgr.findSession(r, k, s)) {
+                impl_->mgr.addSession(r, k, s, d);
+                impl_->params.push_back({r, k, s, d});
+            }
         }
-        pos = data.find('{', end + 2);
+        pos = raw.find('{', end + 2);
     }
     return true;
 }

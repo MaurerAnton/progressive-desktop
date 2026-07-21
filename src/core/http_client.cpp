@@ -12,6 +12,8 @@
 #include <cstring>
 #include <mutex>
 #include <sstream>
+#include <deque>
+#include <chrono>
 
 namespace progressive::desktop {
 
@@ -22,6 +24,28 @@ ProxyConfig g_proxy;
 std::mutex g_proxy_mutex;
 
 bool g_initialized = false;
+
+// HTTP request log ring buffer (max 500 entries).
+static constexpr size_t kMaxLogEntries = 500;
+static std::deque<HttpLogEntry> g_log;
+static std::mutex g_log_mutex;
+
+static void logHttpRequest(const std::string& method, const std::string& url,
+                           int statusCode, size_t responseBytes, int64_t elapsedMs,
+                           const std::string& error) {
+    std::lock_guard<std::mutex> lk(g_log_mutex);
+    // Truncate URL to domain + path (remove query params to avoid leaking tokens)
+    std::string shortUrl = url;
+    auto q = shortUrl.find('?');
+    if (q != std::string::npos) shortUrl = shortUrl.substr(0, q);
+    g_log.push_back({method, shortUrl, statusCode, responseBytes, elapsedMs, error});
+    while (g_log.size() > kMaxLogEntries) g_log.pop_front();
+}
+
+std::vector<HttpLogEntry> getHttpLog() {
+    std::lock_guard<std::mutex> lk(g_log_mutex);
+    return std::vector<HttpLogEntry>(g_log.begin(), g_log.end());
+}
 
 // libcurl write callback — append to a std::string
 size_t writeCb(char* ptr, size_t size, size_t nmemb, void* userdata) {
@@ -83,10 +107,12 @@ void setGlobalProxy(const ProxyConfig& cfg) {
 }
 
 HttpResponse httpExecute(const HttpRequest& req) {
+    auto t0 = std::chrono::steady_clock::now();
     HttpResponse resp;
     CURL* curl = curl_easy_init();
     if (!curl) {
         resp.errorMessage = "curl_easy_init failed";
+        logHttpRequest(req.method, req.url, 0, 0, 0, resp.errorMessage);
         return resp;
     }
 
@@ -149,8 +175,12 @@ HttpResponse httpExecute(const HttpRequest& req) {
     }
 
     CURLcode rc = curl_easy_perform(curl);
+    auto t1 = std::chrono::steady_clock::now();
+    int64_t elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+
     if (rc != CURLE_OK) {
         resp.errorMessage = "curl: " + std::string(curl_easy_strerror(rc));
+        logHttpRequest(req.method, req.url, 0, 0, elapsed, resp.errorMessage);
         if (hdrList) curl_slist_free_all(hdrList);
         curl_easy_cleanup(curl);
         return resp;
@@ -162,6 +192,8 @@ HttpResponse httpExecute(const HttpRequest& req) {
     resp.body = std::move(bodyBuf);
     resp.headers = std::move(hdrBuf);
     resp.success = (resp.statusCode >= 200 && resp.statusCode < 300);
+
+    logHttpRequest(req.method, req.url, resp.statusCode, resp.body.size(), elapsed, "");
 
     if (hdrList) curl_slist_free_all(hdrList);
     curl_easy_cleanup(curl);

@@ -90,6 +90,7 @@ add_executable(progressive-desktop
     src/ui/prefs_dialog.cpp
     src/ui/room_members_dialog.cpp
     src/ui/user_profile_dialog.cpp
+    src/ui/network_log_dialog.cpp
     src/ui/message_edit.cpp
     src/ui/theme.cpp
     resources/resources.qrc

@@ -61,6 +61,19 @@ void setGlobalProxy(const ProxyConfig& cfg);
 // Execute a single HTTP request. Synchronous.
 HttpResponse httpExecute(const HttpRequest& req);
 
+// HTTP request log entry (for network log viewer in UI).
+struct HttpLogEntry {
+    std::string method;
+    std::string url;
+    int statusCode = 0;
+    size_t responseBytes = 0;
+    int64_t elapsedMs = 0;
+    std::string error;
+};
+
+// Return a snapshot of the last N HTTP requests (ring buffer, max 500).
+std::vector<HttpLogEntry> getHttpLog();
+
 // Convenience helpers
 HttpResponse httpGet(const std::string& url,
                      const std::unordered_map<std::string, std::string>& headers = {},

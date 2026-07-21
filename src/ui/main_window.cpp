@@ -9,6 +9,7 @@
 #include "room_members_dialog.hpp"
 #include "profile_dialog.hpp"
 #include "prefs_dialog.hpp"
+#include "network_log_dialog.hpp"
 
 #include <QApplication>
 #include <QCloseEvent>
@@ -1320,6 +1321,8 @@ void MainWindow::onSettingsClicked() {
     auto* aboutAction = menu.addAction("About");
     auto* profileAction = menu.addAction("My profile...");
     auto* prefsAction = menu.addAction("Preferences...");
+    menu.addSeparator();
+    auto* netLogAction = menu.addAction("Network log");
     auto* selected = menu.exec(QCursor::pos());
     if (!selected) return;
 
@@ -1352,6 +1355,9 @@ void MainWindow::onSettingsClicked() {
             imageLoader_->setCacheSize(PrefsDialog::imageCacheSize());
             statusLabel_->setText("Preferences saved. Restart for full effect.");
         }
+    } else if (selected == netLogAction) {
+        NetworkLogDialog dlg(this);
+        dlg.exec();
     }
 }
 

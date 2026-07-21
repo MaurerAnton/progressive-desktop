@@ -240,7 +240,8 @@ public:
         progressive::MatrixError error;
         int httpStatus = 0;
     };
-    FastSyncResult syncFast(const std::string& since = "", int timeoutMs = 30000);
+    FastSyncResult syncFast(const std::string& since = "", int timeoutMs = 30000,
+                              bool fullState = false);
 
     // ---- Account / session ----
 
@@ -334,6 +335,11 @@ public:
     ApiResult<std::string> sendMessageEvent(const std::string& roomId,
                                                const std::string& eventType,
                                                const std::string& contentJson);
+
+    // Edit a message — sends m.room.message with m.relates_to: m.replace
+    ApiResult<std::string> editMessage(const std::string& roomId,
+                                          const std::string& originalEventId,
+                                          const std::string& newBody);
 
 private:
     AccountInfo account_;

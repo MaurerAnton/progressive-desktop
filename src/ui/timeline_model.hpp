@@ -43,6 +43,7 @@ struct DisplayedEvent {
     QImage image;                  // cached thumbnail (empty if not loaded yet)
     bool imageLoaded = false;
     bool isMovie = false;          // true for animated GIF
+    std::string avatarUrl;         // sender's avatar mxc URL (from m.room.member)
 };
 
 class TimelineModel : public QAbstractListModel {
@@ -75,12 +76,23 @@ public:
         ImageLoadedRole,
         IsMovieRole,
         EventIdRole,
+        AvatarUrlRole,
     };
 
     // Add events (from sync or pagination). Deduplicates by event_id.
     void appendBack(const DisplayedEvent& evt);
     void appendFront(const std::vector<DisplayedEvent>& evts);  // for pagination
     void clear();
+
+    // Replace a pending local echo (matched by eventId) with the real event
+    // from the server. If not found, appends the real event.
+    void replaceEcho(const std::string& tempEventId, const DisplayedEvent& realEvent);
+
+    // Mark an event as deleted (redacted). Updates the body to "[Message deleted]".
+    void markDeleted(const std::string& eventId);
+
+    // Update the body of an event (for edits via m.replace).
+    void updateBody(const std::string& eventId, const std::string& newBody);
 
     // Update image for a specific event (when async load completes).
     void setImage(const std::string& eventId, const QImage& img);

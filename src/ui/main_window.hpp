@@ -17,6 +17,7 @@
 #include <QSplitter>
 #include <QLabel>
 #include <QPointer>
+#include <unordered_map>
 
 class QToolBar;
 class QAction;
@@ -67,7 +68,8 @@ private slots:
 
 private:
     void rebuildRoomList(const FastSyncResponse& resp);
-    void appendTimelineForRoom(const std::string& roomId, const std::vector<FastEvent>& events);
+    void appendTimelineForRoom(const std::string& roomId, const std::vector<FastEvent>& events,
+                                const std::unordered_map<std::string, std::string>* memberAvatars = nullptr);
     void loadRoomHistory(const std::string& roomId);
     void wireSyncCallbacks();
     void showLoginDialog();
@@ -93,6 +95,7 @@ private:
     QAction* fullscreenAction_ = nullptr;
     QAction* logoutAction_ = nullptr;
     QLabel* roomListHeader_ = nullptr;
+    QLabel* inviteHeader_ = nullptr;  // "⬇ Invitations (N)" — visible when invites exist
     QLabel* timelinePlaceholder_ = nullptr;
 
     QSplitter* splitter_ = nullptr;

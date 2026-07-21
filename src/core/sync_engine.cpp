@@ -16,6 +16,7 @@ SyncEngine::~SyncEngine() {
 
 void SyncEngine::start() {
     if (running_.exchange(true)) return;  // already running
+    isFirstSync_ = true;  // first sync will use full_state=true
 
     // Load saved since-token if available.
     if (store_) {
@@ -71,7 +72,9 @@ void SyncEngine::run() {
         // Do one sync.
         // Use 10s long-poll timeout (was 30s — caused hangs on close).
         // The HTTP timeout is timeoutMs + 10000 = 20s.
-        auto result = client_->syncFast(sinceToken_, 10000);
+        // First sync after start() always uses full_state=true to load ALL rooms.
+        bool firstSync = isFirstSync_.exchange(false);
+        auto result = client_->syncFast(sinceToken_, 10000, firstSync);
 
         if (!result.ok) {
             stats_.errors++;
@@ -79,13 +82,27 @@ void SyncEngine::run() {
                 ? result.error.code
                 : result.error.message;
 
-            // Detect invalid access token — stop the loop and notify UI.
-            // The server returns M_UNKNOWN_TOKEN when the access token is
-            // expired, revoked, or never existed. Common causes:
-            //   - saved session from a previous Phase 2 test (token expired)
-            //   - user logged out from another device
-            //   - server-side cleanup of old tokens
+            // Detailed logging for token errors — helps diagnose why sessions
+            // expire unexpectedly. Captures: timestamp, error code, HTTP status,
+            // error message, since token, our user ID.
+            std::fprintf(stderr, "[session] ERROR at %ld: code=%s http=%d msg=%s\n",
+                         std::time(nullptr),
+                         result.error.code.c_str(),
+                         result.httpStatus,
+                         result.error.message.c_str());
+            std::fprintf(stderr, "[session]   since_token=%s user=%s\n",
+                         sinceToken_.substr(0, 20).c_str(),
+                         client_ ? client_->account().userId.c_str() : "(null)");
+
+            // Detect invalid access token — notify UI (soft logout).
             if (result.error.code == "M_UNKNOWN_TOKEN") {
+                std::fprintf(stderr, "[session] M_UNKNOWN_TOKEN — access token is invalid.\n"
+                                     "  Possible causes:\n"
+                                     "    1. Token expired (rare — Synapse doesn't expire by default)\n"
+                                     "    2. Password was changed\n"
+                                     "    3. Logged out from another client with this device_id\n"
+                                     "    4. Server-side token cleanup\n"
+                                     "    5. SQLite session.db was corrupted and token is garbage\n");
                 setState(SyncEngineState::Stopped);
                 if (authErrCb_) authErrCb_();
                 running_ = false;

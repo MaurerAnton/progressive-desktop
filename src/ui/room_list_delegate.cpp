@@ -57,11 +57,12 @@ void RoomListDelegate::drawAvatar(QPainter* painter, const QRect& rect,
 void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& option,
                                 const QModelIndex& index) const {
     painter->save();
-    // Background
+    bool isInvite = index.data(RoomListModel::IsInviteRole).toBool();
+    // Background — invites get an amber tint to stand out
     if (option.state & QStyle::State_Selected) {
         painter->fillRect(option.rect, QColor(50, 80, 130));
-    } else if (option.features & QStyleOptionViewItem::Alternate) {
-        painter->fillRect(option.rect, QColor(26, 26, 26));
+    } else if (isInvite) {
+        painter->fillRect(option.rect, QColor(40, 30, 20));
     } else {
         painter->fillRect(option.rect, QColor(20, 20, 20));
     }
@@ -70,7 +71,6 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     QString lastMsg = index.data(RoomListModel::LastMessageRole).toString();
     QString roomId = index.data(RoomListModel::RoomIdRole).toString();
     QString avatarUrl = index.data(RoomListModel::AvatarUrlRole).toString();
-    bool isInvite = index.data(RoomListModel::IsInviteRole).toBool();
     int unread = index.data(RoomListModel::UnreadRole).toInt();
     bool isEncrypted = index.data(RoomListModel::IsEncryptedRole).toBool();
 
@@ -132,14 +132,19 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     painter->drawText(nameRect, Qt::AlignLeft | Qt::AlignVCenter,
                       QFontMetrics(nameFont).elidedText(displayName, Qt::ElideRight, textWidth));
 
-    // Last message
+    // Last message / invite hint
     QFont msgFont = painter->font();
     msgFont.setBold(false);
     msgFont.setPointSize(9);
     painter->setFont(msgFont);
-    painter->setPen(QColor("#969696"));
-    painter->drawText(msgRect, Qt::AlignLeft | Qt::AlignVCenter,
-                      QFontMetrics(msgFont).elidedText(lastMsg, Qt::ElideRight, textWidth));
+    if (isInvite) {
+        painter->setPen(QColor("#ffaa44"));
+        painter->drawText(msgRect, Qt::AlignLeft | Qt::AlignVCenter, "Right-click → Accept / Decline");
+    } else {
+        painter->setPen(QColor("#969696"));
+        painter->drawText(msgRect, Qt::AlignLeft | Qt::AlignVCenter,
+                          QFontMetrics(msgFont).elidedText(lastMsg, Qt::ElideRight, textWidth));
+    }
 
     // Unread badge (right side)
     if (unread > 0) {

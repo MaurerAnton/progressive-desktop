@@ -4,6 +4,7 @@
 #include "image_loader.hpp"
 
 #include <QPainter>
+#include <QPainterPath>
 #include <QTextDocument>
 #include <QAbstractTextDocumentLayout>
 #include <QDateTime>
@@ -15,6 +16,7 @@
 #include <QRegularExpression>
 #include <QPalette>
 #include <QGuiApplication>
+#include <QPointer>
 
 #include <progressive/markdown.hpp>
 
@@ -126,13 +128,26 @@ QString TimelineDelegate::formatMessageHtml(const QModelIndex& index) const {
 }
 
 void TimelineDelegate::drawAvatar(QPainter* painter, const QRect& rect,
-                                    const QString& userId, const QString& name) const {
+                                    const QString& userId, const QString& name,
+                                    const QImage& avatarImg) const {
+    if (!avatarImg.isNull()) {
+        // Draw real avatar as circle
+        QImage scaled = avatarImg.scaled(rect.size(), Qt::KeepAspectRatioByExpanding,
+                                          Qt::SmoothTransformation);
+        QPainterPath path;
+        path.addEllipse(rect);
+        painter->save();
+        painter->setClipPath(path);
+        painter->drawImage(rect, scaled);
+        painter->restore();
+        return;
+    }
+    // Fallback: colored circle with letter
     QColor color = colorFromId(userId);
     painter->setBrush(color);
     painter->setPen(Qt::NoPen);
     painter->drawEllipse(rect);
 
-    // First letter of name
     QString letter = name.isEmpty() ? QString("?") : QString(name[0].toUpper());
     QFont font = painter->font();
     font.setBold(true);
@@ -174,6 +189,7 @@ void TimelineDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     QString sender = index.data(TimelineModel::SenderNameRole).toString();
     if (sender.isEmpty()) sender = shortName(index.data(TimelineModel::SenderRole).toString());
     QString senderId = index.data(TimelineModel::SenderRole).toString();
+    QString avatarUrl = index.data(TimelineModel::AvatarUrlRole).toString();
     QString mxcUrl = index.data(TimelineModel::MxcUrlRole).toString();
     QString mimetype = index.data(TimelineModel::MimetypeRole).toString();
     bool imageLoaded = index.data(TimelineModel::ImageLoadedRole).toBool();
@@ -185,7 +201,30 @@ void TimelineDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     QRect avatarRect(option.rect.x() + padding, option.rect.y() + padding, avatarSize, avatarSize);
 
     if (type == "m.room.message" || type == "m.room.encrypted") {
-        drawAvatar(painter, avatarRect, senderId, sender);
+        // Try to load the sender's avatar
+        QImage avatarImg;
+        if (loader_ && !avatarUrl.isEmpty()) {
+            if (loader_->hasImage(avatarUrl.toStdString())) {
+                avatarImg = loader_->getCached(avatarUrl.toStdString());
+            } else {
+                // Trigger async load — next paint will pick up cached image
+                QString avatarCopy = avatarUrl;
+                auto* model = const_cast<QAbstractItemModel*>(index.model());
+                const_cast<TimelineDelegate*>(this)->loader_->fetchThumbnail(
+                    avatarUrl.toStdString(), 64, 64,
+                    [avatarCopy, model](const QImage& img) {
+                        if (img.isNull() || !model) return;
+                        for (int i = 0; i < model->rowCount(); ++i) {
+                            auto idx = model->index(i, 0);
+                            if (idx.data(TimelineModel::AvatarUrlRole).toString() == avatarCopy) {
+                                emit model->dataChanged(idx, idx);
+                                break;
+                            }
+                        }
+                    });
+            }
+        }
+        drawAvatar(painter, avatarRect, senderId, sender, avatarImg);
     }
 
     // Content area (right of avatar)

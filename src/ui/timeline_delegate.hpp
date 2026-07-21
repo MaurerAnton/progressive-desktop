@@ -39,7 +39,8 @@ private:
     void renderText(QPainter* painter, const QRect& rect, const QString& html) const;
     QString formatMessageHtml(const QModelIndex& index) const;
     QColor avatarColor(const QString& userId) const;
-    void drawAvatar(QPainter* painter, const QRect& rect, const QString& userId, const QString& name) const;
+    void drawAvatar(QPainter* painter, const QRect& rect, const QString& userId,
+                    const QString& name, const QImage& avatarImg = QImage()) const;
 };
 
 } // namespace progressive::desktop

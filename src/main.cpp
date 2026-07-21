@@ -163,13 +163,23 @@ static void runGui(int argc, char** argv) {
         QStringList families = QFontDatabase::applicationFontFamilies(emojiFontId);
         if (!families.isEmpty()) {
             QString family = families.first();
-            std::fprintf(stderr, "[font] loaded bundled emoji font: %s\n", family.toUtf8().data());
-            // Set as default fallback font for the whole app.
-            // Qt will use it for codepoints not covered by the primary font.
+            std::fprintf(stderr, "[font] loaded bundled emoji font: %s (id=%d)\n",
+                         family.toUtf8().data(), emojiFontId);
             QFont::insertSubstitution(QApplication::font().family(), family);
         }
     } else {
-        std::fprintf(stderr, "[font] WARNING: failed to load bundled emoji font!\n");
+        std::fprintf(stderr, "[font] WARNING: failed to load bundled emoji font (id=%d)\n", emojiFontId);
+    }
+
+    // Log available emoji fonts on the system for diagnostics
+    {
+        QStringList allFonts = QFontDatabase::families();
+        for (const QString& name : {"Noto Color Emoji", "Apple Color Emoji",
+                                      "Segoe UI Emoji", "OpenMoji Color", "OpenMoji",
+                                      "Twemoji Mozilla", "EmojiOne"}) {
+            if (allFonts.contains(name, Qt::CaseInsensitive))
+                std::fprintf(stderr, "[font] system emoji font found: %s\n", name.toUtf8().data());
+        }
     }
 
     // Dark theme is the default — applied before any widgets are constructed

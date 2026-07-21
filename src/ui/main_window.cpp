@@ -259,12 +259,14 @@ std::string computeRoomName(const std::vector<FastEvent>& stateEvents,
             }
         }
     }
-    std::sort(members.begin(), members.end());
-    members.erase(std::unique(members.begin(), members.end()), members.end());
-    if (members.size() == 1) return members[0];
-    if (members.size() == 2) return members[0] + ", " + members[1];
-    if (members.size() > 2) return members[0] + " + " + std::to_string(members.size() - 1);
-    // 6. No name found — return empty so caller keeps old name
+    // NOTE: We intentionally DON'T fall back to member display names.
+    // Member names change with every join/leave event, causing the room name
+    // to jump between different people. Instead, return empty so the caller
+    // keeps whatever name it already had (from a previous sync, from
+    // m.room.name, from canonical_alias, or from the room ID as last resort).
+    // For DM rooms, the caller (rebuildRoomList) sets the avatar from the
+    // other member's m.room.member, and the name from their displayname.
+    (void)members;  // suppress unused warning
     return {};
 }
 
@@ -339,6 +341,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     roomListHeader_ = new QLabel(" Chats (0) ", this);
     roomListHeader_->setStyleSheet("font-weight:600; padding:10px 12px; color:#e8e8e8; background:#1e1e1e;");
     leftLayout->addWidget(roomListHeader_);
+
+    // Invitations section — visible only when there are pending invites
+    inviteHeader_ = new QLabel(" ⬇ Invitations (0) ", this);
+    inviteHeader_->setStyleSheet("font-weight:600; padding:6px 12px; color:#ff9944; background:#2a1e1e;");
+    inviteHeader_->hide();
+    leftLayout->addWidget(inviteHeader_);
 
     roomList_ = new QListView(leftPanel);
     roomList_->setModel(roomModel_ = new RoomListModel(roomList_));
@@ -454,6 +462,15 @@ void MainWindow::wireSyncCallbacks() {
 
 void MainWindow::startWithSavedSession() {
     if (!client_ || !client_->isLoggedIn()) return;
+
+    // Log session details for debugging logout issues
+    const auto& acct = client_->account();
+    std::fprintf(stderr, "[session] loaded: user=%s device=%s homeserver=%s token_prefix=%s...\n",
+                 acct.userId.c_str(),
+                 acct.deviceId.c_str(),
+                 acct.homeserverUrl.c_str(),
+                 acct.accessToken.substr(0, 8).c_str());
+
     // Set client on image loader
     imageLoader_->setClient(client_);
     userLabel_->setText(" " + QString::fromStdString(client_->account().userId) + " ");
@@ -712,6 +729,27 @@ void MainWindow::loadRoomHistory(const std::string& roomId) {
                         de.mimetype = extractMimetype(de.contentJson);
                         if (de.mimetype == "image/gif") de.isMovie = true;
                     }
+                    // Parse m.relates_to — detect thread replies and edits
+                    std::string_view cv(de.contentJson);
+                    auto relTypePos = cv.find("\"rel_type\":\"");
+                    if (relTypePos != std::string_view::npos) {
+                        auto start = relTypePos + 12;
+                        auto end = cv.find('"', start);
+                        if (end != std::string_view::npos) {
+                            std::string_view relType = cv.substr(start, end - start);
+                            if (relType == "m.thread") {
+                                de.isThreadReply = true;
+                                auto eventIdPos = cv.find("\"event_id\":\"", start);
+                                if (eventIdPos != std::string_view::npos) {
+                                    auto eidStart = eventIdPos + 12;
+                                    auto eidEnd = cv.find('"', eidStart);
+                                    if (eidEnd != std::string_view::npos) {
+                                        de.threadRootId = std::string(cv.substr(eidStart, eidEnd - eidStart));
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 events.push_back(std::move(de));
@@ -720,9 +758,22 @@ void MainWindow::loadRoomHistory(const std::string& roomId) {
             // Events from /messages?dir=b are newest-first. Reverse to oldest-first.
             std::reverse(events.begin(), events.end());
 
-            // Append directly to timeline model
+            // Append directly to timeline model + track thread reply counts
             for (const auto& de : events) {
                 guard->timelineModel_->appendBack(de);
+                // If this is a thread reply, increment the root message's threadReplyCount
+                if (de.isThreadReply && !de.threadRootId.empty()) {
+                    int rootRow = guard->timelineModel_->findRow(de.threadRootId);
+                    if (rootRow >= 0) {
+                        auto* rootEvt = guard->timelineModel_->at(rootRow);
+                        if (rootEvt) {
+                            rootEvt->threadReplyCount++;
+                            emit guard->timelineModel_->dataChanged(
+                                guard->timelineModel_->index(rootRow),
+                                guard->timelineModel_->index(rootRow));
+                        }
+                    }
+                }
             }
             guard->statusLabel_->setText(QString("Loaded %1 message(s) from history.").arg(events.size()));
         }, Qt::QueuedConnection);
@@ -731,9 +782,10 @@ void MainWindow::loadRoomHistory(const std::string& roomId) {
 
 void MainWindow::onSendMessage(const std::string& body) {
     if (currentRoomId_.isEmpty() || !client_) return;
-    // Local echo
+    // Local echo — use a temporary event ID so we can replace it when the
+    // server responds with the real event_id. This prevents duplicate messages.
     DisplayedEvent echo;
-    echo.eventId = "";
+    echo.eventId = "pending-" + std::to_string(QDateTime::currentMSecsSinceEpoch());
     echo.senderId = client_->account().userId;
     echo.senderName = "you";
     echo.type = "m.room.message";
@@ -745,12 +797,14 @@ void MainWindow::onSendMessage(const std::string& body) {
         echo.isThreadReply = true;
         echo.threadRootId = currentThreadRoot_.toStdString();
     }
+    std::string tempId = echo.eventId;
     timelineModel_->appendBack(echo);
 
     std::string roomId = currentRoomId_.toStdString();
     MatrixClient* client = client_;
     std::string deviceId = client->account().deviceId;
     QPointer<MainWindow> guard(this);
+    std::string myUserId = client->account().userId;
 
     // Check if room is encrypted — if so, encrypt the message with Megolm.
     bool isEncrypted = false;
@@ -761,11 +815,26 @@ void MainWindow::onSendMessage(const std::string& body) {
     }
 
     std::thread([guard, client, roomId, body, isEncrypted, deviceId,
-                 threadRoot = currentThreadRoot_.toStdString()]() {
+                 threadRoot = currentThreadRoot_.toStdString(), tempId, myUserId]() {
         // If we're in thread mode, send a thread reply (not a regular message)
         if (!threadRoot.empty() && !isEncrypted) {
             auto r = client->sendThreadReply(roomId, body, threadRoot);
-            if (!r.ok) std::cerr << "thread reply failed: " << r.error.message << "\n";
+            QMetaObject::invokeMethod(guard, [guard, r, tempId, body, myUserId, threadRoot]() {
+                if (guard.isNull()) return;
+                if (r.ok) {
+                    DisplayedEvent real;
+                    real.eventId = r.data;
+                    real.senderId = myUserId;
+                    real.senderName = "you";
+                    real.type = "m.room.message";
+                    real.msgtype = "m.text";
+                    real.body = body;
+                    real.isThreadReply = true;
+                    real.threadRootId = threadRoot;
+                    real.originServerTs = static_cast<int64_t>(QDateTime::currentMSecsSinceEpoch());
+                    guard->timelineModel_->replaceEcho(tempId, real);
+                }
+            }, Qt::QueuedConnection);
             return;
         }
         if (isEncrypted && guard && guard->sync_.decryptor()->isInitialized()) {
@@ -799,6 +868,19 @@ void MainWindow::onSendMessage(const std::string& body) {
                 std::cerr << "[e2ee] send encrypted failed: " << r.error.message << "\n";
             } else {
                 std::cerr << "[e2ee] encrypted message sent (" << r.data << ")\n";
+                // Replace the echo with the real event
+                QMetaObject::invokeMethod(guard, [guard, r, tempId, body, myUserId]() {
+                    if (guard.isNull()) return;
+                    DisplayedEvent real;
+                    real.eventId = r.data;
+                    real.senderId = myUserId;
+                    real.senderName = "you";
+                    real.type = "m.room.message";
+                    real.msgtype = "m.text";
+                    real.body = body;
+                    real.originServerTs = static_cast<int64_t>(QDateTime::currentMSecsSinceEpoch());
+                    guard->timelineModel_->replaceEcho(tempId, real);
+                }, Qt::QueuedConnection);
             }
 
             // Share the room_key with all room members (if not already shared).
@@ -840,7 +922,23 @@ void MainWindow::onSendMessage(const std::string& body) {
         } else {
             // Plain text — send normally
             auto r = client->sendMessage(roomId, body);
-            if (!r.ok) std::cerr << "send failed: " << r.error.message << "\n";
+            if (!r.ok) {
+                std::cerr << "send failed: " << r.error.message << "\n";
+            } else {
+                // Replace the echo with the real event from the server
+                QMetaObject::invokeMethod(guard, [guard, r, tempId, body, myUserId]() {
+                    if (guard.isNull()) return;
+                    DisplayedEvent real;
+                    real.eventId = r.data;
+                    real.senderId = myUserId;
+                    real.senderName = "you";
+                    real.type = "m.room.message";
+                    real.msgtype = "m.text";
+                    real.body = body;
+                    real.originServerTs = static_cast<int64_t>(QDateTime::currentMSecsSinceEpoch());
+                    guard->timelineModel_->replaceEcho(tempId, real);
+                }, Qt::QueuedConnection);
+            }
         }
     }).detach();
 }
@@ -907,17 +1005,23 @@ void MainWindow::onLoginDialogAccepted() {
 
 void MainWindow::forceReLogin() {
     sync_.stop();
-    if (store_) store_->clearAccount();
-    if (client_) { AccountInfo empty; client_->setAccount(empty); }
-    roomModel_->clear();
-    timelineModel_->clear();
-    timelineView_->hide();
-    timelinePlaceholder_->show();
-    messageEdit_->hide();
-    currentRoomId_.clear();
-    userLabel_->setText(" Not logged in ");
-    statusLabel_->setText("Session expired. Please login again.");
+    // Soft logout: DON'T clear the model, timeline, or account data.
+    // Show a warning message, then the login dialog. After re-login,
+    // the sync continues with the new token — all rooms/messages preserved.
+    QMessageBox::warning(this, "Session Expired",
+        "Your session has expired. This can happen if:\n"
+        "  - The server was restarted\n"
+        "  - You changed your password\n"
+        "  - You logged out from another device\n"
+        "  - The app was force-closed during a sync\n\n"
+        "Your chats and settings are preserved. Please login again.");
+    userLabel_->setText(" [Session expired] ");
+    statusLabel_->setStyleSheet("color: red; font-weight: bold;");
+    statusLabel_->setText("Session expired — login required");
     showLoginDialog();
+    // After successful login, onLoginDialogAccepted will restart sync
+    // with the new token. Rooms/messages stay in the model.
+    statusLabel_->setStyleSheet("");
 }
 
 void MainWindow::onNewChatClicked() {
@@ -1190,19 +1294,32 @@ void MainWindow::showTimelineContextMenu(const QString& eventId, const QPoint& g
     auto* unpinAction = menu.addAction("Unpin message");
     auto* replyThreadAction = menu.addAction("Reply in thread");
     auto* viewThreadAction = menu.addAction("View thread replies");
-    // Only show "View thread" if the message has thread replies
-    bool hasThreadReplies = false;
+    // Show "View thread" if:
+    // - The message has thread replies (isThreadRoot with threadReplyCount > 0), OR
+    // - The message IS a thread reply (has threadRootId) — clicking opens the
+    //   thread from the root, showing all replies including this one.
+    bool canViewThread = false;
+    QString threadRootForView;
     {
         int row = timelineModel_->findRow(eventId.toStdString());
         if (row >= 0) {
             auto* evt = timelineModel_->at(row);
-            if (evt && evt->threadReplyCount > 0) hasThreadReplies = true;
+            if (evt) {
+                if (evt->threadReplyCount > 0) {
+                    canViewThread = true;
+                    threadRootForView = eventId;  // this IS the root
+                } else if (evt->isThreadReply && !evt->threadRootId.empty()) {
+                    canViewThread = true;
+                    threadRootForView = QString::fromStdString(evt->threadRootId);
+                }
+            }
         }
     }
-    if (!hasThreadReplies) viewThreadAction->setEnabled(false);
+    if (!canViewThread) viewThreadAction->setEnabled(false);
     auto* copyLinkAction = menu.addAction("Copy permalink");
     menu.addSeparator();
-    auto* redactAction = menu.addAction("Redact (delete)");
+    auto* editAction = menu.addAction("Edit");
+    auto* deleteAction = menu.addAction("Delete");
 
     auto* selected = menu.exec(globalPos);
     if (!selected) return;
@@ -1307,7 +1424,8 @@ void MainWindow::showTimelineContextMenu(const QString& eventId, const QPoint& g
             }, Qt::QueuedConnection);
         }).detach();
     } else if (selected == viewThreadAction) {
-        openThreadView(eventId);
+        // Use the root event ID (may differ from eventId if we clicked a reply)
+        openThreadView(threadRootForView.isEmpty() ? eventId : threadRootForView);
     } else if (selected == copyLinkAction) {
         // Build matrix.to permalink
         std::string roomId = currentRoomId_.toStdString();
@@ -1315,8 +1433,36 @@ void MainWindow::showTimelineContextMenu(const QString& eventId, const QPoint& g
         std::string permalink = "https://matrix.to/#/" + roomId + "/" + eid;
         QGuiApplication::clipboard()->setText(QString::fromStdString(permalink));
         statusLabel_->setText("Permalink copied to clipboard.");
-    } else if (selected == redactAction) {
-        auto reply = QMessageBox::question(this, "Redact",
+    } else if (selected == editAction) {
+        if (currentRoomId_.isEmpty() || !client_) return;
+        // Get the current body text for editing
+        int row = timelineModel_->findRow(eventId.toStdString());
+        if (row < 0) return;
+        auto* evt = timelineModel_->at(row);
+        if (!evt) return;
+        bool ok;
+        QString newText = QInputDialog::getText(this, "Edit message",
+            "New text:", QLineEdit::Normal, QString::fromStdString(evt->body), &ok);
+        if (!ok || newText.trimmed().isEmpty()) return;
+        std::string roomId = currentRoomId_.toStdString();
+        std::string eid = eventId.toStdString();
+        std::string newBody = newText.toStdString();
+        MatrixClient* client = client_;
+        QPointer<MainWindow> guard(this);
+        std::thread([guard, client, roomId, eid, newBody]() {
+            auto r = client->editMessage(roomId, eid, newBody);
+            QMetaObject::invokeMethod(guard, [guard, r, eid, newBody]() {
+                if (guard.isNull()) return;
+                if (r.ok) {
+                    guard->timelineModel_->updateBody(eid, newBody);
+                    guard->statusLabel_->setText("Message edited.");
+                } else {
+                    guard->statusLabel_->setText("Edit failed: " + QString::fromStdString(r.error.message));
+                }
+            }, Qt::QueuedConnection);
+        }).detach();
+    } else if (selected == deleteAction) {
+        auto reply = QMessageBox::question(this, "Delete",
             "Delete this message? This cannot be undone.",
             QMessageBox::Yes | QMessageBox::No);
         if (reply != QMessageBox::Yes) return;
@@ -1326,10 +1472,14 @@ void MainWindow::showTimelineContextMenu(const QString& eventId, const QPoint& g
         QPointer<MainWindow> guard(this);
         std::thread([guard, client, roomId, eid]() {
             auto r = client->redactEvent(roomId, eid);
-            QMetaObject::invokeMethod(guard, [guard, r]() {
+            QMetaObject::invokeMethod(guard, [guard, r, eid]() {
                 if (guard.isNull()) return;
-                if (r.ok) guard->statusLabel_->setText("Message redacted.");
-                else guard->statusLabel_->setText("Redact failed: " + QString::fromStdString(r.error.message));
+                if (r.ok) {
+                    guard->timelineModel_->markDeleted(eid);
+                    guard->statusLabel_->setText("Message deleted.");
+                } else {
+                    guard->statusLabel_->setText("Delete failed: " + QString::fromStdString(r.error.message));
+                }
             }, Qt::QueuedConnection);
         }).detach();
     }
@@ -1438,12 +1588,22 @@ void MainWindow::openThreadView(const QString& rootEventId) {
     threadBanner_->show();
     statusLabel_->setText("Loading thread...");
 
+    // #10: Insert the root message at the top of the thread view.
+    // Find it in the (about-to-be-cleared) model before clearing.
+    // Actually, we already cleared. We need to fetch the root event from the
+    // server via /relations/{eventId} (returns the event itself + its relations).
+    // Or: we can use the /event/{eventId} endpoint.
+    // For simplicity: if we have the root message cached, add it first.
+    // The caller (context menu) has access to timelineModel_->at(row) which
+    // has the root message. We'll pass it via a member variable.
+
     std::string roomId = currentRoomId_.toStdString();
     std::string rootEid = rootEventId.toStdString();
     MatrixClient* client = client_;
     QPointer<MainWindow> guard(this);
 
     std::thread([guard, client, roomId, rootEid]() {
+        // Fetch thread replies via /relations/{eventId}/m.thread
         auto r = client->getThreadReplies(roomId, rootEid);
         QMetaObject::invokeMethod(guard, [guard, r, rootEid]() {
             if (guard.isNull()) return;
@@ -1451,13 +1611,48 @@ void MainWindow::openThreadView(const QString& rootEventId) {
                 guard->statusLabel_->setText("Failed to load thread: " + QString::fromStdString(r.error.message));
                 return;
             }
-            // Parse the /relations response: { "chunk": [...events...] }
             simdjson::dom::parser parser;
             auto rootResult = parser.parse(r.data);
             if (rootResult.error() != simdjson::SUCCESS) {
                 guard->statusLabel_->setText("Failed to parse thread replies.");
                 return;
             }
+
+            // The /relations response includes the original event under "original_event"
+            // and the related events under "chunk". Insert the root first.
+            auto origResult = rootResult.value()["original_event"];
+            if (origResult.error() == simdjson::SUCCESS) {
+                DisplayedEvent root;
+                auto t = origResult.value()["type"].get_string();
+                if (t.error() == simdjson::SUCCESS) root.type = std::string(t.value());
+                auto eid = origResult.value()["event_id"].get_string();
+                if (eid.error() == simdjson::SUCCESS) root.eventId = std::string(eid.value());
+                auto sender = origResult.value()["sender"].get_string();
+                if (sender.error() == simdjson::SUCCESS) root.senderId = std::string(sender.value());
+                auto ts = origResult.value()["origin_server_ts"].get_int64();
+                if (ts.error() == simdjson::SUCCESS) root.originServerTs = ts.value();
+                auto contentResult = origResult.value()["content"];
+                if (contentResult.error() == simdjson::SUCCESS) {
+                    root.contentJson = simdjson::to_string(contentResult.value());
+                }
+                if (!root.senderId.empty() && root.senderId[0] == '@') {
+                    auto colon = root.senderId.find(':');
+                    if (colon != std::string::npos) root.senderName = root.senderId.substr(1, colon - 1);
+                    else root.senderName = root.senderId.substr(1);
+                }
+                if (root.type == "m.room.message") {
+                    root.msgtype = extractMsgtype(root.contentJson);
+                    root.body = extractBody(root.contentJson);
+                    if (root.msgtype == "m.image" || root.msgtype == "m.video") {
+                        root.mxcUrl = extractMxcUrl(root.contentJson);
+                        root.mimetype = extractMimetype(root.contentJson);
+                    }
+                }
+                // Mark as thread root
+                root.isThreadRoot = true;
+                guard->timelineModel_->appendBack(root);
+            }
+
             auto chunkResult = rootResult.value()["chunk"].get_array();
             if (chunkResult.error() != simdjson::SUCCESS) {
                 guard->statusLabel_->setText("No thread replies found.");
@@ -1478,7 +1673,6 @@ void MainWindow::openThreadView(const QString& rootEventId) {
                 if (contentResult.error() == simdjson::SUCCESS) {
                     de.contentJson = simdjson::to_string(contentResult.value());
                 }
-                // Extract senderName
                 if (!de.senderId.empty() && de.senderId[0] == '@') {
                     auto colon = de.senderId.find(':');
                     if (colon != std::string::npos) de.senderName = de.senderId.substr(1, colon - 1);
@@ -1721,39 +1915,44 @@ void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
         }
 
         // For DM rooms (no room avatar): extract the OTHER member's avatar_url
-        // from m.room.member events. This is how Element shows avatars for DMs.
+        // and displayname from m.room.member events. This is how Element shows
+        // avatars and names for DMs.
         if (rd.avatarUrl.empty() && client_) {
             std::string myUserId = client_->account().userId;
-            std::vector<std::string> otherMembers;
             for (const auto& e : room.stateEvents) {
                 if (e.type == "m.room.member" && !e.contentJson.empty()) {
                     auto membership = extractJsonString(e.contentJson, "membership");
                     if (membership != "join") continue;
-                    // Check if this is us
                     std::string stateKey(e.stateKey);
                     if (stateKey == myUserId) continue;
-                    // Extract this member's avatar_url
+                    // Extract avatar_url
                     auto avatarUrl = extractJsonStringDecoded(e.contentJson, "avatar_url");
-                    if (!avatarUrl.empty()) {
-                        rd.avatarUrl = avatarUrl;
-                        break;  // Use the first other member's avatar (for DMs)
+                    if (!avatarUrl.empty()) rd.avatarUrl = avatarUrl;
+                    // Extract displayname — use as room name for DMs
+                    if (rd.name.empty() || rd.name == roomId) {
+                        auto displayname = extractJsonString(e.contentJson, "displayname");
+                        if (!displayname.empty()) rd.name = displayname;
                     }
-                    otherMembers.push_back(stateKey);
+                    if (!rd.avatarUrl.empty() && (!rd.name.empty() && rd.name != roomId)) break;
                 }
             }
             // Also check timeline for member events (initial sync)
-            if (rd.avatarUrl.empty()) {
+            if (rd.avatarUrl.empty() || rd.name.empty() || rd.name == roomId) {
                 for (const auto& e : room.timeline.events) {
                     if (e.type == "m.room.member" && !e.contentJson.empty()) {
                         auto membership = extractJsonString(e.contentJson, "membership");
                         if (membership != "join") continue;
                         std::string stateKey(e.stateKey);
                         if (stateKey == myUserId) continue;
-                        auto avatarUrl = extractJsonStringDecoded(e.contentJson, "avatar_url");
-                        if (!avatarUrl.empty()) {
-                            rd.avatarUrl = avatarUrl;
-                            break;
+                        if (rd.avatarUrl.empty()) {
+                            auto avatarUrl = extractJsonStringDecoded(e.contentJson, "avatar_url");
+                            if (!avatarUrl.empty()) rd.avatarUrl = avatarUrl;
                         }
+                        if (rd.name.empty() || rd.name == roomId) {
+                            auto displayname = extractJsonString(e.contentJson, "displayname");
+                            if (!displayname.empty()) rd.name = displayname;
+                        }
+                        if (!rd.avatarUrl.empty() && (!rd.name.empty() && rd.name != roomId)) break;
                     }
                 }
             }
@@ -1762,22 +1961,39 @@ void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
         roomModel_->upsertRoom(rd);
 
         if (currentRoomId_.toStdString() == roomId) {
-            appendTimelineForRoom(roomId, room.timeline.events);
+            // Build a map of userId → avatarUrl from member state events
+            // so we can show user avatars in the timeline.
+            std::string myUserId = client_ ? client_->account().userId : "";
+            std::unordered_map<std::string, std::string> memberAvatars;
+            for (const auto& e : room.stateEvents) {
+                if (e.type == "m.room.member" && !e.contentJson.empty()) {
+                    auto avatarUrl = extractJsonStringDecoded(e.contentJson, "avatar_url");
+                    if (!avatarUrl.empty()) {
+                        memberAvatars[std::string(e.stateKey)] = avatarUrl;
+                    }
+                }
+            }
+            for (const auto& e : room.timeline.events) {
+                if (e.type == "m.room.member" && !e.contentJson.empty()) {
+                    auto avatarUrl = extractJsonStringDecoded(e.contentJson, "avatar_url");
+                    if (!avatarUrl.empty() && !memberAvatars.count(std::string(e.stateKey))) {
+                        memberAvatars[std::string(e.stateKey)] = avatarUrl;
+                    }
+                }
+            }
+            appendTimelineForRoom(roomId, room.timeline.events, &memberAvatars);
         }
     }
 
     // Process invitations — add them to the model with isInvite=true.
-    // The /sync "invite" section is {"rooms":{"invite":{"!id:server":{"invite_state":{"events":[...]}}}}}
-    // We currently only capture the room IDs (in invitedRoomIds). The room
-    // name for invites comes from the invite_state events — which we don't
-    // capture in FastSyncResponse yet. For now, we use the room ID as the
-    // display name and show "[Invite]" in the room list.
-    // TODO: extend FastSyncResponse to capture invite_state.events.
+    // They appear in a separate "Invitations" section above the chat list.
+    int inviteCount = 0;
     for (const auto& invView : resp.invitedRoomIds) {
         std::string roomId(invView);
         RoomData rd;
         rd.roomId = roomId;
         rd.isInvite = true;
+        rd.lastActivityTs = 0;  // show at top (sorted by activity)
         // Try to find an existing entry (in case we already had the room)
         int existingRow = roomModel_->findRowByRoomId(roomId);
         if (existingRow >= 0) {
@@ -1792,12 +2008,22 @@ void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
         }
         rd.lastMessage = "Invitation";
         roomModel_->upsertRoom(rd);
+        inviteCount++;
+    }
+
+    // Show/hide the invitations header
+    if (inviteCount > 0) {
+        inviteHeader_->setText(QString(" ⬇ Invitations (%1) ").arg(inviteCount));
+        inviteHeader_->show();
+    } else {
+        inviteHeader_->hide();
     }
 
     updateRoomListHeader();
 }
 
-void MainWindow::appendTimelineForRoom(const std::string& roomId, const std::vector<FastEvent>& events) {
+void MainWindow::appendTimelineForRoom(const std::string& roomId, const std::vector<FastEvent>& events,
+                                         const std::unordered_map<std::string, std::string>* memberAvatars) {
     std::string myUserId = client_ ? client_->account().userId : "";
     for (const auto& e : events) {
         // Skip our own m.room.member join events — they're noise that appears
@@ -1809,7 +2035,43 @@ void MainWindow::appendTimelineForRoom(const std::string& roomId, const std::vec
                 continue;  // skip our own join event
             }
         }
+        // Handle redaction events — mark the original message as deleted
+        if (e.type == "m.room.redaction" && !e.contentJson.empty()) {
+            // Extract the redacts field — the event_id being redacted
+            auto redactedId = extractJsonStringDecoded(e.contentJson, "redacts");
+            if (!redactedId.empty()) {
+                timelineModel_->markDeleted(redactedId);
+            }
+            continue;  // don't show redaction as a separate message
+        }
         auto de = fastEventToDisplayed(e);
+        // Set the sender's avatar URL from room member state
+        if (memberAvatars && !de.senderId.empty()) {
+            auto it = memberAvatars->find(de.senderId);
+            if (it != memberAvatars->end()) de.avatarUrl = it->second;
+        }
+        // Check if this message is an edit (m.replace) — update the original
+        if (de.type == "m.room.message" && !de.contentJson.empty()) {
+            std::string_view cv(de.contentJson);
+            auto replacePos = cv.find("\"rel_type\":\"m.replace\"");
+            if (replacePos != std::string_view::npos) {
+                // This is an edit — extract the original event_id and new body
+                auto eventIdPos = cv.find("\"event_id\":\"", replacePos);
+                if (eventIdPos != std::string_view::npos) {
+                    auto start = eventIdPos + 12;
+                    auto end = cv.find('"', start);
+                    if (end != std::string_view::npos) {
+                        std::string originalId(cv.substr(start, end - start));
+                        // Extract new body from m.new_content
+                        auto newBody = extractJsonStringDecoded(de.contentJson, "body");
+                        if (!newBody.empty()) {
+                            timelineModel_->updateBody(originalId, newBody);
+                            continue;  // don't show the edit as a new message
+                        }
+                    }
+                }
+            }
+        }
         timelineModel_->appendBack(de);
         // If this is a thread reply, increment the root message's threadReplyCount
         if (de.isThreadReply && !de.threadRootId.empty()) {

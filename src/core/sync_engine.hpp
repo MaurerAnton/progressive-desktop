@@ -103,6 +103,7 @@ private:
 
     std::string sinceToken_;
     SyncEngineStats stats_;
+    std::atomic<bool> isFirstSync_{true};  // true on first sync after start()
 };
 
 } // namespace progressive::desktop

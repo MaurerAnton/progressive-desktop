@@ -39,6 +39,7 @@ QVariant TimelineModel::data(const QModelIndex& index, int role) const {
         case ImageLoadedRole:  return e.imageLoaded;
         case IsMovieRole:      return e.isMovie;
         case EventIdRole:      return QString::fromStdString(e.eventId);
+        case AvatarUrlRole:    return QString::fromStdString(e.avatarUrl);
         case ReactionsRole: {
             // Convert reactions to a QStringList of "emoji (count)" entries
             // for easy rendering in the delegate.
@@ -60,6 +61,45 @@ void TimelineModel::appendBack(const DisplayedEvent& evt) {
     beginInsertRows(QModelIndex(), row, row);
     events_.push_back(evt);
     endInsertRows();
+}
+
+void TimelineModel::replaceEcho(const std::string& tempEventId, const DisplayedEvent& realEvent) {
+    // Find the echo by temp event ID
+    for (size_t i = 0; i < events_.size(); ++i) {
+        if (events_[i].eventId == tempEventId) {
+            // Replace the echo with the real event
+            if (!realEvent.eventId.empty() && seenIds_.count(realEvent.eventId)) {
+                // Real event already exists — just remove the echo
+                beginRemoveRows(QModelIndex(), i, i);
+                events_.erase(events_.begin() + i);
+                endRemoveRows();
+            } else {
+                events_[i] = realEvent;
+                if (!realEvent.eventId.empty()) seenIds_.insert(realEvent.eventId);
+                emit dataChanged(index(i), index(i));
+            }
+            return;
+        }
+    }
+    // Echo not found — just append the real event
+    appendBack(realEvent);
+}
+
+void TimelineModel::markDeleted(const std::string& eventId) {
+    int row = findRow(eventId);
+    if (row < 0) return;
+    events_[row].body = "[Message deleted]";
+    events_[row].msgtype = "m.notice";
+    events_[row].mxcUrl.clear();
+    emit dataChanged(index(row), index(row), {BodyRole, MsgTypeRole, MxcUrlRole});
+}
+
+void TimelineModel::updateBody(const std::string& eventId, const std::string& newBody) {
+    int row = findRow(eventId);
+    if (row < 0) return;
+    events_[row].body = newBody;
+    events_[row].msgtype = "m.text";  // edited messages are always m.text
+    emit dataChanged(index(row), index(row), {BodyRole, MsgTypeRole});
 }
 
 void TimelineModel::appendFront(const std::vector<DisplayedEvent>& evts) {

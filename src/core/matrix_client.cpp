@@ -737,6 +737,7 @@ ApiResult<std::string> MatrixClient::getThreads(const std::string& roomId, const
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
     std::ostringstream url;
+    // /threads endpoint is v1 per Matrix spec
     url << account_.homeserverUrl << "/_matrix/client/v1/rooms/" << urlEncodePath(roomId)
         << "/threads?limit=" << limit;
     if (!from.empty()) url << "&from=" << from;
@@ -750,8 +751,12 @@ ApiResult<std::string> MatrixClient::getThreads(const std::string& roomId, const
 ApiResult<std::string> MatrixClient::getThreadReplies(const std::string& roomId, const std::string& rootEventId) {
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
-    auto resp = httpGet(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) +
-                        "/relations/" + rootEventId + "/m.thread", authHeaders(), 15000);
+    // /relations endpoint is v1 per Matrix spec.
+    // Returns {original_event: ..., chunk: [...replies...]}
+    std::ostringstream url;
+    url << account_.homeserverUrl << "/_matrix/client/v1/rooms/" << urlEncodePath(roomId)
+        << "/relations/" << urlEncodePath(rootEventId) << "/m.thread?limit=50&dir=f";
+    auto resp = httpGet(url.str(), authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
     if (resp.success) { r.ok = true; r.data = resp.body; }
     else { if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body); }
@@ -843,7 +848,8 @@ ApiResult<progressive::SyncResponse> MatrixClient::sync(const std::string& since
 }
 
 MatrixClient::FastSyncResult MatrixClient::syncFast(const std::string& since,
-                                                     int timeoutMs) {
+                                                     int timeoutMs,
+                                                     bool fullState) {
     FastSyncResult r;
     if (!isLoggedIn()) {
         r.error.message = "not logged in";
@@ -852,10 +858,9 @@ MatrixClient::FastSyncResult MatrixClient::syncFast(const std::string& since,
     std::ostringstream url;
     url << account_.homeserverUrl << "/_matrix/client/v3/sync"
         << "?timeout=" << timeoutMs;
-    // For initial sync (empty since), use full_state=true to get ALL rooms
-    // including those with no recent activity. Without this, some rooms
-    // (especially DMs) don't appear until someone sends a message.
-    if (since.empty()) {
+    // full_state=true loads ALL room state (even rooms with no recent activity).
+    // Used on the first sync after start() to populate the room model completely.
+    if (fullState || since.empty()) {
         url << "&full_state=true";
     } else {
         url << "&full_state=false&since=" << since;
@@ -1158,6 +1163,33 @@ ApiResult<std::string> MatrixClient::sendMessageEvent(const std::string& roomId,
         r.data = progressive::parseJsonStringValue(resp.body, "event_id");
         r.ok = !r.data.empty();
         if (!r.ok) r.error.message = "send: no event_id in response";
+    } else {
+        if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+        r.error.message = resp.errorMessage.empty() ? r.error.message : resp.errorMessage;
+    }
+    return r;
+}
+
+ApiResult<std::string> MatrixClient::editMessage(const std::string& roomId,
+                                                     const std::string& originalEventId,
+                                                     const std::string& newBody) {
+    ApiResult<std::string> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    std::string txn = genTxnId("edit");
+    std::ostringstream jsonBody;
+    jsonBody << R"({"msgtype":"m.text","body":")" << jsonEscape(newBody)
+             << R"(","m.new_content":{"msgtype":"m.text","body":")" << jsonEscape(newBody)
+             << R"("},"m.relates_to":{"rel_type":"m.replace","event_id":")"
+             << jsonEscape(originalEventId) << R"("}})";
+    std::ostringstream url;
+    url << account_.homeserverUrl << "/_matrix/client/v3/rooms/"
+        << urlEncodePath(roomId) << "/send/m.room.message/" << txn;
+    auto resp = httpPut(url.str(), jsonBody.str(), authHeaders(), 15000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) {
+        r.data = progressive::parseJsonStringValue(resp.body, "event_id");
+        r.ok = !r.data.empty();
+        if (!r.ok) r.error.message = "edit: no event_id in response";
     } else {
         if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
         r.error.message = resp.errorMessage.empty() ? r.error.message : resp.errorMessage;

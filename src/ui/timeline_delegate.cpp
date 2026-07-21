@@ -87,9 +87,14 @@ QString TimelineDelegate::formatMessageHtml(const QModelIndex& index) const {
             sender = "&nbsp;";
         } else if (msgtype == "m.notice") {
             bodyHtml = QString("<span style='color:#969696'>%1</span>").arg(body.toHtmlEscaped());
-        } else if (msgtype == "m.image" || msgtype == "m.video" ||
-                   msgtype == "m.audio" || msgtype == "m.file") {
-            bodyHtml = QString("<i>[%1]</i>").arg(msgtype.mid(2));
+        } else if (msgtype == "m.image" || msgtype == "m.video") {
+            QString icon = msgtype == "m.image" ? "🖼" : "🎬";
+            bodyHtml = QString("<span style='color:#aaa'>%1 <b>%2</b></span>")
+                .arg(icon, body.isEmpty() ? (msgtype.mid(2) + " file") : body.toHtmlEscaped());
+        } else if (msgtype == "m.audio" || msgtype == "m.file") {
+            QString icon = msgtype == "m.audio" ? "🎵" : "📎";
+            bodyHtml = QString("<span style='color:#aaa'>%1 <b>%2</b></span>")
+                .arg(icon, body.isEmpty() ? (msgtype.mid(2) + " file") : body.toHtmlEscaped());
         } else {
             bodyHtml = body.toHtmlEscaped();
         }
@@ -237,42 +242,54 @@ void TimelineDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     QString html = formatMessageHtml(index);
     renderText(painter, contentRect, html);
 
-    // Render image if applicable
+    // Render image/thumbnail if applicable
     if ((msgtype == "m.image" || msgtype == "m.video") && !mxcUrl.isEmpty()) {
+        int imgY = contentRect.y() + 42;
+        int maxW = qMin(320, contentRect.width() - 10);
         if (imageLoaded) {
             QImage img = index.data(TimelineModel::ImageRole).value<QImage>();
             if (!img.isNull()) {
-                int imgY = contentRect.y() + 40;
-                QRect imgRect(contentX, imgY, qMin(300, img.width()), qMin(200, img.height()));
-                painter->drawImage(imgRect, img.scaled(imgRect.size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+                QImage scaled = img.scaled(maxW, 240, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                QRect imgRect(contentX, imgY, scaled.width(), scaled.height());
+                painter->setPen(Qt::NoPen);
+                painter->setBrush(QColor("#1a1a1a"));
+                painter->drawRoundedRect(imgRect.adjusted(-1, -1, 1, 1), 4, 4);
+                painter->drawImage(imgRect, scaled);
+                if (msgtype == "m.video") {
+                    painter->setPen(Qt::NoPen);
+                    painter->setBrush(QColor(0, 0, 0, 100));
+                    QRect playBtn(imgRect.center().x() - 15, imgRect.center().y() - 15, 30, 30);
+                    painter->drawEllipse(playBtn);
+                    painter->setPen(Qt::white);
+                    QFont playFont = painter->font();
+                    playFont.setPointSize(12);
+                    painter->setFont(playFont);
+                    painter->drawText(playBtn, Qt::AlignCenter, "▶");
+                }
             }
         } else {
-            // Trigger async load — when complete, the model's setImage()
-            // will emit dataChanged and this row will be repainted.
-            // We use a const_cast to call the non-const fetchThumbnail.
-            // The callback updates the model via setImage().
+            // Placeholder while loading
+            QRect placeholderRect(contentX, imgY, maxW, 120);
+            painter->setPen(QPen(QColor("#3a3a3a"), 1));
+            painter->setBrush(QColor("#1a1a1a"));
+            painter->drawRoundedRect(placeholderRect, 4, 4);
+            painter->setPen(QColor("#888"));
+            QFont placeholderFont = painter->font();
+            placeholderFont.setPointSize(11);
+            painter->setFont(placeholderFont);
+            QString hint = msgtype == "m.video" ? "🎬 loading video..." : "🖼 loading image...";
+            painter->drawText(placeholderRect, Qt::AlignCenter, hint);
+            // Trigger async load
             QString eventId = index.data(TimelineModel::EventIdRole).toString();
             const_cast<TimelineDelegate*>(this)->loader_->fetchThumbnail(
                 mxcUrl.toStdString(), 300, 200,
                 [eventId, model = const_cast<QAbstractItemModel*>(index.model())]
                 (const QImage& img) {
                     if (!img.isNull() && model) {
-                        // Find the row and update it
-                        for (int i = 0; i < model->rowCount(); ++i) {
-                            auto idx = model->index(i, 0);
-                            if (idx.data(TimelineModel::EventIdRole).toString() == eventId) {
-                                // Cast to TimelineModel to call setImage
-                                auto* tm = qobject_cast<TimelineModel*>(model);
-                                if (tm) {
-                                    tm->setImage(eventId.toStdString(), img);
-                                }
-                                break;
-                            }
-                        }
+                        auto* tm = qobject_cast<TimelineModel*>(model);
+                        if (tm) tm->setImage(eventId.toStdString(), img);
                     }
                 });
-            painter->setPen(QColor("#969696"));
-            painter->drawText(contentRect.x(), contentRect.y() + 50, "[loading image...]");
         }
     }
 
@@ -327,7 +344,9 @@ QSize TimelineDelegate::sizeHint(const QStyleOptionViewItem& option,
         doc->setTextWidth(width - 60);  // minus avatar + padding
         height = static_cast<int>(doc->size().height()) + 20;
     } else if (msgtype == "m.image" || msgtype == "m.video") {
-        height = imageLoaded ? 260 : 80;  // image + text, or placeholder
+        height = imageLoaded ? 300 : 200;  // image area + text + padding
+    } else if (msgtype == "m.audio" || msgtype == "m.file") {
+        height = 60;  // file card
     } else if (type == "m.room.member" || type == "m.room.redaction") {
         height = 30;
     }

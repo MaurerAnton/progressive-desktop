@@ -430,6 +430,39 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if (link == "back") closeThreadView();
     });
 
+    rightLayout->addWidget(threadBanner_);
+    connect(threadBanner_, &QLabel::linkActivated, this, [this](const QString& link) {
+        if (link == "back") closeThreadView();
+    });
+
+    // Toolbar row: load more + save chat + threads
+    auto* timelineToolbar = new QWidget(rightPanel);
+    auto* timelineToolbarLayout = new QHBoxLayout(timelineToolbar);
+    timelineToolbarLayout->setContentsMargins(4, 2, 4, 2);
+    timelineToolbarLayout->setSpacing(4);
+
+    loadMoreBtn_ = new QPushButton("↑ Load older", rightPanel);
+    loadMoreBtn_->setStyleSheet("QPushButton{background:#2a2a3a;color:#888;border:1px solid #3a3a3a;padding:2px 10px;border-radius:3px;font-size:11px;}QPushButton:hover{color:#ccc;border-color:#555;}");
+    loadMoreBtn_->hide();
+    chatLogBtn_ = new QPushButton("💾 Save", rightPanel);
+    chatLogBtn_->setCheckable(true);
+    chatLogBtn_->setStyleSheet("QPushButton{background:#2a2a3a;color:#888;border:1px solid #3a3a3a;padding:2px 10px;border-radius:3px;font-size:11px;}QPushButton:checked{color:#6c6;border-color:#4a6;}QPushButton:hover{color:#ccc;}");
+    chatLogBtn_->hide();
+    threadBtn_ = new QPushButton("🧵 Threads", rightPanel);
+    threadBtn_->setStyleSheet("QPushButton{background:#2a2a3a;color:#888;border:1px solid #3a3a3a;padding:2px 10px;border-radius:3px;font-size:11px;}QPushButton:hover{color:#ccc;border-color:#555;}");
+    threadBtn_->hide();
+
+    timelineToolbarLayout->addWidget(loadMoreBtn_);
+    timelineToolbarLayout->addWidget(chatLogBtn_);
+    timelineToolbarLayout->addStretch();
+    timelineToolbarLayout->addWidget(threadBtn_);
+    rightLayout->addWidget(timelineToolbar, 0);
+    timelineToolbar->hide();
+
+    connect(loadMoreBtn_, &QPushButton::clicked, this, &MainWindow::onLoadMoreClicked);
+    connect(chatLogBtn_, &QPushButton::clicked, this, &MainWindow::onToggleChatLog);
+    connect(threadBtn_, &QPushButton::clicked, this, &MainWindow::toggleThreadPanel);
+
     rightLayout->addWidget(timelineView_, 1);  // stretch factor 1 = fills available space
 
     timelinePlaceholder_ = new QLabel(
@@ -628,6 +661,11 @@ void MainWindow::onRoomListContextMenu(const QPoint& pos) {
                         guard->timelineView_->hide();
                         guard->timelinePlaceholder_->show();
                         guard->messageEdit_->hide();
+                        guard->loadMoreBtn_->parentWidget()->hide();
+                        guard->chatLogging_ = false;
+                        guard->chatLogFile_.reset();
+                        guard->chatLogBtn_->setChecked(false);
+                        guard->chatLogBtn_->setText("💾 Save");
                     }
                 } else {
                     guard->statusLabel_->setText("Failed to leave: " + QString::fromStdString(r.error.message));
@@ -689,15 +727,67 @@ void MainWindow::onRoomClicked(const QModelIndex& idx) {
     // Close thread view if open
     currentThreadRoot_.clear();
     threadBanner_->hide();
+    currentPrevBatch_.clear();
+    chatLogging_ = false;
+    chatLogBtn_->setChecked(false);
+    chatLogFile_.reset();
     timelineModel_->clear();
     timelinePlaceholder_->hide();
     timelineView_->show();
     messageEdit_->show();
+    loadMoreBtn_->hide();
+    chatLogBtn_->show();
+    threadBtn_->show();
+    loadMoreBtn_->parentWidget()->show();  // show the toolbar that contains these buttons
     messageEdit_->setFocus();
     setWindowTitle(QString("Progressive Chat — %1").arg(QString::fromStdString(r->name)));
 
+    // Pre-load member avatars from room state for better timeline display
+    loadMemberAvatarsForRoom(r->roomId);
+
     // Load room history via /messages endpoint
     loadRoomHistory(r->roomId);
+}
+
+void MainWindow::loadMemberAvatarsForRoom(const std::string& roomId) {
+    if (!client_ || !client_->isLoggedIn()) return;
+    MatrixClient* client = client_;
+    QPointer<MainWindow> guard(this);
+
+    std::thread([guard, client, roomId]() {
+        auto membersResp = client->getRoomMembers(roomId);
+        QMetaObject::invokeMethod(guard, [guard, roomId, membersResp]() {
+            if (guard.isNull() || !membersResp.ok) return;
+
+            simdjson::dom::parser parser;
+            auto root = parser.parse(membersResp.data);
+            if (root.error() != simdjson::SUCCESS) return;
+            auto chunk = root.value()["chunk"].get_array();
+            if (chunk.error() != simdjson::SUCCESS) return;
+
+            for (auto evt : chunk.value()) {
+                auto membership = evt["content"]["membership"].get_string();
+                if (membership.error() != simdjson::SUCCESS ||
+                    std::string(membership.value()) != "join") continue;
+                auto sk = evt["state_key"].get_string();
+                if (sk.error() != simdjson::SUCCESS) continue;
+                std::string userId(sk.value());
+
+                auto content = evt["content"];
+                if (content.error() != simdjson::SUCCESS) continue;
+                std::string contentStr = simdjson::to_string(content.value());
+
+                auto avatarUrl = extractJsonStringDecoded(contentStr, "avatar_url");
+                if (!avatarUrl.empty()) {
+                    guard->memberAvatarCache_[userId] = avatarUrl;
+                }
+                auto displayname = extractJsonString(contentStr, "displayname");
+                if (!displayname.empty()) {
+                    guard->memberAvatarCache_[userId + "/name"] = displayname;
+                }
+            }
+        }, Qt::QueuedConnection);
+    }).detach();
 }
 
 void MainWindow::loadRoomHistory(const std::string& roomId) {
@@ -796,10 +886,35 @@ void MainWindow::loadRoomHistory(const std::string& roomId) {
             // Events from /messages?dir=b are newest-first. Reverse to oldest-first.
             std::reverse(events.begin(), events.end());
 
+            // Extract prev_batch token for "load older" pagination.
+            // The /messages response with dir=b has "end" = next batch for older messages.
+            auto endToken = rootResult.value()["end"].get_string();
+            if (endToken.error() == simdjson::SUCCESS && endToken.value().size() > 0) {
+                guard->currentPrevBatch_ = std::string(endToken.value());
+            } else {
+                auto startToken = rootResult.value()["start"].get_string();
+                if (startToken.error() == simdjson::SUCCESS) {
+                    guard->currentPrevBatch_ = std::string(startToken.value());
+                } else {
+                    guard->currentPrevBatch_.clear();
+                }
+            }
+
+            // Set avatar URLs from member cache
+            for (auto& de : events) {
+                auto it = guard->memberAvatarCache_.find(de.senderId);
+                if (it != guard->memberAvatarCache_.end()) {
+                    de.avatarUrl = it->second;
+                }
+                auto nameIt = guard->memberAvatarCache_.find(de.senderId + "/name");
+                if (nameIt != guard->memberAvatarCache_.end()) {
+                    de.senderName = nameIt->second;
+                }
+            }
+
             // Append directly to timeline model + track thread reply counts
             for (const auto& de : events) {
                 guard->timelineModel_->appendBack(de);
-                // If this is a thread reply, increment the root message's threadReplyCount
                 if (de.isThreadReply && !de.threadRootId.empty()) {
                     int rootRow = guard->timelineModel_->findRow(de.threadRootId);
                     if (rootRow >= 0) {
@@ -812,7 +927,19 @@ void MainWindow::loadRoomHistory(const std::string& roomId) {
                         }
                     }
                 }
+                // Write to chat log if enabled
+                if (guard->chatLogging_ && guard->chatLogFile_) {
+                    auto t = QDateTime::fromMSecsSinceEpoch(de.originServerTs);
+                    *guard->chatLogFile_ << "["
+                        << t.toString("yyyy-MM-dd HH:mm").toStdString() << "] "
+                        << de.senderName << ": " << de.body << "\n";
+                }
             }
+
+            if (!guard->currentPrevBatch_.empty()) {
+                guard->loadMoreBtn_->show();
+            }
+            guard->timelineView_->scrollToBottom();
             guard->statusLabel_->setText(QString("Loaded %1 message(s) from history.").arg(events.size()));
         }, Qt::QueuedConnection);
     }).detach();
@@ -837,6 +964,11 @@ void MainWindow::onSendMessage(const std::string& body) {
     }
     std::string tempId = echo.eventId;
     timelineModel_->appendBack(echo);
+    timelineView_->scrollToBottom();
+    if (chatLogging_ && chatLogFile_ && chatLogFile_->is_open()) {
+        *chatLogFile_ << "[" << QDateTime::currentDateTime().toString("HH:mm").toStdString()
+                     << "] you: " << body << "\n";
+    }
 
     std::string roomId = currentRoomId_.toStdString();
     MatrixClient* client = client_;
@@ -1745,6 +1877,159 @@ void MainWindow::closeThreadView() {
     }
 }
 
+void MainWindow::onLoadMoreClicked() {
+    if (currentRoomId_.isEmpty() || !client_ || currentPrevBatch_.empty()) return;
+    statusLabel_->setText("Loading older messages...");
+    loadMoreBtn_->setEnabled(false);
+
+    std::string roomId = currentRoomId_.toStdString();
+    std::string from = currentPrevBatch_;
+    MatrixClient* client = client_;
+    QPointer<MainWindow> guard(this);
+
+    std::thread([guard, client, roomId, from]() {
+        auto result = client->getMessages(roomId, from, 30);
+        QMetaObject::invokeMethod(guard, [guard, result]() {
+            if (guard.isNull() || !result.ok) {
+                if (!guard.isNull()) {
+                    guard->statusLabel_->setText("Failed to load older messages.");
+                    guard->loadMoreBtn_->setEnabled(true);
+                }
+                return;
+            }
+
+            simdjson::dom::parser parser;
+            auto rootResult = parser.parse(result.data);
+            if (rootResult.error() != simdjson::SUCCESS) {
+                guard->statusLabel_->setText("Failed to parse older messages.");
+                guard->loadMoreBtn_->setEnabled(true);
+                return;
+            }
+
+            auto endToken = rootResult.value()["end"].get_string();
+            if (endToken.error() == simdjson::SUCCESS && endToken.value().size() > 0) {
+                guard->currentPrevBatch_ = std::string(endToken.value());
+            } else {
+                auto startToken = rootResult.value()["start"].get_string();
+                if (startToken.error() == simdjson::SUCCESS) {
+                    guard->currentPrevBatch_ = std::string(startToken.value());
+                } else {
+                    guard->currentPrevBatch_.clear();
+                }
+            }
+
+            auto chunkResult = rootResult.value()["chunk"].get_array();
+            if (chunkResult.error() != simdjson::SUCCESS) {
+                guard->statusLabel_->setText("No older messages.");
+                guard->loadMoreBtn_->setEnabled(true);
+                return;
+            }
+
+            std::vector<DisplayedEvent> events;
+            for (auto evt : chunkResult.value()) {
+                DisplayedEvent de;
+                auto t = evt["type"].get_string();
+                if (t.error() == simdjson::SUCCESS) de.type = std::string(t.value());
+                auto eid = evt["event_id"].get_string();
+                if (eid.error() == simdjson::SUCCESS) de.eventId = std::string(eid.value());
+                auto sender = evt["sender"].get_string();
+                if (sender.error() == simdjson::SUCCESS) de.senderId = std::string(sender.value());
+                auto ts = evt["origin_server_ts"].get_int64();
+                if (ts.error() == simdjson::SUCCESS) de.originServerTs = ts.value();
+                auto contentResult = evt["content"];
+                if (contentResult.error() == simdjson::SUCCESS) de.contentJson = simdjson::to_string(contentResult.value());
+
+                if (!de.senderId.empty() && de.senderId[0] == '@') {
+                    auto colon = de.senderId.find(':');
+                    if (colon != std::string::npos) de.senderName = de.senderId.substr(1, colon - 1);
+                    else de.senderName = de.senderId.substr(1);
+                }
+                if (de.type == "m.room.message") {
+                    de.msgtype = extractMsgtype(de.contentJson);
+                    de.body = extractBody(de.contentJson);
+                    if (de.msgtype == "m.image" || de.msgtype == "m.video") {
+                        de.mxcUrl = extractMxcUrl(de.contentJson);
+                        de.mimetype = extractMimetype(de.contentJson);
+                    }
+                    std::string_view cv(de.contentJson);
+                    std::string threadRoot = extractThreadRootId(cv);
+                    if (!threadRoot.empty()) {
+                        de.isThreadReply = true;
+                        de.threadRootId = threadRoot;
+                    }
+                }
+                // Set avatars from cache
+                auto it = guard->memberAvatarCache_.find(de.senderId);
+                if (it != guard->memberAvatarCache_.end()) de.avatarUrl = it->second;
+                auto nameIt = guard->memberAvatarCache_.find(de.senderId + "/name");
+                if (nameIt != guard->memberAvatarCache_.end()) de.senderName = nameIt->second;
+
+                events.push_back(std::move(de));
+            }
+
+            std::reverse(events.begin(), events.end());
+            guard->timelineModel_->appendFront(events);
+
+            if (guard->currentPrevBatch_.empty()) {
+                guard->loadMoreBtn_->hide();
+            }
+            guard->loadMoreBtn_->setEnabled(true);
+            guard->statusLabel_->setText(QString("Loaded %1 older message(s).").arg(events.size()));
+        }, Qt::QueuedConnection);
+    }).detach();
+}
+
+void MainWindow::onToggleChatLog() {
+    if (currentRoomId_.isEmpty()) return;
+    chatLogging_ = !chatLogging_;
+
+    if (chatLogging_) {
+        chatLogBtn_->setChecked(true);
+        chatLogBtn_->setText("💾 Saving");
+        // Open file for appending
+        QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/chatlogs";
+        QDir().mkpath(dir);
+        QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd_HHmm");
+        // Get room name
+        std::string roomName = currentRoomId_.toStdString();
+        int row = roomModel_->findRowByRoomId(roomName);
+        if (row >= 0) {
+            auto* rd = roomModel_->at(row);
+            if (rd && !rd->name.empty()) roomName = rd->name;
+        }
+        // Sanitize filename
+        for (auto& c : roomName) {
+            if (c == '/' || c == '\\' || c == ':' || c == '<' || c == '>' || c == '|' || c == '?') c = '_';
+        }
+        QString filePath = dir + "/" + QString::fromStdString(roomName) + "_" + timestamp + ".txt";
+        chatLogFile_ = std::make_unique<std::ofstream>(filePath.toStdString(), std::ios::app);
+        if (chatLogFile_->is_open()) {
+            *chatLogFile_ << "=== Chat log: " << roomName << " ===\n"
+                         << "Started: " << QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss").toStdString() << "\n\n";
+            statusLabel_->setText("Chat log started: " + filePath);
+        } else {
+            chatLogging_ = false;
+            chatLogBtn_->setChecked(false);
+            chatLogBtn_->setText("💾 Save");
+            statusLabel_->setText("Failed to create log file.");
+        }
+    } else {
+        chatLogBtn_->setChecked(false);
+        chatLogBtn_->setText("💾 Save");
+        chatLogFile_.reset();
+        statusLabel_->setText("Chat log stopped.");
+    }
+}
+
+void MainWindow::toggleThreadPanel() {
+    if (currentRoomId_.isEmpty() || !client_) {
+        QMessageBox::information(this, "Threads", "Select a room first.");
+        return;
+    }
+    ThreadsDialog dlg(client_, currentRoomId_.toStdString(), this);
+    dlg.exec();
+}
+
 void MainWindow::onSync(const FastSyncResponse& resp) {
     rebuildRoomList(resp);
 
@@ -1974,6 +2259,10 @@ void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
             timelineView_->hide();
             timelinePlaceholder_->show();
             messageEdit_->hide();
+            if (loadMoreBtn_) loadMoreBtn_->hide();
+            chatLogging_ = false;
+            chatLogFile_.reset();
+            if (chatLogBtn_) { chatLogBtn_->setChecked(false); chatLogBtn_->setText("💾 Save"); }
         }
     }
 
@@ -2222,6 +2511,16 @@ void MainWindow::appendTimelineForRoom(const std::string& roomId, const std::vec
                 }
             }
         }
+        // Write to chat log if enabled
+        if (chatLogging_ && chatLogFile_ && chatLogFile_->is_open()) {
+            auto t = QDateTime::fromMSecsSinceEpoch(de.originServerTs);
+            *chatLogFile_ << "["
+                << t.toString("yyyy-MM-dd HH:mm").toStdString() << "] "
+                << de.senderName << ": " << de.body << "\n";
+        }
+    }
+    if (!events.empty()) {
+        timelineView_->scrollToBottom();
     }
 }
 

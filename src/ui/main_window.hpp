@@ -16,8 +16,11 @@
 #include <QListView>
 #include <QSplitter>
 #include <QLabel>
+#include <QPushButton>
 #include <QPointer>
 #include <unordered_map>
+#include <fstream>
+#include <memory>
 
 class QToolBar;
 class QAction;
@@ -65,6 +68,9 @@ private slots:
     void onAttachFile(const QString& filePath);
     void openThreadView(const QString& rootEventId);
     void closeThreadView();
+    void onLoadMoreClicked();
+    void onToggleChatLog();
+    void toggleThreadPanel();
 
 private:
     void rebuildRoomList(const FastSyncResponse& resp);
@@ -72,6 +78,7 @@ private:
     void appendTimelineForRoom(const std::string& roomId, const std::vector<FastEvent>& events,
                                 const std::unordered_map<std::string, std::string>* memberAvatars = nullptr);
     void loadRoomHistory(const std::string& roomId);
+    void loadMemberAvatarsForRoom(const std::string& roomId);
     void wireSyncCallbacks();
     void showLoginDialog();
     void updateRoomListHeader();
@@ -112,10 +119,17 @@ private:
     MessageEdit* messageEdit_ = nullptr;
     QLabel* statusLabel_ = nullptr;
     QLabel* threadBanner_ = nullptr;  // "← Back to chat" banner (visible in thread mode)
+    QPushButton* loadMoreBtn_ = nullptr;   // "↑ Load older messages" at top of timeline
+    QPushButton* chatLogBtn_ = nullptr;    // "Save chat" toggle button
+    QPushButton* threadBtn_ = nullptr;     // "Threads" sidebar toggle
 
     QString currentRoomId_;
     QString currentThreadRoot_;  // if non-empty, we're viewing a thread (not main chat)
     bool isFullscreen_ = false;
+    std::string currentPrevBatch_;  // token for "load older" pagination
+    bool chatLogging_ = false;      // save chat to file enabled for current room
+    std::unique_ptr<std::ofstream> chatLogFile_;
+    std::unordered_map<std::string, std::string> memberAvatarCache_;  // userId → mxc URL
 };
 
 } // namespace progressive::desktop

@@ -16,6 +16,8 @@ class TimelineDelegate : public QStyledItemDelegate {
 public:
     explicit TimelineDelegate(ImageLoader* loader, QObject* parent = nullptr);
 
+    void setMyUserId(const std::string& id) { myUserId_ = QString::fromStdString(id); }
+
     void paint(QPainter* painter, const QStyleOptionViewItem& option,
                const QModelIndex& index) const override;
     QSize sizeHint(const QStyleOptionViewItem& option,
@@ -32,15 +34,19 @@ signals:
 
 private:
     ImageLoader* loader_;
-    // Cache QTextDocument per event_id for text rendering.
-    // Key = event_id hash, value = QTextDocument.
-    mutable QHash<QString, std::shared_ptr<QTextDocument>> docCache_;
+    QString myUserId_;
+    // Per-row cached text height for faster sizeHint
+    mutable QHash<QString, int> heightCache_;
 
-    void renderText(QPainter* painter, const QRect& rect, const QString& html) const;
-    QString formatMessageHtml(const QModelIndex& index) const;
+    void drawBubbleAvatar(QPainter* p, int x, int y, const QModelIndex& idx,
+                          const QString& senderId, const QString& senderName,
+                          const QString& avatarUrl) const;
+    void drawBubble(QPainter* p, int x, int y, int w, int h, const QColor& color) const;
+    void drawSystemRow(QPainter* p, const QRect& rect, const QModelIndex& idx,
+                       const QString& type) const;
+    void drawMessageBubble(QPainter* p, const QRect& rowRect,
+                           const QModelIndex& idx) const;
     QColor avatarColor(const QString& userId) const;
-    void drawAvatar(QPainter* painter, const QRect& rect, const QString& userId,
-                    const QString& name, const QImage& avatarImg = QImage()) const;
 };
 
 } // namespace progressive::desktop

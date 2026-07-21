@@ -551,6 +551,7 @@ void MainWindow::startWithSavedSession() {
 
     // Set client on image loader
     imageLoader_->setClient(client_);
+    timelineDelegate_->setMyUserId(client_->account().userId);
     int cacheSize = PrefsDialog::imageCacheSize();
     imageLoader_->setCacheSize(cacheSize);
     std::fprintf(stderr, "[mem] image cache size: %d\n", cacheSize);
@@ -758,10 +759,17 @@ void MainWindow::loadMemberAvatarsForRoom(const std::string& roomId) {
     if (!client_ || !client_->isLoggedIn()) return;
     MatrixClient* client = client_;
     QPointer<MainWindow> guard(this);
+    // Collect user IDs from already-loaded timeline to fetch only those
+    std::unordered_set<std::string> relevantIds;
+    for (int i = 0; i < timelineModel_->rowCount(QModelIndex()); ++i) {
+        auto* evt = timelineModel_->at(i);
+        if (evt && !evt->senderId.empty()) relevantIds.insert(evt->senderId);
+    }
+    if (relevantIds.empty()) return;
 
-    std::thread([guard, client, roomId]() {
+    std::thread([guard, client, roomId, relevantIds = std::move(relevantIds)]() {
         auto membersResp = client->getRoomMembers(roomId);
-        QMetaObject::invokeMethod(guard, [guard, roomId, membersResp]() {
+        QMetaObject::invokeMethod(guard, [guard, roomId, membersResp, relevantIds]() {
             if (guard.isNull() || !membersResp.ok) return;
 
             simdjson::dom::parser parser;
@@ -777,19 +785,16 @@ void MainWindow::loadMemberAvatarsForRoom(const std::string& roomId) {
                 auto sk = evt["state_key"].get_string();
                 if (sk.error() != simdjson::SUCCESS) continue;
                 std::string userId(sk.value());
+                if (!relevantIds.count(userId)) continue;  // skip users not in timeline
 
                 auto content = evt["content"];
                 if (content.error() != simdjson::SUCCESS) continue;
                 std::string contentStr = simdjson::to_string(content.value());
 
                 auto avatarUrl = extractJsonStringDecoded(contentStr, "avatar_url");
-                if (!avatarUrl.empty()) {
-                    guard->memberAvatarCache_[userId] = avatarUrl;
-                }
+                if (!avatarUrl.empty()) guard->memberAvatarCache_[userId] = avatarUrl;
                 auto displayname = extractJsonString(contentStr, "displayname");
-                if (!displayname.empty()) {
-                    guard->memberAvatarCache_[userId + "/name"] = displayname;
-                }
+                if (!displayname.empty()) guard->memberAvatarCache_[userId + "/name"] = displayname;
             }
         }, Qt::QueuedConnection);
     }).detach();
@@ -2303,8 +2308,6 @@ void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
 
     for (const auto& [roomIdView, room] : resp.joinedRooms) {
         std::string roomId(roomIdView);
-        RoomData rd;
-        rd.roomId = roomId;
 
         // Debug: log only when state or timeline events exist
         if (!room.stateEvents.empty() || !room.timeline.events.empty()) {
@@ -2313,28 +2316,29 @@ void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
                          room.timeline.events.size(), room.isEncrypted ? 1 : 0);
         }
 
-        // Compute name from BOTH state and timeline events.
-        // Returns empty if no name found — then we keep the old name.
+        // Try update existing room in-place to avoid reallocation
+        int existingRow = roomModel_->findRowByRoomId(roomId);
+        RoomData* rdPtr = nullptr;
+        RoomData rdNew;  // only used if no existing room
+        if (existingRow >= 0) {
+            rdPtr = const_cast<RoomData*>(roomModel_->at(existingRow));
+        } else {
+            rdNew.roomId = roomId;
+            rdPtr = &rdNew;
+        }
+        RoomData& rd = *rdPtr;
+
         std::string myUserId = client_ ? client_->account().userId : "";
         std::string name = computeRoomName(room.stateEvents, room.timeline.events, roomId, myUserId);
         if (!name.empty()) {
             rd.name = name;
-        } else {
-            // No name found in this sync — check if we already have a name.
-            int existingRow = roomModel_->findRowByRoomId(roomId);
-            if (existingRow >= 0) {
-                const RoomData* existing = roomModel_->at(existingRow);
-                if (existing && !existing->name.empty() && existing->name != roomId) {
-                    rd.name = existing->name;  // keep old name
-                } else {
-                    rd.name = roomId;  // first time seeing this room, fallback to ID
-                }
-            } else {
-                rd.name = roomId;  // new room, fallback to ID
-            }
+        } else if (existingRow < 0) {
+            rd.name = roomId;
         }
+        // else keep existing name (existingRow >= 0 && name empty)
 
-        rd.lastMessage = jsonUnescape(extractLastMessageBody(room.timeline.events));
+        auto lastMsg = extractLastMessageBody(room.timeline.events);
+        if (!lastMsg.empty()) rd.lastMessage = jsonUnescape(lastMsg);
         rd.lastActivityTs = room.timeline.events.empty() ? 0 : room.timeline.events.back().originServerTs;
         if (rd.lastActivityTs == 0 && !room.timeline.events.empty())
             rd.lastActivityTs = room.timeline.events.front().originServerTs;
@@ -2345,65 +2349,42 @@ void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
         // Extract room avatar from m.room.avatar state event
         for (const auto& e : room.stateEvents) {
             if (e.type == "m.room.avatar" && !e.contentJson.empty()) {
-                rd.avatarUrl = extractJsonStringDecoded(e.contentJson, "url");
-                if (!rd.avatarUrl.empty()) break;
+                auto av = extractJsonStringDecoded(e.contentJson, "url");
+                if (!av.empty()) { rd.avatarUrl = av; break; }
             }
         }
-        // Also check timeline events for avatar (initial sync)
         if (rd.avatarUrl.empty()) {
             for (const auto& e : room.timeline.events) {
                 if (e.type == "m.room.avatar" && !e.contentJson.empty()) {
-                    rd.avatarUrl = extractJsonStringDecoded(e.contentJson, "url");
+                    auto av = extractJsonStringDecoded(e.contentJson, "url");
+                    if (!av.empty()) { rd.avatarUrl = av; break; }
+                }
+            }
+        }
+
+        // DM avatar from first other member
+        if (rd.avatarUrl.empty() && client_) {
+            for (const auto& e : room.stateEvents) {
+                if (e.type == "m.room.member" && !e.contentJson.empty()) {
+                    if (extractJsonString(e.contentJson, "membership") != "join") continue;
+                    if (std::string(e.stateKey) == myUserId) continue;
+                    auto av = extractJsonStringDecoded(e.contentJson, "avatar_url");
+                    if (!av.empty()) { rd.avatarUrl = av; }
+                    if ((rd.name.empty() || rd.name == roomId) && existingRow < 0) {
+                        auto dn = extractJsonString(e.contentJson, "displayname");
+                        if (!dn.empty()) rd.name = dn;
+                    }
                     if (!rd.avatarUrl.empty()) break;
                 }
             }
         }
 
-        // For DM rooms (no room avatar): extract the OTHER member's avatar_url
-        // and displayname from m.room.member events. This is how Element shows
-        // avatars and names for DMs.
-        if (rd.avatarUrl.empty() && client_) {
-            std::string myUserId = client_->account().userId;
-            for (const auto& e : room.stateEvents) {
-                if (e.type == "m.room.member" && !e.contentJson.empty()) {
-                    auto membership = extractJsonString(e.contentJson, "membership");
-                    if (membership != "join") continue;
-                    std::string stateKey(e.stateKey);
-                    if (stateKey == myUserId) continue;
-                    // Extract avatar_url
-                    auto avatarUrl = extractJsonStringDecoded(e.contentJson, "avatar_url");
-                    if (!avatarUrl.empty()) rd.avatarUrl = avatarUrl;
-                    // Extract displayname — use as room name for DMs
-                    if (rd.name.empty() || rd.name == roomId) {
-                        auto displayname = extractJsonString(e.contentJson, "displayname");
-                        if (!displayname.empty()) rd.name = displayname;
-                    }
-                    if (!rd.avatarUrl.empty() && (!rd.name.empty() && rd.name != roomId)) break;
-                }
-            }
-            // Also check timeline for member events (initial sync)
-            if (rd.avatarUrl.empty() || rd.name.empty() || rd.name == roomId) {
-                for (const auto& e : room.timeline.events) {
-                    if (e.type == "m.room.member" && !e.contentJson.empty()) {
-                        auto membership = extractJsonString(e.contentJson, "membership");
-                        if (membership != "join") continue;
-                        std::string stateKey(e.stateKey);
-                        if (stateKey == myUserId) continue;
-                        if (rd.avatarUrl.empty()) {
-                            auto avatarUrl = extractJsonStringDecoded(e.contentJson, "avatar_url");
-                            if (!avatarUrl.empty()) rd.avatarUrl = avatarUrl;
-                        }
-                        if (rd.name.empty() || rd.name == roomId) {
-                            auto displayname = extractJsonString(e.contentJson, "displayname");
-                            if (!displayname.empty()) rd.name = displayname;
-                        }
-                        if (!rd.avatarUrl.empty() && (!rd.name.empty() && rd.name != roomId)) break;
-                    }
-                }
-            }
+        if (existingRow >= 0) {
+            emit roomModel_->dataChanged(roomModel_->index(existingRow),
+                                          roomModel_->index(existingRow));
+        } else {
+            roomModel_->upsertRoom(rdNew);
         }
-
-        roomModel_->upsertRoom(rd);
 
         if (currentRoomId_.toStdString() == roomId) {
             // Build a map of userId → avatarUrl from member state events

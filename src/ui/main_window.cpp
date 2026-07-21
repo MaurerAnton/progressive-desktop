@@ -434,6 +434,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     roomList_ = new QListView(leftPanel);
     roomList_->setModel(roomModel_ = new RoomListModel(roomList_));
+    roomList_->setStyleSheet(
+        "QListView{background:#1e1e1e;border:none;}"
+        "QListView::item:hover{background:#2a2a3e;}"
+        "QListView::item:selected{background:#3a3a5e;}");
     roomListDelegate_ = new RoomListDelegate(imageLoader_, roomList_);
     roomList_->setItemDelegate(roomListDelegate_);
     connect(roomListDelegate_, &RoomListDelegate::inviteAccepted, this, [this](const QString& roomId) {

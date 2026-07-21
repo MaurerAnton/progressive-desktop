@@ -232,6 +232,7 @@ static void runGui(int argc, char** argv) {
     // Dark theme is the default — applied before any widgets are constructed
     // so the palette propagates to all child widgets.
     applyDarkTheme(app);
+    Design::fontScale = QApplication::font().pointSize() / 10.0;
 
     // Open session store first
     SessionStore store;

@@ -76,7 +76,7 @@ static int calcTextHeight(const QString& body, const QString& msgtype, int textW
 }
 
 static void drawRichText(QPainter* p, const QRect& r, const QString& body,
-                         const QString& msgtype) {
+                         const QString& msgtype, bool isOutgoing) {
     QTextDocument doc;
     doc.setDefaultFont(QFont(QApplication::font().family(), 10));
     if (msgtype == "m.notice" && body == "[Message deleted]") {
@@ -86,6 +86,9 @@ static void drawRichText(QPainter* p, const QRect& r, const QString& body,
         std::string html = progressive::markdownToHtml(body.toStdString());
         if (html.empty()) doc.setPlainText(body);
         else doc.setHtml(QString::fromStdString(html));
+        // Use lighter link color on outgoing (dark) bubbles
+        if (isOutgoing)
+            doc.setDefaultStyleSheet("a { color: " + Design::linkOnOutgoing.name() + "; }");
     } else {
         doc.setPlainText(body);
     }
@@ -95,7 +98,6 @@ static void drawRichText(QPainter* p, const QRect& r, const QString& body,
     p->translate(r.topLeft());
     QAbstractTextDocumentLayout::PaintContext ctx;
     ctx.palette = QGuiApplication::palette();
-    // #f0f0f0 gives 5:1+ contrast on both #2a2a3e (incoming) and #0f3460 (outgoing)
     ctx.palette.setColor(QPalette::Text, Design::textColor);
     doc.documentLayout()->draw(p, ctx);
     p->restore();
@@ -502,7 +504,7 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
                         msgtype == "m.audio" ? "Audio file" : "File");
             curY += cardH + 4;
         } else {
-            drawRichText(p, QRect(textX, curY, textW, textH), body, msgtype);
+            drawRichText(p, QRect(textX, curY, textW, textH), body, msgtype, isOutgoing);
             curY += textH;
         }
     }

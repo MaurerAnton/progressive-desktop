@@ -27,13 +27,13 @@ namespace progressive::desktop {
 
 namespace {
 
-static const int AVATAR      = 36;
-static const int MARGIN      = 8;
-static const int GAP         = 8;
-static const int PAD         = 10;
+static const int AVATAR      = Design::avatarSize;
+static const int MARGIN      = Design::margin;
+static const int GAP         = Design::gap;
+static const int PAD         = Design::bubblePadding;
 static const int PAD_TOP     = 6;
 static const int PAD_BOTTOM  = 4;
-static const int RADIUS      = 12;
+static const int RADIUS      = Design::bubbleRadius;
 static const int MAX_BUBBLE_W = 480;
 static const int SAME_SENDER_GAP = 2;
 static const int TIME_ROW_H  = 14;
@@ -485,7 +485,7 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
         QString emoteText = "* " + senderName + " " + body;
         p->setPen(QColor("#c0c0c0"));
         QFont f = p->font(); f.setItalic(true); f.setPointSize(10); p->setFont(f);
-        QRect emoteRect(bubbleX + PAD, bubbleY + 6, textW, L.bubbleH - 10);
+        QRect emoteRect(bubbleX + PAD, bubbleY + 6, textW, L.textH + 20);
         p->drawText(emoteRect, Qt::AlignLeft | Qt::TextWordWrap, emoteText);
     } else if (!body.isEmpty()) {
         int textBottom = bubbleY + L.bubbleH - 18;
@@ -622,7 +622,7 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
                     if (left > 0) {
                         QString more = "+" + QString::number(left);
                         int mw = fm.horizontalAdvance(more) + 16;
-                        QRect pr(rx, ry, mw, 18);
+                        QRect pr(rx, ry, mw, 20);
                         p->setPen(QColor("#3a3a3a"));
                         p->setBrush(QColor("#2a2a2a"));
                         p->drawRoundedRect(pr, 8, 8);
@@ -633,7 +633,7 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
                 }
             }
             if (rx + pw > maxX && shown == 0) pw = maxX - rx;
-            QRect pr(rx, ry, pw, 18);
+            QRect pr(rx, ry, pw, 20);
             p->setPen(QColor("#3a3a3a"));
             p->setBrush(QColor("#2a2a2a"));
             p->drawRoundedRect(pr, 8, 8);
@@ -693,6 +693,30 @@ bool TimelineDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
         QString eventId = index.data(TimelineModel::EventIdRole).toString();
         QString mxcUrl = index.data(TimelineModel::MxcUrlRole).toString();
         QString msgtype = index.data(TimelineModel::MsgTypeRole).toString();
+        QString body = index.data(TimelineModel::BodyRole).toString();
+
+        // Check if click is on a markdown link
+        if (msgtype == "m.text" || msgtype.isEmpty()) {
+            QTextDocument doc;
+            doc.setDefaultFont(QFont(QApplication::font().family(), 10));
+            std::string html = progressive::markdownToHtml(body.toStdString());
+            doc.setHtml(html.empty() ? body.toHtmlEscaped() : QString::fromStdString(html));
+            doc.setTextWidth(option.rect.width() - 60);
+            int contentX = option.rect.x() + MARGIN + AVATAR + GAP + PAD;
+            QPointF docPos(me->position().x() - contentX, me->position().y() - option.rect.y() - 40);
+            QString anchor = doc.documentLayout()->anchorAt(docPos);
+            if (!anchor.isEmpty()) {
+                if (anchor.startsWith("https://") || anchor.startsWith("http://")) {
+                    emit linkClicked(anchor);
+                    return true;
+                }
+                // matrix.to links
+                if (anchor.startsWith("matrix.to")) {
+                    emit linkClicked("https://" + anchor);
+                    return true;
+                }
+            }
+        }
 
         if ((msgtype == "m.image" || msgtype == "m.video") && !mxcUrl.isEmpty()) {
             emit imageClicked(eventId, mxcUrl);

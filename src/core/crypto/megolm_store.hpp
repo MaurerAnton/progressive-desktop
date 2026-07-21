@@ -69,11 +69,9 @@ public:
     int pendingCount();
 
 private:
-    // Use progressive::MegolmSessionManager — but we need to call into progressive_native.
-    // We forward to it via pimpl to keep includes out of the header.
     struct Impl;
     std::unique_ptr<Impl> impl_;
-    std::mutex mtx_;
+    mutable std::mutex mtx_;
     std::vector<PendingEncryptedEvent> pending_;
 };
 

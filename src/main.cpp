@@ -128,7 +128,7 @@ static int syncTest(int count) {
         syncs_seen++;
         std::cout << "  sync #" << syncs_seen
                   << ": join=" << r.joinedRooms.size()
-                  << " invite=" << r.invitedRoomIds.size()
+                   << " invite=" << r.invitedRooms.size()
                   << " leave=" << r.leftRoomIds.size()
                   << " toDevice=" << r.toDeviceEvents
                   << " (" << r.buffer->size() << " bytes)\n";

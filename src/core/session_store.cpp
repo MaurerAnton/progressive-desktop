@@ -45,7 +45,7 @@ void SessionStore::close() {
 bool SessionStore::createSchema() {
     const char* sql =
         "CREATE TABLE IF NOT EXISTS account ("
-        "  user_id TEXT NOT NULL,"
+        "  user_id TEXT PRIMARY KEY,"
         "  device_id TEXT,"
         "  homeserver_url TEXT NOT NULL,"
         "  access_token TEXT NOT NULL,"

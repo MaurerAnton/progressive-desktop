@@ -9,8 +9,16 @@
 
 namespace progressive::desktop {
 
+struct SessionParams {
+    std::string roomId;
+    std::string senderKey;
+    std::string sessionId;
+    std::string sessionKeyBase64;
+};
+
 struct MegolmStore::Impl {
     progressive::MegolmSessionManager mgr;
+    std::vector<SessionParams> params;  // for persistence
 };
 
 MegolmStore::MegolmStore() : impl_(std::make_unique<Impl>()) {}

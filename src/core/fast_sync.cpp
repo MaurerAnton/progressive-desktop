@@ -173,7 +173,7 @@ FastSyncResponse parseSyncResponseFast(std::string json, std::string& errorMessa
             for (auto field : inviteResult.value()) {
                 InvitedRoom inv;
                 inv.roomId = field.key;
-                simdjson::dom::element inviteData = field;  // convert key_value_pair to element
+                simdjson::dom::element inviteData = field.value;  // key_value_pair → element
                 // Parse invite_state.events for inviter, room name, avatar, encryption
                 auto stateEvents = inviteData["invite_state"]["events"].get_array();
                 if (stateEvents.error() == simdjson::SUCCESS) {

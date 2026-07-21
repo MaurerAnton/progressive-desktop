@@ -441,7 +441,8 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
                 p->setPen(QColor("#555"));
                 p->drawLine(textX + 2, curY + 2, textX + 2, curY + 14);
                 p->setPen(QColor("#888"));
-                p->drawText(textX + 8, curY + 2, textW - 8, 14, Qt::AlignLeft, orig->senderName + ": " + preview);
+                p->drawText(textX + 8, curY + 2, textW - 8, 14, Qt::AlignLeft,
+                            QString::fromStdString(orig->senderName) + ": " + preview);
                 curY += 14;
             }
         } else {

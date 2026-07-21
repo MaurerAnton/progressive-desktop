@@ -43,6 +43,7 @@
 
 #include <simdjson.h>
 #include "core/version.h"
+#include "core/memory_stats.hpp"
 
 #include <iostream>
 #include <chrono>
@@ -163,6 +164,49 @@ std::string_view extractLastMessageBody(const std::vector<FastEvent>& events) {
 // DECODES JSON escapes (\n, \", \uXXXX) — use extractJsonStringDecoded.
 std::string extractJsonString(std::string_view json, std::string_view key) {
     return extractJsonStringDecoded(json, key);
+}
+
+// Extract thread root event_id from a m.relates_to JSON sub-object.
+// Finds the opening { of m.relates_to, then searches for "event_id" within
+// that object. This works regardless of field order in the JSON.
+// Returns empty string if not a thread reply or event_id not found.
+std::string extractThreadRootId(std::string_view contentJson) {
+    // Find m.relates_to object
+    auto relPos = contentJson.find("\"m.relates_to\"");
+    if (relPos == std::string_view::npos) return {};
+    // Find the opening { after the key
+    auto objStart = contentJson.find('{', relPos);
+    if (objStart == std::string_view::npos) return {};
+    // Find the matching closing } by depth counting
+    int depth = 0;
+    size_t objEnd = objStart;
+    for (; objEnd < contentJson.size(); ++objEnd) {
+        if (contentJson[objEnd] == '{') depth++;
+        else if (contentJson[objEnd] == '}') { depth--; if (depth == 0) { objEnd++; break; } }
+    }
+    // Now extract just the sub-object
+    std::string_view relObj = contentJson.substr(objStart, objEnd - objStart);
+
+    // Check if this is a thread relation
+    auto rtPos = relObj.find("\"rel_type\":\"m.thread\"");
+    if (rtPos == std::string_view::npos) {
+        // Try with space: "rel_type": "m.thread"
+        rtPos = relObj.find("\"rel_type\": \"m.thread\"");
+    }
+    if (rtPos == std::string_view::npos) return {};
+
+    // Extract event_id within the sub-object
+    auto eidPos = relObj.find("\"event_id\":\"");
+    if (eidPos == std::string_view::npos) {
+        eidPos = relObj.find("\"event_id\": \"");
+        if (eidPos == std::string_view::npos) return {};
+        eidPos += 13;  // skip "event_id": "
+    } else {
+        eidPos += 12;  // skip "event_id":"
+    }
+    auto eidEnd = relObj.find('"', eidPos);
+    if (eidEnd == std::string_view::npos) return {};
+    return std::string(relObj.substr(eidPos, eidEnd - eidPos));
 }
 
 // Compute room name from state events AND timeline events.
@@ -524,6 +568,7 @@ void MainWindow::startWithSavedSession() {
 
     sync_.setClient(client_);
     sync_.setSessionStore(store_);
+    logMemorySnapshot("before-first-sync");
     sync_.start();
 }
 
@@ -739,14 +784,7 @@ void MainWindow::loadRoomHistory(const std::string& roomId) {
                             std::string_view relType = cv.substr(start, end - start);
                             if (relType == "m.thread") {
                                 de.isThreadReply = true;
-                                auto eventIdPos = cv.find("\"event_id\":\"", start);
-                                if (eventIdPos != std::string_view::npos) {
-                                    auto eidStart = eventIdPos + 12;
-                                    auto eidEnd = cv.find('"', eidStart);
-                                    if (eidEnd != std::string_view::npos) {
-                                        de.threadRootId = std::string(cv.substr(eidStart, eidEnd - eidStart));
-                                    }
-                                }
+                                de.threadRootId = extractThreadRootId(cv);
                             }
                         }
                     }
@@ -1735,6 +1773,13 @@ void MainWindow::onSync(const FastSyncResponse& resp) {
             }
         }
     }
+    // Memory diagnostic: snapshot after first sync (biggest allocation)
+    if (firstSync) {
+        logMemorySnapshot("after-first-sync");
+        // Release unused heap pages back to OS
+        int trimmed = trimMemory();
+        std::fprintf(stderr, "[mem] malloc_trim returned %d\n", trimmed);
+    }
     firstSync = false;
 
     statusLabel_->setText(QString("Synced: %1 rooms | %2 messages")
@@ -1754,7 +1799,23 @@ void MainWindow::onSyncState(SyncEngineState state, const SyncEngineStats& stats
 }
 
 void MainWindow::updateRoomListHeader() {
-    roomListHeader_->setText(QString(" Chats (%1) ").arg(roomModel_->rowCount()));
+    int totalRooms = roomModel_->rowCount();
+    int inviteCount = 0;
+    int joinedCount = 0;
+    for (int i = 0; i < totalRooms; ++i) {
+        auto* rd = roomModel_->at(i);
+        if (rd) {
+            if (rd->isInvite) inviteCount++;
+            else joinedCount++;
+        }
+    }
+    roomListHeader_->setText(QString(" Chats (%1) ").arg(joinedCount));
+    if (inviteCount > 0) {
+        inviteHeader_->setText(QString(" ⬇ Invitations (%1) ").arg(inviteCount));
+        inviteHeader_->show();
+    } else {
+        inviteHeader_->hide();
+    }
 }
 
 DisplayedEvent MainWindow::fastEventToDisplayed(const FastEvent& fe) {
@@ -1815,25 +1876,10 @@ DisplayedEvent MainWindow::fastEventToDisplayed(const FastEvent& fe) {
         }
         // Check for m.relates_to (thread reply or regular reply)
         std::string_view cv(de.contentJson);
-        auto relTypePos = cv.find("\"rel_type\":\"");
-        if (relTypePos != std::string_view::npos) {
-            auto start = relTypePos + 12;
-            auto end = cv.find('"', start);
-            if (end != std::string_view::npos) {
-                std::string_view relType = cv.substr(start, end - start);
-                if (relType == "m.thread") {
-                    de.isThreadReply = true;
-                    // Extract the root event_id
-                    auto eventIdPos = cv.find("\"event_id\":\"", start);
-                    if (eventIdPos != std::string_view::npos) {
-                        auto eidStart = eventIdPos + 12;
-                        auto eidEnd = cv.find('"', eidStart);
-                        if (eidEnd != std::string_view::npos) {
-                            de.threadRootId = std::string(cv.substr(eidStart, eidEnd - eidStart));
-                        }
-                    }
-                }
-            }
+        std::string threadRoot = extractThreadRootId(cv);
+        if (!threadRoot.empty()) {
+            de.isThreadReply = true;
+            de.threadRootId = threadRoot;
         }
     }
     return de;
@@ -2054,6 +2100,10 @@ void MainWindow::appendTimelineForRoom(const std::string& roomId, const std::vec
         if (de.type == "m.room.message" && !de.contentJson.empty()) {
             std::string_view cv(de.contentJson);
             auto replacePos = cv.find("\"rel_type\":\"m.replace\"");
+            if (replacePos == std::string_view::npos) {
+                // Try with space: "rel_type": "m.replace" (some clients format JSON with spaces)
+                replacePos = cv.find("\"rel_type\": \"m.replace\"");
+            }
             if (replacePos != std::string_view::npos) {
                 // This is an edit — extract the original event_id and new body
                 auto eventIdPos = cv.find("\"event_id\":\"", replacePos);

@@ -16,7 +16,6 @@ SyncEngine::~SyncEngine() {
 
 void SyncEngine::start() {
     if (running_.exchange(true)) return;  // already running
-    isFirstSync_ = true;  // first sync will use full_state=true
 
     // Load saved since-token if available.
     if (store_) {
@@ -71,10 +70,9 @@ void SyncEngine::run() {
 
         // Do one sync.
         // Use 10s long-poll timeout (was 30s — caused hangs on close).
-        // The HTTP timeout is timeoutMs + 10000 = 20s.
-        // First sync after start() always uses full_state=true to load ALL rooms.
-        bool firstSync = isFirstSync_.exchange(false);
-        auto result = client_->syncFast(sinceToken_, 10000, firstSync);
+        // full_state=true only when since is empty (initial/first sync).
+        // Otherwise incremental sync is much smaller and uses less memory.
+        auto result = client_->syncFast(sinceToken_, 10000, sinceToken_.empty());
 
         if (!result.ok) {
             stats_.errors++;

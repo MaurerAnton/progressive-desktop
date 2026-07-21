@@ -26,10 +26,12 @@
 #include "core/session_store.hpp"
 #include "core/sync_engine.hpp"
 #include "core/version.h"
+#include "core/memory_stats.hpp"
 #include "ui/main_window.hpp"
 #include "ui/login_dialog.hpp"
 #include "ui/theme.hpp"
 
+#include <simdjson.h>
 #include <progressive/markdown.hpp>
 
 using namespace progressive::desktop;
@@ -147,6 +149,53 @@ static int syncTest(int count) {
     return syncs_seen > 0 ? 0 : 1;
 }
 
+// ---- Memory diagnostics ----
+
+static int memcheck() {
+    logStructSizes();
+    logMemorySnapshot("before-anything");
+
+    // Simulate loading session + creating client
+    SessionStore s;
+    s.open(":memory:");
+    logMemorySnapshot("after-sqlite-open");
+
+    MatrixClient c;
+    logMemorySnapshot("after-matrix-client");
+
+    // Simulate a sync parse — create FastSyncResponse with some rooms
+    {
+        FastSyncResponse resp;
+        auto buf = std::make_shared<std::string>(1024 * 1024, 'x');  // 1MB
+        auto parser = std::make_shared<simdjson::dom::parser>();
+        resp.buffer = buf;
+        resp.parser = parser;
+        resp.ownedContentStrings = std::make_shared<std::deque<std::string>>();
+        for (int i = 0; i < 100; ++i) {
+            FastRoom room;
+            room.isEncrypted = (i % 3 == 0);
+            for (int j = 0; j < 10; ++j) {
+                room.timeline.events.push_back(FastEvent{});
+                room.stateEvents.push_back(FastEvent{});
+            }
+            resp.joinedRooms.push_back({"", std::move(room)});
+        }
+        resp.totalTimelineEvents = 1000;
+        resp.toDeviceEvents = 50;
+        logMemorySnapshot("after-simulated-sync");
+        std::cout << "  simulated " << resp.joinedRooms.size()
+                  << " rooms, " << resp.totalTimelineEvents << " events\n";
+    }
+    logMemorySnapshot("after-freesync-free");
+
+    // Test trim
+    int trimOk = trimMemory();
+    logMemorySnapshot("after-malloc_trim");
+    std::cout << "  malloc_trim returned " << trimOk << " (1=released to OS)\n";
+
+    return 0;
+}
+
 // ---- GUI mode ----
 
 static void runGui(int argc, char** argv) {
@@ -155,30 +204,28 @@ static void runGui(int argc, char** argv) {
     QApplication::setApplicationVersion(PROGRESSIVE_DESKTOP_VERSION);
     QApplication::setOrganizationName("progressive.chat");
 
-    // Load bundled emoji font (OpenMoji color, 312KB embedded via .qrc).
-    // This ensures emoji glyphs render correctly even on systems without
-    // Noto Color Emoji installed (e.g. minimal PineTab 2).
-    int emojiFontId = QFontDatabase::addApplicationFont(":/fonts/OpenMoji-color.ttf");
-    if (emojiFontId >= 0) {
-        QStringList families = QFontDatabase::applicationFontFamilies(emojiFontId);
-        if (!families.isEmpty()) {
-            QString family = families.first();
-            std::fprintf(stderr, "[font] loaded bundled emoji font: %s (id=%d)\n",
-                         family.toUtf8().data(), emojiFontId);
-            QFont::insertSubstitution(QApplication::font().family(), family);
-        }
-    } else {
-        std::fprintf(stderr, "[font] WARNING: failed to load bundled emoji font (id=%d)\n", emojiFontId);
-    }
-
-    // Log available emoji fonts on the system for diagnostics
+    // Find the best available emoji font on the system.
+    // Noto Color Emoji (COLRv0) works everywhere. OpenMoji/Twemoji (COLRv1)
+    // requires FreeType >= 2.13 which may not be available on older systems.
+    // Log all emoji candidates found for diagnostics.
     {
         QStringList allFonts = QFontDatabase::families();
+        bool found = false;
         for (const QString& name : {"Noto Color Emoji", "Apple Color Emoji",
-                                      "Segoe UI Emoji", "OpenMoji Color", "OpenMoji",
-                                      "Twemoji Mozilla", "EmojiOne"}) {
-            if (allFonts.contains(name, Qt::CaseInsensitive))
+                                      "Segoe UI Emoji", "Twemoji Mozilla",
+                                      "OpenMoji Color", "EmojiOne"}) {
+            if (allFonts.contains(name, Qt::CaseInsensitive)) {
                 std::fprintf(stderr, "[font] system emoji font found: %s\n", name.toUtf8().data());
+                if (!found) {
+                    QFont::insertSubstitution(QApplication::font().family(), name);
+                    found = true;
+                }
+            }
+        }
+        if (!found) {
+            std::fprintf(stderr, "[font] WARNING: no emoji font found!\n"
+                                 "  Install 'noto-fonts-emoji' on Arch/Manjaro:\n"
+                                 "    sudo pacman -S noto-fonts-emoji\n");
         }
     }
 
@@ -236,6 +283,7 @@ int main(int argc, char** argv) {
         if (cmd == "--discover" && argc >= 3) { int r = discover(argv[2]); httpCleanup(); return r; }
         if (cmd == "--login"    && argc >= 4) { int r = loginTest(argv[2], argv[3]); httpCleanup(); return r; }
         if (cmd == "--sync"     && argc >= 3) { int r = syncTest(std::stoi(argv[2])); httpCleanup(); return r; }
+        if (cmd == "--memcheck") { int r = memcheck(); httpCleanup(); return r; }
     }
 
     int rc = 0;

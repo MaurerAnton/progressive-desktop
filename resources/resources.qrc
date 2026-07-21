@@ -1,6 +1,5 @@
 <!DOCTYPE RCC>
 <RCC version="1.0">
   <qresource prefix="/">
-    <file alias="fonts/OpenMoji-color.ttf">fonts/OpenMoji-color.ttf</file>
   </qresource>
 </RCC>

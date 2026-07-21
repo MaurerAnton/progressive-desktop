@@ -100,11 +100,14 @@ void RoomMembersDialog::loadMembers() {
             }
         }
 
-        QMetaObject::invokeMethod(guard, [guard, members = std::move(members)]() {
+        QMetaObject::invokeMethod(guard, [guard, members = std::move(members), ok = r.ok]() {
             if (guard.isNull()) return;
             guard->allMembers_ = std::move(members);
             guard->loaded_ = true;
-            guard->statusLabel_->setText(QString("%1 members").arg(guard->allMembers_.size()));
+            guard->statusLabel_->setText(
+                guard->allMembers_.empty()
+                    ? (ok ? "No members found" : "Failed to load members — try again")
+                    : QString("%1 members").arg(guard->allMembers_.size()));
             guard->applyFilter();
         }, Qt::QueuedConnection);
     }).detach();

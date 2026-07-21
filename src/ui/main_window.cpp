@@ -714,6 +714,11 @@ void MainWindow::startWithSavedSession() {
                     sync_.decryptor()->megolm()->unpickleAll(pickleKey, *megolmData);
                     std::cerr << "[e2ee] loaded megolm sessions: " << sync_.decryptor()->megolm()->sessionCount() << "\n";
                 }
+                auto olmSessionsData = store_->loadOlmSessions();
+                if (olmSessionsData && !olmSessionsData->empty()) {
+                    sync_.decryptor()->unpickleOlmSessions(pickleKey, *olmSessionsData);
+                    std::cerr << "[e2ee] loaded olm session pickles\n";
+                }
             }
 
             // Only upload device keys if not already published
@@ -740,14 +745,15 @@ void MainWindow::startWithSavedSession() {
 }
 
 void MainWindow::closeEvent(QCloseEvent* e) {
-    // Persist E2EE sessions before shutdown
     if (store_ && sync_.decryptor()->isInitialized()) {
         std::string pickleKey = client_->account().userId + "/" + client_->account().deviceId;
         auto megolmPickle = sync_.decryptor()->megolm()->pickleAll(pickleKey);
         if (!megolmPickle.empty()) store_->saveMegolmSessions(megolmPickle);
+        auto olmSessionsPickle = sync_.decryptor()->pickleOlmSessions(pickleKey);
+        if (!olmSessionsPickle.empty()) store_->saveOlmSessions(olmSessionsPickle);
     }
     sync_.stop();
-    e->accept();
+    QMainWindow::closeEvent(e);
 }
 
 void MainWindow::keyPressEvent(QKeyEvent* e) {
@@ -1479,8 +1485,42 @@ void MainWindow::onSwitchAccount(int index) {
     if (acct.userId == client_->account().userId) return;  // already active
 
     sync_.stop();
+
+    // Save E2EE sessions for current account before switching
+    std::string oldKey = client_->account().userId + "/" + client_->account().deviceId;
+    if (sync_.decryptor()->isInitialized()) {
+        auto mp = sync_.decryptor()->megolm()->pickleAll(oldKey);
+        if (!mp.empty()) store_->saveMegolmSessions(mp);
+        auto op = sync_.decryptor()->pickleOlmSessions(oldKey);
+        if (!op.empty()) store_->saveOlmSessions(op);
+    }
+
+    // Switch account
     client_->setAccount(acct);
-    startWithSavedSession();
+
+    // Re-init E2EE for new account
+    std::string newKey = acct.userId + "/" + acct.deviceId;
+    if (sync_.decryptor()->init()) {
+        // Load olm account for new user
+        if (store_) {
+            auto saved = store_->loadOlmAccount();
+            if (saved) sync_.decryptor()->init(saved->first, saved->second);
+            auto md = store_->loadMegolmSessions();
+            if (md) sync_.decryptor()->megolm()->unpickleAll(newKey, *md);
+            auto od = store_->loadOlmSessions();
+            if (od) sync_.decryptor()->unpickleOlmSessions(newKey, *od);
+        }
+        sync_.uploadDeviceKeys();
+    }
+
+    // Update UI
+    userLabel_->setText(" " + QString::fromStdString(acct.userId) + " ");
+    timelineDelegate_->setMyUserId(acct.userId);
+    imageLoader_->setClient(client_);
+
+    sync_.setClient(client_);
+    sync_.setSessionStore(store_);
+    sync_.start();
 }
 
 void MainWindow::onSettingsClicked() {
@@ -2677,6 +2717,23 @@ void MainWindow::appendTimelineForRoom(const std::string& roomId, const std::vec
                 timelineModel_->markDeleted(redactedId);
             }
             continue;  // don't show redaction as a separate message
+        }
+        // Handle m.reaction events — extract emoji + target event, add to model
+        if (e.type == "m.reaction" && !e.contentJson.empty()) {
+            simdjson::dom::parser rp;
+            auto doc = rp.parse(std::string(e.contentJson));
+            if (doc.error() == simdjson::SUCCESS) {
+                auto rel = doc.value()["m.relates_to"];
+                auto targetEid = rel["event_id"].get_string();
+                auto key = rel["key"].get_string();
+                if (targetEid.error() == simdjson::SUCCESS &&
+                    key.error() == simdjson::SUCCESS) {
+                    timelineModel_->addReaction(
+                        std::string(targetEid.value()), std::string(key.value()),
+                        std::string(e.senderId));
+                }
+            }
+            continue;
         }
         auto de = fastEventToDisplayed(e);
         // Set the sender's avatar URL from room member state

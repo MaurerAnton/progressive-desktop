@@ -123,6 +123,10 @@ public:
     OlmAccountStore* account() { return account_.get(); }
     MegolmStore* megolm() { return megolm_.get(); }
 
+    // Olm 1:1 session persistence.
+    std::string pickleOlmSessions(const std::string& key);
+    bool unpickleOlmSessions(const std::string& key, const std::string& data);
+
 private:
     std::unique_ptr<OlmAccountStore> account_;
     std::unique_ptr<MegolmStore> megolm_;

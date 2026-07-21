@@ -247,6 +247,7 @@ struct BubbleLayout {
     int pinnedH     = 0;
     int threadReplyH = 0;
     int threadCountH = 0;
+    int reactionH   = 0;
     int bubbleH     = 0;
     bool isFirstInGroup = true;
     bool isLastInGroup  = true;
@@ -260,6 +261,9 @@ struct BubbleLayout {
         if (imageH > 0)  h += imageH + 4;
         h += PAD_BOTTOM + TIME_ROW_H;
         if (threadCountH) h += threadCountH;
+        // Reactions inside bubble only for non-last in group (merged bubbles)
+        // Last in group draws reactions outside like old behavior
+        if (reactionH && !isLastInGroup) h += reactionH;
         return h;
     }
 };
@@ -332,6 +336,13 @@ static BubbleLayout computeLayout(const QModelIndex& idx,
     if (pinned)           L.pinnedH     = 14;
     if (isThreadReply)     L.threadReplyH = 14;
     if (threadCount > 0)  L.threadCountH = 16;
+
+    // Reactions inside bubble — add height
+    auto rxns = idx.data(TimelineModel::ReactionsRole).value<QStringList>();
+    if (!rxns.isEmpty()) {
+        int perRow = qMax(1, (bubbleW - PAD * 2) / 100);
+        L.reactionH = qMin(2, ((int)rxns.size() + perRow - 1) / perRow) * 20;
+    }
 
     L.bubbleH = L.totalBubbleH();
     return L;
@@ -534,26 +545,32 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
                     Qt::AlignRight | Qt::AlignVCenter, timeStr);
     }
 
-    // Reactions pills below bubble, with wrapping and +N counter
+    // Reactions — inside bubble for group (merged), outside for standalone messages
     auto reactionsVar = idx.data(TimelineModel::ReactionsRole);
     QStringList reactions = reactionsVar.value<QStringList>();
     if (!reactions.isEmpty()) {
-        int rx = bubbleX;
-        int ry = bubbleY + L.bubbleH + 2;
+        int rx = bubbleX + PAD;
+        int baseY;
+        if (L.isLastInGroup) {
+            baseY = bubbleY + L.bubbleH + 2;  // outside
+        } else {
+            baseY = bubbleY + L.bubbleH - PAD_BOTTOM - TIME_ROW_H - L.reactionH;
+            if (threadCount > 0) baseY -= L.threadCountH + 2;
+        }
+        int ry = baseY;
         QFont pillFont = p->font(); pillFont.setPointSize(9); p->setFont(pillFont);
         QFontMetrics fm(pillFont);
-        int maxX = bubbleX + bubbleW;
+        int maxX = bubbleX + bubbleW - PAD;
         int rowNum = 0;
         int shown = 0;
         for (int i = 0; i < reactions.size(); ++i) {
             const QString& pill = reactions[i];
             int pw = fm.horizontalAdvance(pill) + 16;
             if (rx + pw > maxX && shown > 0) {
-                rx = bubbleX;
+                rx = bubbleX + PAD;
                 ry += 20;
                 rowNum++;
                 if (rowNum >= 2) {
-                    // Show how many more
                     int left = static_cast<int>(reactions.size()) - shown;
                     if (left > 0) {
                         QString more = "+" + QString::number(left);
@@ -615,16 +632,7 @@ QSize TimelineDelegate::sizeHint(const QStyleOptionViewItem& opt,
 
     BubbleLayout L = computeLayout(idx, myUserId_, bubbleW);
 
-    // Reactions height: estimate rows dynamically (each pill ~100px wide, 20px tall)
-    auto rxns = idx.data(TimelineModel::ReactionsRole).value<QStringList>();
-    int reactionH = 0;
-    if (!rxns.isEmpty()) {
-        int perRow = qMax(1, (bubbleW - PAD * 2) / 100);
-        int rows = qMin(2, ((int)rxns.size() + perRow - 1) / perRow);
-        reactionH = rows * 20 + 2;
-    }
-
-    int totalH = (L.isFirstInGroup ? 4 : SAME_SENDER_GAP) + L.bubbleH + reactionH + 2;
+    int totalH = (L.isFirstInGroup ? 4 : SAME_SENDER_GAP) + L.bubbleH + 2;
     return QSize(width, qMax(totalH, AVATAR + 8));
 }
 

@@ -721,4 +721,55 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
     return true;
 }
 
+std::string Decryptor::pickleOlmSessions(const std::string& key) {
+    std::lock_guard<std::mutex> lk(olmMtx_);
+    if (olmSessions_.empty()) return "[]";
+    std::ostringstream os;
+    os << "[";
+    bool first = true;
+    for (const auto& [senderKey, pickle] : olmSessions_) {
+        if (!first) os << ",";
+        first = false;
+        // Build an OlmSession, unpickle with existing data, re-pickle with the key
+        // Actually, we don't need to unpickle — we just store the existing pickle
+        // along with the senderKey. The pickle was already encrypted with the
+        // session key, not the user's pickle key. For now, store as-is.
+        os << "{\"k\":\"" << senderKey << "\",\"v\":\"";
+        // Base64-encode the pickle to avoid JSON issues
+        for (unsigned char c : pickle) {
+            static const char hex[] = "0123456789abcdef";
+            os << hex[c >> 4] << hex[c & 15];
+        }
+        os << "\"}";
+    }
+    os << "]";
+    return os.str();
+}
+
+bool Decryptor::unpickleOlmSessions(const std::string& key, const std::string& data) {
+    std::lock_guard<std::mutex> lk(olmMtx_);
+    if (data.empty() || data == "[]") return true;
+    (void)key;
+    size_t pos = data.find('{');
+    while (pos != std::string::npos) {
+        size_t end = data.find("}}", pos);
+        if (end == std::string::npos) end = data.find('}', data.find('}', pos + 1) + 1);
+        if (end == std::string::npos) break;
+        std::string obj = data.substr(pos, end - pos + 2);
+        // Extract senderKey and value (hex-encoded pickle)
+        auto k = extractStr(obj, "k");
+        auto v = extractStr(obj, "v");
+        if (!k.empty() && !v.empty() && v.size() % 2 == 0) {
+            std::string pickle;
+            for (size_t i = 0; i < v.size(); i += 2) {
+                char h = (char)strtol(v.substr(i, 2).c_str(), nullptr, 16);
+                pickle += h;
+            }
+            olmSessions_[k] = pickle;
+        }
+        pos = data.find('{', end + 2);
+    }
+    return true;
+}
+
 } // namespace progressive::desktop

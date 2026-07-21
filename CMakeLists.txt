@@ -135,6 +135,23 @@ if(PROGRESSIVE_BUILD_TESTS)
     target_link_libraries(test_gui_phase4 PRIVATE Qt6::Widgets)
     set_target_properties(test_gui_phase4 PROPERTIES AUTOMOC ON)
     add_test(NAME gui_phase4 COMMAND test_gui_phase4)
+
+    find_package(Qt6 REQUIRED COMPONENTS Test)
+    add_executable(test_visual tests/test_visual.cpp
+        src/ui/room_list_model.cpp
+        src/ui/room_list_delegate.cpp
+        src/ui/timeline_model.cpp
+        src/ui/timeline_delegate.cpp
+        src/ui/message_edit.cpp
+        src/ui/image_loader.cpp
+    )
+    target_link_libraries(test_visual PRIVATE progressive_core Qt6::Widgets Qt6::Test)
+    target_compile_options(test_visual PRIVATE
+        -include "${CMAKE_CURRENT_SOURCE_DIR}/third_party/android_shim/progressive_compat.h")
+    target_include_directories(test_visual PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    set_target_properties(test_visual PROPERTIES AUTOMOC ON)
+    add_test(NAME visual COMMAND test_visual)
+    set_tests_properties(visual PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
 # --- Ignore test fixtures from git ---

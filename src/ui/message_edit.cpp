@@ -24,6 +24,7 @@ void MessageEdit::setupUi() {
 
     // Attach button — opens file picker
     attachBtn_ = new QPushButton("📎", this);
+    attachBtn_->setObjectName("attachButton");
     attachBtn_->setFixedSize(36, 36);
     attachBtn_->setToolTip("Attach file (image, document, PDF)");
     attachBtn_->setFocusPolicy(Qt::NoFocus);
@@ -43,6 +44,7 @@ void MessageEdit::setupUi() {
     emojiBtn_ = new QPushButton("😊", this);
     emojiBtn_->setFixedSize(36, 36);
     emojiBtn_->setToolTip("Insert emoji into message");
+    emojiBtn_->setObjectName("emojiButton");
     emojiBtn_->setFocusPolicy(Qt::NoFocus);
     emojiBtn_->setFont(btnFont);
 
@@ -65,6 +67,7 @@ void MessageEdit::setupUi() {
 
     // Text edit
     textEdit_ = new QTextEdit(this);
+    textEdit_->setObjectName("messageTextEdit");
     textEdit_->setAcceptRichText(false);
     textEdit_->setPlaceholderText("Type a message — Enter to send, Shift+Enter for newline");
     textEdit_->setMaximumHeight(120);

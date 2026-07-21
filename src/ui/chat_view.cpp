@@ -76,7 +76,11 @@ void ChatView::clear() {
 }
 
 void ChatView::doSend(const std::string& body) {
-    if (roomId_.empty() || !client_) return;
+    if (roomId_.empty() || !client_) {
+        std::fprintf(stderr, "[send] SKIP roomId_empty=%d client_null=%d\n",
+                     roomId_.empty() ? 1 : 0, client_ ? 0 : 1);
+        return;
+    }
     std::fprintf(stderr, "[send] message: room=%s body=\"%s\"\n", roomId_.c_str(), body.c_str());
     DisplayedEvent echo;
     echo.eventId = "pending-" + std::to_string(QDateTime::currentMSecsSinceEpoch());

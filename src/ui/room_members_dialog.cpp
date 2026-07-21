@@ -11,7 +11,6 @@
 #include <thread>
 
 #include <simdjson.h>
-#include <cstdio>
 
 namespace progressive::desktop {
 
@@ -41,7 +40,14 @@ RoomMembersDialog::RoomMembersDialog(MatrixClient* client, const std::string& ro
     root->addWidget(statusLabel_);
     root->addWidget(closeBtn_);
 
-    connect(searchEdit_, &QLineEdit::textChanged, this, &RoomMembersDialog::onSearchChanged);
+    // 150ms debounce: filter client-side, not reload from server
+    debounceTimer_ = new QTimer(this);
+    debounceTimer_->setSingleShot(true);
+    debounceTimer_->setInterval(150);
+    connect(searchEdit_, &QLineEdit::textChanged, this, [this]() {
+        if (loaded_) debounceTimer_->start();
+    });
+    connect(debounceTimer_, &QTimer::timeout, this, &RoomMembersDialog::applyFilter);
     connect(list_, &QListWidget::itemClicked, this, &RoomMembersDialog::onMemberClicked);
     connect(closeBtn_, &QPushButton::clicked, this, &QDialog::accept);
 
@@ -52,7 +58,6 @@ void RoomMembersDialog::loadMembers() {
     statusLabel_->setText("Loading members...");
     list_->clear();
 
-    QString search = searchEdit_->text().trimmed().toLower();
     QPointer<RoomMembersDialog> guard(this);
 
     std::thread([guard, this]() {
@@ -66,96 +71,65 @@ void RoomMembersDialog::loadMembers() {
                 auto chunk = root.value()["chunk"].get_array();
                 if (chunk.error() == simdjson::SUCCESS) {
                     for (auto evt : chunk.value()) {
-                        auto membership = evt["content"]["membership"].get_string();
+                        auto content = evt["content"];
+                        if (content.error() != simdjson::SUCCESS) continue;
+
+                        auto membership = content.value()["membership"].get_string();
                         if (membership.error() != simdjson::SUCCESS) continue;
                         std::string memberStr(membership.value());
+                        if (memberStr != "join") continue;
 
                         MemberInfo m;
                         m.membership = memberStr;
 
-                        auto content = evt["content"];
-                        if (content.error() == simdjson::SUCCESS) {
-                            std::string contentStr = simdjson::to_string(content.value());
+                        auto sk = evt["state_key"].get_string();
+                        if (sk.error() == simdjson::SUCCESS) m.userId = std::string(sk.value());
 
-                            auto sk = evt["state_key"].get_string();
-                            if (sk.error() == simdjson::SUCCESS) m.userId = std::string(sk.value());
+                        // Use simdjson directly — no manual string search
+                        auto dn = content.value()["displayname"].get_string();
+                        if (dn.error() == simdjson::SUCCESS)
+                            m.displayName = std::string(dn.value());
 
-                            // Extract displayname (simple string search in content JSON)
-                            auto dnPos = contentStr.find("\"displayname\":\"");
-                            if (dnPos != std::string::npos) {
-                                dnPos += 15;
-                                auto end = contentStr.find('"', dnPos);
-                                if (end != std::string::npos) {
-                                    m.displayName = contentStr.substr(dnPos, end - dnPos);
-                                }
-                            }
-                            // Try with space: "displayname": "
-                            if (m.displayName.empty()) {
-                                auto dnPos2 = contentStr.find("\"displayname\": \"");
-                                if (dnPos2 != std::string::npos) {
-                                    dnPos2 += 16;
-                                    auto end = contentStr.find('"', dnPos2);
-                                    if (end != std::string::npos) {
-                                        m.displayName = contentStr.substr(dnPos2, end - dnPos2);
-                                    }
-                                }
-                            }
+                        auto av = content.value()["avatar_url"].get_string();
+                        if (av.error() == simdjson::SUCCESS)
+                            m.avatarUrl = std::string(av.value());
 
-                            auto avPos = contentStr.find("\"avatar_url\":\"");
-                            if (avPos != std::string::npos) {
-                                avPos += 14;
-                                auto end = contentStr.find('"', avPos);
-                                if (end != std::string::npos) {
-                                    m.avatarUrl = contentStr.substr(avPos, end - avPos);
-                                }
-                            }
-                            if (m.avatarUrl.empty()) {
-                                auto avPos2 = contentStr.find("\"avatar_url\": \"");
-                                if (avPos2 != std::string::npos) {
-                                    avPos2 += 15;
-                                    auto end = contentStr.find('"', avPos2);
-                                    if (end != std::string::npos) {
-                                        m.avatarUrl = contentStr.substr(avPos2, end - avPos2);
-                                    }
-                                }
-                            }
-                        }
-
-                        // Sort: joined first, then invite, then leave/ban
-                        if (memberStr == "join") {
-                            members.push_back(std::move(m));
-                        }
+                        members.push_back(std::move(m));
                     }
                 }
             }
         }
 
-        QMetaObject::invokeMethod(guard, [guard, members]() {
+        QMetaObject::invokeMethod(guard, [guard, members = std::move(members)]() {
             if (guard.isNull()) return;
-
-            guard->allMembers_ = members;
-
-            QString search = guard->searchEdit_->text().trimmed().toLower();
-            guard->list_->clear();
-            for (const auto& m : members) {
-                QString display = QString::fromStdString(m.displayName.empty() ? m.userId : m.displayName);
-                if (!search.isEmpty()) {
-                    if (!display.toLower().contains(search) &&
-                        !QString::fromStdString(m.userId).toLower().contains(search))
-                        continue;
-                }
-                auto* item = new QListWidgetItem(display);
-                item->setData(Qt::UserRole, QString::fromStdString(m.userId));
-                item->setToolTip(QString::fromStdString(m.userId));
-                guard->list_->addItem(item);
-            }
-            guard->statusLabel_->setText(QString("%1 members").arg(members.size()));
+            guard->allMembers_ = std::move(members);
+            guard->loaded_ = true;
+            guard->statusLabel_->setText(QString("%1 members").arg(guard->allMembers_.size()));
+            guard->applyFilter();
         }, Qt::QueuedConnection);
     }).detach();
 }
 
+void RoomMembersDialog::applyFilter() {
+    QString search = searchEdit_->text().trimmed().toLower();
+    list_->clear();
+
+    for (const auto& m : allMembers_) {
+        QString display = QString::fromStdString(m.displayName.empty() ? m.userId : m.displayName);
+        if (!search.isEmpty()) {
+            if (!display.toLower().contains(search) &&
+                !QString::fromStdString(m.userId).toLower().contains(search))
+                continue;
+        }
+        auto* item = new QListWidgetItem(display);
+        item->setData(Qt::UserRole, QString::fromStdString(m.userId));
+        item->setToolTip(QString::fromStdString(m.userId));
+        list_->addItem(item);
+    }
+}
+
 void RoomMembersDialog::onSearchChanged() {
-    loadMembers();
+    // Handled by debounceTimer_ → applyFilter()
 }
 
 void RoomMembersDialog::onMemberClicked(QListWidgetItem* item) {

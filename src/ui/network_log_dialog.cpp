@@ -125,9 +125,7 @@ void NetworkLogDialog::onRefresh() {
 }
 
 void NetworkLogDialog::onClear() {
-    // Clear by draining the ring buffer
-    auto entries = getHttpLog();
-    (void)entries;  // entries will be discarded — new requests fill fresh log
+    clearHttpLog();
     logView_->clear();
 }
 

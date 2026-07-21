@@ -44,6 +44,11 @@ std::vector<HttpLogEntry> getHttpLog() {
     return std::vector<HttpLogEntry>(g_log.begin(), g_log.end());
 }
 
+void clearHttpLog() {
+    std::lock_guard<std::mutex> lk(g_log_mutex);
+    g_log.clear();
+}
+
 namespace {
 size_t writeCb(char* ptr, size_t size, size_t nmemb, void* userdata) {
     auto* out = static_cast<std::string*>(userdata);

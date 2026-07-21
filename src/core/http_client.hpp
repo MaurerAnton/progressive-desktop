@@ -74,6 +74,9 @@ struct HttpLogEntry {
 // Return a snapshot of the last N HTTP requests (ring buffer, max 500).
 std::vector<HttpLogEntry> getHttpLog();
 
+// Clear the HTTP request log buffer.
+void clearHttpLog();
+
 // Convenience helpers
 HttpResponse httpGet(const std::string& url,
                      const std::unordered_map<std::string, std::string>& headers = {},

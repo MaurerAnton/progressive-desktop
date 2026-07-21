@@ -5,6 +5,7 @@
 #include <QListWidget>
 #include <QPushButton>
 #include <QLabel>
+#include <QTimer>
 #include <vector>
 #include <string>
 #include "core/matrix_client.hpp"
@@ -16,7 +17,6 @@ struct MemberInfo {
     std::string displayName;
     std::string avatarUrl;
     std::string membership;
-    int powerLevel = 0;
 };
 
 class RoomMembersDialog : public QDialog {
@@ -36,9 +36,12 @@ private:
     QListWidget* list_;
     QLabel* statusLabel_;
     QPushButton* closeBtn_;
+    QTimer* debounceTimer_;
     std::vector<MemberInfo> allMembers_;
+    bool loaded_ = false;
 
     void loadMembers();
+    void applyFilter();
 };
 
 } // namespace progressive::desktop

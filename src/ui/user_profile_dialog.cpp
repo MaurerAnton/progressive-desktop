@@ -3,20 +3,16 @@
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
-#include <QFormLayout>
 #include <QMetaObject>
 #include <QPointer>
 #include <QMessageBox>
 #include <QClipboard>
 #include <QGuiApplication>
 #include <QInputDialog>
-#include <QThread>
 #include <QPixmap>
 #include <thread>
 
 #include <simdjson.h>
-#include <progressive/json_parser.hpp>
-#include <cstdio>
 
 namespace progressive::desktop {
 
@@ -48,6 +44,12 @@ UserProfileDialog::UserProfileDialog(MatrixClient* client, const std::string& ro
     demoteBtn_ = new QPushButton("Demote", this);
     copyBtn_ = new QPushButton("Copy MXID", this);
     closeBtn_ = new QPushButton("Close", this);
+
+    // Hide admin buttons by default — shown only if user has permissions
+    kickBtn_->hide();
+    banBtn_->hide();
+    promoteBtn_->hide();
+    demoteBtn_->hide();
 
     statusLabel_ = new QLabel("", this);
     statusLabel_->setStyleSheet("color:#888; font-size:10pt;");
@@ -102,18 +104,63 @@ void UserProfileDialog::loadProfile() {
     QPointer<UserProfileDialog> guard(this);
     std::string userId = userId_;
     std::string roomId = roomId_;
+    std::string myUserId = client_->account().userId;
 
     statusLabel_->setText("Loading...");
 
-    std::thread([guard, userId, roomId]() {
-        // Fetch user profile + room member state
+    std::thread([guard, userId, roomId, myUserId]() {
         auto profileResp = guard->client_->getUserProfile(userId);
-        auto membersResp = guard->client_->getRoomMembers(roomId);
+        auto stateResp = guard->client_->getRoomState(roomId);
 
-        QMetaObject::invokeMethod(guard, [guard, profileResp, membersResp, userId]() {
+        int myPower = 0;
+        int theirPower = 0;
+
+        // Parse power_levels from room state
+        if (stateResp.ok && !stateResp.data.empty()) {
+            simdjson::dom::parser parser;
+            auto arr = parser.parse(stateResp.data);
+            if (arr.error() == simdjson::SUCCESS) {
+                for (auto evt : arr.value().get_array().value()) {
+                    auto type = evt["type"].get_string();
+                    if (type.error() != simdjson::SUCCESS ||
+                        std::string(type.value()) != "m.room.power_levels") continue;
+
+                    auto users = evt["content"]["users"];
+                    if (users.error() != simdjson::SUCCESS) break;
+
+                    // Check my power level
+                    auto mp = users.value()[myUserId].get_int64();
+                    if (mp.error() == simdjson::SUCCESS) myPower = (int)mp.value();
+
+                    // Check their power level
+                    auto tp = users.value()[userId].get_int64();
+                    if (tp.error() == simdjson::SUCCESS) theirPower = (int)tp.value();
+
+                    break;
+                }
+            }
+        }
+
+        QMetaObject::invokeMethod(guard, [guard, profileResp, userId, myPower, theirPower]() {
             if (guard.isNull()) return;
 
-            // Profile
+            guard->currentPowerLevel_ = theirPower;
+            QString powerText;
+            if (theirPower >= 100) powerText = "Power: 100 (Admin)";
+            else if (theirPower >= 50) powerText = QString("Power: %1 (Moderator)").arg(theirPower);
+            else powerText = QString("Power: %1 (User)").arg(theirPower);
+            guard->powerLabel_->setText(powerText);
+
+            // Show admin buttons only if I have moderator+ rights
+            // AND my power > their power (can't kick/promote someone higher)
+            if (myPower >= 50 && myPower > theirPower) {
+                guard->kickBtn_->show();
+                guard->banBtn_->show();
+                guard->promoteBtn_->show();
+                guard->demoteBtn_->show();
+            }
+
+            // Profile display
             if (profileResp.ok && !profileResp.data.empty()) {
                 simdjson::dom::parser parser;
                 auto root = parser.parse(profileResp.data);
@@ -122,7 +169,6 @@ void UserProfileDialog::loadProfile() {
                     if (dn.error() == simdjson::SUCCESS) {
                         guard->nameLabel_->setText(QString::fromUtf8(dn.value().data(), (int)dn.value().size()));
                     } else {
-                        // Fallback: extract localpart
                         std::string uid = userId;
                         if (uid[0] == '@') {
                             auto colon = uid.find(':');
@@ -134,7 +180,6 @@ void UserProfileDialog::loadProfile() {
                     auto av = root.value()["avatar_url"].get_string();
                     if (av.error() == simdjson::SUCCESS) {
                         std::string avUrl(av.value());
-                        // Download avatar
                         std::thread([guard, avUrl]() {
                             auto r = guard->client_->downloadMedia(avUrl, 72, 72);
                             QMetaObject::invokeMethod(guard, [guard, r]() {
@@ -146,34 +191,6 @@ void UserProfileDialog::loadProfile() {
                                 }
                             });
                         }).detach();
-                    }
-                }
-            }
-
-            // Power level from room state
-            if (membersResp.ok && !membersResp.data.empty()) {
-                simdjson::dom::parser parser;
-                auto root = parser.parse(membersResp.data);
-                if (root.error() == simdjson::SUCCESS) {
-                    auto chunk = root.value()["chunk"].get_array();
-                    if (chunk.error() == simdjson::SUCCESS) {
-                        for (auto evt : chunk.value()) {
-                            auto sk = evt["state_key"].get_string();
-                            if (sk.error() != simdjson::SUCCESS ||
-                                std::string(sk.value()) != userId) continue;
-                            auto content = evt["content"];
-                            if (content.error() != simdjson::SUCCESS) continue;
-                            std::string contentStr = simdjson::to_string(content.value());
-
-                            // Check for power level in content or use default
-                            // The actual power level is in m.room.power_levels, not member event.
-                            // For simplicity, just note this is a joined member.
-                            auto membership = evt["content"]["membership"].get_string();
-                            if (membership.error() == simdjson::SUCCESS &&
-                                std::string(membership.value()) == "join") {
-                                // We're joined — extract power level from power_levels if parsed
-                            }
-                        }
                     }
                 }
             }
@@ -191,11 +208,8 @@ void UserProfileDialog::onSendDM() {
         auto r = client_->startDirectMessage(userId_);
         QMetaObject::invokeMethod(guard, [guard, r]() {
             if (guard.isNull()) return;
-            if (r.ok) {
-                guard->statusLabel_->setText("DM created: " + QString::fromStdString(r.data));
-            } else {
-                guard->statusLabel_->setText("Failed: " + QString::fromStdString(r.error.message));
-            }
+            if (r.ok) guard->statusLabel_->setText("DM created: " + QString::fromStdString(r.data));
+            else guard->statusLabel_->setText("Failed: " + QString::fromStdString(r.error.message));
         }, Qt::QueuedConnection);
     }).detach();
 }

@@ -123,6 +123,26 @@ std::optional<AccountInfo> SessionStore::loadAccount() {
     return result;
 }
 
+std::vector<AccountInfo> SessionStore::listAccounts() {
+    std::vector<AccountInfo> result;
+    if (!db_) return result;
+    const char* sql = "SELECT user_id, device_id, homeserver_url, access_token, refresh_token FROM account;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return result;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        AccountInfo a;
+        a.userId        = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        a.deviceId      = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        a.homeserverUrl = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        a.accessToken   = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        if (sqlite3_column_type(stmt, 4) != SQLITE_NULL)
+            a.refreshToken = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+        result.push_back(std::move(a));
+    }
+    sqlite3_finalize(stmt);
+    return result;
+}
+
 bool SessionStore::clearAccount() {
     if (!db_) return false;
     int rc = sqlite3_exec(db_, "DELETE FROM account;", nullptr, nullptr, nullptr);

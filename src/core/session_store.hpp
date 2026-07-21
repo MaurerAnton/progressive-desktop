@@ -8,6 +8,7 @@
 #include "account_info.hpp"
 
 #include <string>
+#include <vector>
 #include <optional>
 
 struct sqlite3;
@@ -32,6 +33,9 @@ public:
     bool saveAccount(const AccountInfo& acct);
     std::optional<AccountInfo> loadAccount();
     bool clearAccount();
+
+    // List all saved accounts (for switcher UI)
+    std::vector<AccountInfo> listAccounts();
 
     // ---- Sync token ----
 

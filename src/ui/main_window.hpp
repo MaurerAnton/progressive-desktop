@@ -17,6 +17,7 @@
 #include <QSplitter>
 #include <QLabel>
 #include <QPushButton>
+#include <QComboBox>
 #include <QPointer>
 #include <unordered_map>
 #include <fstream>
@@ -63,6 +64,7 @@ private slots:
     void onAllThreadsClicked();
     void onRoomSettingsClicked();
     void onRoomMembersClicked();
+    void onSwitchAccount(int index);
     void onImageClicked(const QString& eventId, const QString& mxcUrl);
     void onMessageClicked(const QString& eventId);
     void onTimelineContextMenu(const QPoint& pos);
@@ -102,6 +104,7 @@ private:
     QAction* roomSettingsAction_ = nullptr;
     QAction* roomMembersAction_ = nullptr;
     QAction* settingsAction_ = nullptr;
+    QComboBox* accountCombo_ = nullptr;
     QAction* fullscreenAction_ = nullptr;
     QAction* logoutAction_ = nullptr;
     QLabel* roomListHeader_ = nullptr;

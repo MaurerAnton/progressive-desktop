@@ -6,8 +6,22 @@
 #include <progressive/olm.hpp>
 
 #include <algorithm>
+#include <sstream>
+#include <string_view>
 
 namespace progressive::desktop {
+
+namespace {
+std::string mgExtractStr(std::string_view json, std::string_view key) {
+    std::string pat = "\"" + std::string(key) + "\":\"";
+    auto pos = json.find(pat);
+    if (pos == std::string_view::npos) return {};
+    pos += pat.size();
+    auto end = json.find('"', pos);
+    if (end == std::string_view::npos) return {};
+    return std::string(json.substr(pos, end - pos));
+}
+}
 
 struct SessionParams {
     std::string roomId;
@@ -29,7 +43,9 @@ bool MegolmStore::addInboundSession(const std::string& roomId,
                                        const std::string& sessionId,
                                        const std::string& sessionKeyBase64) {
     std::lock_guard<std::mutex> lk(mtx_);
-    return impl_->mgr.addSession(roomId, senderKey, sessionId, sessionKeyBase64);
+    bool ok = impl_->mgr.addSession(roomId, senderKey, sessionId, sessionKeyBase64);
+    if (ok) impl_->params.push_back({roomId, senderKey, sessionId, sessionKeyBase64});
+    return ok;
 }
 
 std::string MegolmStore::decrypt(const std::string& roomId,
@@ -73,16 +89,44 @@ std::vector<PendingEncryptedEvent> MegolmStore::takePendingForSession(
 }
 
 std::string MegolmStore::pickleAll(const std::string& key) {
-    // For now, we don't persist megolm sessions — they're rebuilt from
-    // m.room_key to-device events on each launch. Persistence will be added
-    // once the API surface stabilizes.
+    std::lock_guard<std::mutex> lk(mtx_);
     (void)key;
-    return {};
+    if (impl_->params.empty()) return "[]";
+    std::ostringstream os;
+    os << "[";
+    for (size_t i = 0; i < impl_->params.size(); ++i) {
+        if (i > 0) os << ",";
+        os << "{\"r\":\"" << impl_->params[i].roomId << "\""
+           << ",\"k\":\"" << impl_->params[i].senderKey << "\""
+           << ",\"s\":\"" << impl_->params[i].sessionId << "\""
+           << ",\"d\":\"" << impl_->params[i].sessionKeyBase64 << "\"}";
+    }
+    os << "]";
+    return os.str();
 }
 
 bool MegolmStore::unpickleAll(const std::string& key, const std::string& data) {
+    std::lock_guard<std::mutex> lk(mtx_);
     (void)key;
-    (void)data;
+    if (data.empty() || data == "[]") return true;
+    // Parse JSON array
+    size_t pos = data.find('{');
+    while (pos != std::string::npos) {
+        size_t end = data.find("}}", pos);
+        if (end == std::string::npos) end = data.find('}', data.find('}', pos + 1) + 1);
+        if (end == std::string::npos) break;
+        std::string obj = data.substr(pos, end - pos + 2);
+        // Extract fields
+        auto r = mgExtractStr(obj, "r");
+        auto k = mgExtractStr(obj, "k");
+        auto s = mgExtractStr(obj, "s");
+        auto d = mgExtractStr(obj, "d");
+        if (!r.empty() && !k.empty() && !s.empty() && !d.empty()) {
+            impl_->mgr.addSession(r, k, s, d);
+            impl_->params.push_back({r, k, s, d});
+        }
+        pos = data.find('{', end + 2);
+    }
     return true;
 }
 

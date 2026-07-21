@@ -394,6 +394,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto* spacer = new QWidget(this);
     spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     toolbar_->addWidget(spacer);
+
+    accountCombo_ = new QComboBox(this);
+    accountCombo_->setMinimumWidth(140);
+    accountCombo_->setStyleSheet("QComboBox{background:#1a1a1a;color:#ccc;border:1px solid #333;padding:2px 4px;} QComboBox::drop-down{border:none;} QComboBox QAbstractItemView{background:#1a1a1a;color:#ccc;}");
+    toolbar_->addWidget(accountCombo_);
+    connect(accountCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onSwitchAccount);
+
     logoutAction_ = toolbar_->addAction("Logout");
 
     connect(logoutAction_, &QAction::triggered, this, &MainWindow::onLogoutClicked);
@@ -650,6 +657,16 @@ void MainWindow::startWithSavedSession() {
     // Set client on image loader
     imageLoader_->setClient(client_);
     timelineDelegate_->setMyUserId(client_->account().userId);
+    // Populate account switcher
+    if (store_) {
+        auto accounts = store_->listAccounts();
+        for (const auto& a : accounts) {
+            QString label = QString::fromStdString(a.userId);
+            accountCombo_->addItem(label);
+            if (a.userId == client_->account().userId)
+                accountCombo_->setCurrentIndex(accountCombo_->count() - 1);
+        }
+    }
     int cacheSize = PrefsDialog::imageCacheSize();
     imageLoader_->setCacheSize(cacheSize);
     std::fprintf(stderr, "[mem] image cache size: %d\n", cacheSize);
@@ -1451,6 +1468,19 @@ void MainWindow::onRoomMembersClicked() {
     }
     RoomMembersDialog dlg(client_, currentRoomId_.toStdString(), this);
     dlg.exec();
+}
+
+void MainWindow::onSwitchAccount(int index) {
+    if (index < 0 || !client_ || !store_) return;
+    auto accounts = store_->listAccounts();
+    if (index >= (int)accounts.size()) return;
+
+    auto& acct = accounts[index];
+    if (acct.userId == client_->account().userId) return;  // already active
+
+    sync_.stop();
+    client_->setAccount(acct);
+    startWithSavedSession();
 }
 
 void MainWindow::onSettingsClicked() {

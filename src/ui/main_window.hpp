@@ -21,6 +21,7 @@
 #include <QComboBox>
 #include <QPointer>
 #include <unordered_map>
+#include <unordered_set>
 #include <fstream>
 #include <memory>
 
@@ -134,7 +135,8 @@ private:
     std::string currentPrevBatch_;  // token for "load older" pagination
     bool chatLogging_ = false;      // save chat to file enabled for current room
     std::unique_ptr<std::ofstream> chatLogFile_;
-    std::unordered_map<std::string, std::string> memberAvatarCache_;  // userId → mxc URL
+    std::unordered_map<std::string, std::string> memberAvatarCache_;
+    std::unordered_set<std::string> pendingBatch_;  // rooms with in-flight state fetch  // userId → mxc URL
 };
 
 } // namespace progressive::desktop

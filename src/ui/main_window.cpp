@@ -1920,12 +1920,12 @@ void MainWindow::onSync(FastSyncResponse resp) {
             }
         }
     }
-    // Memory diagnostic: snapshot after first sync (biggest allocation)
     if (firstSync) {
         logMemorySnapshot("after-first-sync");
-        // Lazy-load room names/avatars for any rooms that didn't get state
-        batchLoadRoomStates();
     }
+    // Call batch loader after every sync — catches rooms that appeared
+    // after initial sync (invites accepted, rooms created after start).
+    batchLoadRoomStates();
     // Release unused heap pages back to OS after every sync.
     // Each sync allocates HTTP response buffer + parser (5-20 MB),
     // which fragments the heap without this call.
@@ -1993,8 +1993,10 @@ void MainWindow::batchLoadRoomStates() {
     for (int i = 0; i < roomModel_->rowCount(); ++i) {
         auto* rd = roomModel_->at(i);
         if (!rd || rd->isInvite) continue;
-        if (rd->name == rd->roomId || rd->avatarUrl.empty()) {
+        if ((rd->name == rd->roomId || rd->avatarUrl.empty())
+            && !pendingBatch_.count(rd->roomId)) {
             roomIds.push_back(rd->roomId);
+            pendingBatch_.insert(rd->roomId);
         }
     }
     if (roomIds.empty()) return;

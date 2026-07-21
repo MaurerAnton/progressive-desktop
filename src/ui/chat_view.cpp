@@ -100,6 +100,8 @@ void ChatView::doSend(const std::string& body) {
         // Thread reply (unencrypted)
         if (!threadRoot.empty() && !encrypted) {
             auto r = client->sendThreadReply(roomId, body, threadRoot);
+            if (!r.ok) std::fprintf(stderr, "[send] FAILED thread: %s (code=%s)\n",
+                                     r.error.message.c_str(), r.error.code.c_str());
             QMetaObject::invokeMethod(guard, [guard, r, tempId, body, myUserId, threadRoot]() {
                 if (guard.isNull() || !r.ok) return;
                 DisplayedEvent real;
@@ -127,6 +129,7 @@ void ChatView::doSend(const std::string& body) {
             std::string enc = dec->encryptMessage(roomId, deviceId, inner);
             if (enc.empty()) return;
             auto r = client->sendEncryptedEvent(roomId, enc, "pd" + std::to_string(std::time(nullptr)));
+            if (!r.ok) std::fprintf(stderr, "[send] FAILED encrypted: %s\n", r.error.message.c_str());
             QMetaObject::invokeMethod(guard, [guard, r, tempId, body, myUserId]() {
                 if (guard.isNull() || !r.ok) return;
                 DisplayedEvent real;
@@ -164,6 +167,8 @@ void ChatView::doSend(const std::string& body) {
             }
         } else {
             auto r = client->sendMessage(roomId, body);
+            if (!r.ok) std::fprintf(stderr, "[send] FAILED message: %s (code=%s)\n",
+                                     r.error.message.c_str(), r.error.code.c_str());
             QMetaObject::invokeMethod(guard, [guard, r, tempId, body, myUserId]() {
                 if (guard.isNull() || !r.ok) return;
                 DisplayedEvent real;
@@ -208,6 +213,7 @@ void ChatView::doAttachFile(const QString& filePath) {
         else if (isAudio) body << R"({"msgtype":"m.audio","body":")" << fn << R"(","url":")" << upload.data << R"("})";
         else body << R"({"msgtype":"m.file","body":")" << fn << R"(","url":")" << upload.data << R"("})";
         auto r = client->sendMessageEvent(roomId, "m.room.message", body.str());
+        if (!r.ok) std::fprintf(stderr, "[send] FAILED file: %s\n", r.error.message.c_str());
         QMetaObject::invokeMethod(guard, [guard, r, fn, isImage, isVideo, isAudio, mxc = upload.data]() {
             if (guard.isNull() || !r.ok) return;
             DisplayedEvent echo;

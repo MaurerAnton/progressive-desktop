@@ -526,8 +526,8 @@ MainWindow::~MainWindow() {
 }
 
 void MainWindow::wireSyncCallbacks() {
-    sync_.onSync([this](const FastSyncResponse& resp) {
-        QMetaObject::invokeMethod(this, [this, resp]() { onSync(resp); }, Qt::QueuedConnection);
+    sync_.onSync([this](FastSyncResponse resp) {
+        QMetaObject::invokeMethod(this, [this, resp = std::move(resp)]() mutable { onSync(std::move(resp)); }, Qt::QueuedConnection);
     });
     sync_.onStateChange([this](SyncEngineState st, const SyncEngineStats& stats) {
         QMetaObject::invokeMethod(this, [this, st, stats]() { onSyncState(st, stats); }, Qt::QueuedConnection);
@@ -731,6 +731,7 @@ void MainWindow::onRoomClicked(const QModelIndex& idx) {
     chatLogging_ = false;
     chatLogBtn_->setChecked(false);
     chatLogFile_.reset();
+    memberAvatarCache_.clear();
     timelineModel_->clear();
     timelinePlaceholder_->hide();
     timelineView_->show();
@@ -2030,8 +2031,9 @@ void MainWindow::toggleThreadPanel() {
     dlg.exec();
 }
 
-void MainWindow::onSync(const FastSyncResponse& resp) {
+void MainWindow::onSync(FastSyncResponse resp) {
     rebuildRoomList(resp);
+    if (!resp.joinedRooms.empty()) logMemorySnapshot("after-rebuildRoomList");
 
     // Desktop notification: if any room has highlight_count > 0, notify the user.
     // We do this only after the first sync (so initial sync doesn't spam).
@@ -2067,6 +2069,15 @@ void MainWindow::onSync(const FastSyncResponse& resp) {
         batchLoadRoomStates();
     }
     firstSync = false;
+
+    // Release the sync response buffer IMMEDIATELY after processing.
+    // The FastSyncResponse holds simdjson parser + raw JSON buffer + owned
+    // strings — can be 20-40 MB. All data has been extracted into the model
+    // (room names, avatars, timeline events as DisplayedEvent with owned strings).
+    resp.buffer.reset();
+    resp.parser.reset();
+    resp.ownedContentStrings.reset();
+    logMemorySnapshot("after-sync-cleanup");
 
     statusLabel_->setText(QString("Synced: %1 rooms | %2 messages")
         .arg(roomModel_->rowCount()).arg(timelineModel_->rowCount()));
@@ -2256,6 +2267,7 @@ void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
         if (currentRoomId_.toStdString() == roomId) {
             currentRoomId_.clear();
             timelineModel_->clear();
+            memberAvatarCache_.clear();
             timelineView_->hide();
             timelinePlaceholder_->show();
             messageEdit_->hide();

@@ -41,7 +41,7 @@ public:
     void startWithSavedSession();
     void forceReLogin();
 
-    void onSync(const FastSyncResponse& resp);
+    void onSync(FastSyncResponse resp);
     void onSyncState(SyncEngineState state, const SyncEngineStats& stats);
 
 protected:

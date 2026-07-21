@@ -238,6 +238,7 @@ static void runGui(int argc, char** argv) {
     QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     QDir().mkpath(dataDir);
     QString dbPath = dataDir + "/session.db";
+    std::fprintf(stderr, "[session] data dir: %s\n", dataDir.toUtf8().data());
     store.open(dbPath.toStdString());
 
     // Create client + load saved session if present

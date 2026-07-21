@@ -44,7 +44,7 @@ struct SyncEngineStats {
 
 class SyncEngine {
 public:
-    using SyncCallback = std::function<void(const FastSyncResponse&)>;
+    using SyncCallback = std::function<void(FastSyncResponse)>;
     using StateCallback = std::function<void(SyncEngineState, const SyncEngineStats&)>;
     using AuthErrorCallback = std::function<void()>;
 

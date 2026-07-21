@@ -62,6 +62,7 @@ private slots:
     void onToggleFullscreen();
     void onAllThreadsClicked();
     void onRoomSettingsClicked();
+    void onRoomMembersClicked();
     void onImageClicked(const QString& eventId, const QString& mxcUrl);
     void onMessageClicked(const QString& eventId);
     void onTimelineContextMenu(const QPoint& pos);
@@ -99,6 +100,7 @@ private:
     QAction* browseRoomsAction_ = nullptr;
     QAction* allThreadsAction_ = nullptr;
     QAction* roomSettingsAction_ = nullptr;
+    QAction* roomMembersAction_ = nullptr;
     QAction* settingsAction_ = nullptr;
     QAction* fullscreenAction_ = nullptr;
     QAction* logoutAction_ = nullptr;

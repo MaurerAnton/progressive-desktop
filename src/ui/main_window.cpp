@@ -6,6 +6,7 @@
 #include "threads_dialog.hpp"
 #include "emoji_picker.hpp"
 #include "room_settings_dialog.hpp"
+#include "room_members_dialog.hpp"
 #include "profile_dialog.hpp"
 #include "prefs_dialog.hpp"
 
@@ -357,6 +358,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     browseRoomsAction_ = toolbar_->addAction("Browse rooms");
     allThreadsAction_ = toolbar_->addAction("All threads");
     roomSettingsAction_ = toolbar_->addAction("Room settings");
+    roomMembersAction_ = toolbar_->addAction("Room members");
     settingsAction_ = toolbar_->addAction("Settings");
     toolbar_->addSeparator();
     fullscreenAction_ = toolbar_->addAction("Fullscreen");
@@ -372,6 +374,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(browseRoomsAction_, &QAction::triggered, this, &MainWindow::onBrowseRoomsClicked);
     connect(allThreadsAction_, &QAction::triggered, this, &MainWindow::onAllThreadsClicked);
     connect(roomSettingsAction_, &QAction::triggered, this, &MainWindow::onRoomSettingsClicked);
+    connect(roomMembersAction_, &QAction::triggered, this, &MainWindow::onRoomMembersClicked);
     connect(settingsAction_, &QAction::triggered, this, &MainWindow::onSettingsClicked);
     connect(fullscreenAction_, &QAction::triggered, this, &MainWindow::onToggleFullscreen);
 
@@ -1299,6 +1302,15 @@ void MainWindow::onRoomSettingsClicked() {
     auto* rd = roomModel_->at(roomModel_->findRowByRoomId(currentRoomId_.toStdString()));
     if (rd) roomName = rd->name;
     RoomSettingsDialog dlg(client_, currentRoomId_.toStdString(), roomName, this);
+    dlg.exec();
+}
+
+void MainWindow::onRoomMembersClicked() {
+    if (currentRoomId_.isEmpty() || !client_) {
+        QMessageBox::information(this, "Members", "Select a room first.");
+        return;
+    }
+    RoomMembersDialog dlg(client_, currentRoomId_.toStdString(), this);
     dlg.exec();
 }
 

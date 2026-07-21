@@ -53,7 +53,6 @@ protected:
 private slots:
     void onRoomClicked(const QModelIndex& idx);
     void onRoomListContextMenu(const QPoint& pos);
-    void onSendMessage(const std::string& body);
     void onSlashCommand(const std::string& cmd, const std::string& args);
     void onLogoutClicked();
     void onLoginDialogAccepted();
@@ -69,7 +68,6 @@ private slots:
     void onImageClicked(const QString& eventId, const QString& mxcUrl);
     void onMessageClicked(const QString& eventId);
     void onTimelineContextMenu(const QPoint& pos);
-    void onAttachFile(const QString& filePath);
     void openThreadView(const QString& rootEventId);
     void closeThreadView();
     void onLoadMoreClicked();

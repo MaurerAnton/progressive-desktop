@@ -125,6 +125,8 @@ void MessageEdit::setMembers(const QStringList& names) {
         mentionCompleter_->setFilterMode(Qt::MatchContains);
     }
     mentionModel_->setStringList(names);
+    if (completerSetup_) return;
+    completerSetup_ = true;
     // Manual trigger: when @ is typed, show popup
     connect(textEdit_, &QTextEdit::textChanged, this, [this]() {
         QString text = textEdit_->toPlainText();

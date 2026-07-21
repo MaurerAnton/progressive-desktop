@@ -49,6 +49,7 @@ private:
     QPushButton* emojiBtn_ = nullptr;
     QCompleter* mentionCompleter_ = nullptr;
     QStringListModel* mentionModel_ = nullptr;
+    bool completerSetup_ = false;
 
     void setupUi();
 };

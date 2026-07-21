@@ -3,9 +3,9 @@
 #include "../../core/session_store.hpp"
 #include "../../core/fast_sync.hpp"
 #include "../../core/crypto/decryptor.hpp"
-#include "../timeline_model.hpp"
+#include "../timeline/timeline_model.hpp"
 #include "../room_list_model.hpp"
-#include "../room_members_dialog.hpp"
+#include "../profile/room_members_dialog.hpp"
 #include "../../core/fast_sync.hpp"
 #include "../../core/crypto/decryptor.hpp"
 

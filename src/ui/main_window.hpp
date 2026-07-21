@@ -7,11 +7,11 @@
 #include "core/notifications.hpp"
 #include "room_list_model.hpp"
 #include "room_list_delegate.hpp"
-#include "timeline_model.hpp"
-#include "timeline_delegate.hpp"
-#include "image_loader.hpp"
-#include "message_edit.hpp"
-#include "chat_view.hpp"
+#include "timeline/timeline_model.hpp"
+#include "timeline/timeline_delegate.hpp"
+#include "shared/image_loader.hpp"
+#include "chat/message_edit.hpp"
+#include "chat/chat_view.hpp"
 #include "room/room_store.hpp"
 
 #include <QMainWindow>

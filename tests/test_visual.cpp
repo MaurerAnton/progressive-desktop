@@ -15,9 +15,9 @@
 // Minimal headers needed
 #include "../src/ui/room_list_model.hpp"
 #include "../src/ui/room_list_delegate.hpp"
-#include "../src/ui/timeline_model.hpp"
-#include "../src/ui/timeline_delegate.hpp"
-#include "../src/ui/message_edit.hpp"
+#include "../src/ui/timeline/timeline_model.hpp"
+#include "../src/ui/timeline/timeline_delegate.hpp"
+#include "../src/ui/chat/message_edit.hpp"
 
 using namespace progressive::desktop;
 

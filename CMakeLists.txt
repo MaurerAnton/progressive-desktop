@@ -74,28 +74,28 @@ target_link_libraries(progressive_core PUBLIC
 # --- Desktop app ---
 add_executable(progressive-desktop
     src/main.cpp
-    src/ui/login_dialog.cpp
+    src/ui/dialogs/login_dialog.cpp
     src/ui/main_window.cpp
     src/ui/room_list_model.cpp
     src/ui/room_list_delegate.cpp
-    src/ui/timeline_model.cpp
-    src/ui/timeline_delegate.cpp
-    src/ui/image_loader.cpp
-    src/ui/image_viewer_dialog.cpp
-    src/ui/room_directory_dialog.cpp
-    src/ui/threads_dialog.cpp
-    src/ui/emoji_picker.cpp
-    src/ui/room_settings_dialog.cpp
+    src/ui/timeline/timeline_model.cpp
+    src/ui/timeline/timeline_delegate.cpp
+    src/ui/shared/image_loader.cpp
+    src/ui/dialogs/image_viewer_dialog.cpp
+    src/ui/dialogs/room_directory_dialog.cpp
+    src/ui/dialogs/threads_dialog.cpp
+    src/ui/chat/emoji_picker.cpp
+    src/ui/dialogs/room_settings_dialog.cpp
     src/ui/profile_dialog.cpp
-    src/ui/prefs_dialog.cpp
-    src/ui/room_members_dialog.cpp
-    src/ui/user_profile_dialog.cpp
-    src/ui/network_log_dialog.cpp
-    src/ui/chat_view.cpp
-    src/ui/timeline_handlers.cpp
+    src/ui/dialogs/prefs_dialog.cpp
+    src/ui/profile/room_members_dialog.cpp
+    src/ui/profile/user_profile_dialog.cpp
+    src/ui/dialogs/network_log_dialog.cpp
+    src/ui/chat/chat_view.cpp
+    src/ui/timeline/timeline_handlers.cpp
     src/ui/room/room_store.cpp
-    src/ui/message_edit.cpp
-    src/ui/theme.cpp
+    src/ui/chat/message_edit.cpp
+    src/ui/shared/theme.cpp
     resources/resources.qrc
 )
 qt_add_resources(progressive-desktop "resources/resources.qrc")
@@ -141,10 +141,10 @@ if(PROGRESSIVE_BUILD_TESTS)
     add_executable(test_visual tests/test_visual.cpp
         src/ui/room_list_model.cpp
         src/ui/room_list_delegate.cpp
-        src/ui/timeline_model.cpp
-        src/ui/timeline_delegate.cpp
-        src/ui/message_edit.cpp
-        src/ui/image_loader.cpp
+        src/ui/timeline/timeline_model.cpp
+        src/ui/timeline/timeline_delegate.cpp
+        src/ui/chat/message_edit.cpp
+        src/ui/shared/image_loader.cpp
     )
     target_link_libraries(test_visual PRIVATE progressive_core Qt6::Widgets Qt6::Test)
     target_compile_options(test_visual PRIVATE

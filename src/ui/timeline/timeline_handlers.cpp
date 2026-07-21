@@ -4,7 +4,7 @@
 #include "timeline_handlers.hpp"
 #include "core/matrix_client.hpp"
 #include "timeline_model.hpp"
-#include "emoji_picker.hpp"
+#include "../chat/emoji_picker.hpp"
 
 #include <QMenu>
 #include <QMessageBox>

@@ -1,10 +1,10 @@
 // src/ui/timeline_delegate.cpp — chat bubbles with avatars.
 #include "timeline_delegate.hpp"
 #include "timeline_model.hpp"
-#include "image_loader.hpp"
-#include "theme.hpp"
-#include "image_loader.hpp"
-#include "theme.hpp"
+#include "../shared/image_loader.hpp"
+#include "../shared/theme.hpp"
+#include "../shared/image_loader.hpp"
+#include "../shared/theme.hpp"
 
 #include <QPainter>
 #include <QPainterPath>

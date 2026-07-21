@@ -1,16 +1,16 @@
 // src/ui/main_window.cpp — Phase 3 full UI.
 #include "main_window.hpp"
-#include "login_dialog.hpp"
-#include "image_viewer_dialog.hpp"
-#include "room_directory_dialog.hpp"
-#include "threads_dialog.hpp"
-#include "emoji_picker.hpp"
-#include "room_settings_dialog.hpp"
-#include "room_members_dialog.hpp"
+#include "dialogs/login_dialog.hpp"
+#include "dialogs/image_viewer_dialog.hpp"
+#include "dialogs/room_directory_dialog.hpp"
+#include "dialogs/threads_dialog.hpp"
+#include "chat/emoji_picker.hpp"
+#include "dialogs/room_settings_dialog.hpp"
+#include "profile/room_members_dialog.hpp"
 #include "profile_dialog.hpp"
-#include "prefs_dialog.hpp"
-#include "network_log_dialog.hpp"
-#include "timeline_handlers.hpp"
+#include "dialogs/prefs_dialog.hpp"
+#include "dialogs/network_log_dialog.hpp"
+#include "timeline/timeline_handlers.hpp"
 
 #include <QApplication>
 #include <QCloseEvent>
@@ -363,53 +363,6 @@ std::string extractReplyToId(std::string_view contentJson) {
     auto eidEnd = obj.find('"', eidPos);
     if (eidEnd == std::string_view::npos) return {};
     return std::string(obj.substr(eidPos, eidEnd - eidPos));
-}
-
-// Single-pass room metadata extraction — replaces 7 separate loops
-struct RoomMeta {
-    std::string name;
-    std::string avatarUrl;
-    std::string dmName;
-    std::string dmAvatarUrl;
-    std::string canonicalAlias;
-    bool isEncrypted = false;
-};
-static RoomMeta extractRoomMeta(const FastRoom& room, const std::string& myUserId) {
-    RoomMeta m;
-    for (const auto& e : room.stateEvents) {
-        if (e.type == "m.room.name" && m.name.empty() && !e.contentJson.empty())
-            m.name = extractJsonStringDecoded(e.contentJson, "name");
-        else if (e.type == "m.room.avatar" && m.avatarUrl.empty() && !e.contentJson.empty())
-            m.avatarUrl = extractJsonStringDecoded(e.contentJson, "url");
-        else if (e.type == "m.room.canonical_alias" && m.canonicalAlias.empty() && !e.contentJson.empty())
-            m.canonicalAlias = extractJsonStringDecoded(e.contentJson, "alias");
-        else if (e.type == "m.room.encryption")
-            m.isEncrypted = true;
-        else if (e.type == "m.room.member" && !e.contentJson.empty()) {
-            auto mem = extractJsonString(e.contentJson, "membership");
-            if (mem == "join" && std::string(e.stateKey) != myUserId) {
-                if (m.dmName.empty()) m.dmName = extractJsonString(e.contentJson, "displayname");
-                if (m.dmAvatarUrl.empty()) m.dmAvatarUrl = extractJsonStringDecoded(e.contentJson, "avatar_url");
-            }
-        }
-    }
-    // Fallback from timeline events for missing fields
-    for (const auto& e : room.timeline.events) {
-        if (m.name.empty() && e.type == "m.room.name" && !e.contentJson.empty())
-            m.name = extractJsonStringDecoded(e.contentJson, "name");
-        if (m.avatarUrl.empty() && e.type == "m.room.avatar" && !e.contentJson.empty())
-            m.avatarUrl = extractJsonStringDecoded(e.contentJson, "url");
-        if (m.canonicalAlias.empty() && e.type == "m.room.canonical_alias" && !e.contentJson.empty())
-            m.canonicalAlias = extractJsonStringDecoded(e.contentJson, "alias");
-        if (m.dmName.empty() && e.type == "m.room.member" && !e.contentJson.empty()) {
-            auto mem = extractJsonString(e.contentJson, "membership");
-            if (mem == "join" && std::string(e.stateKey) != myUserId) {
-                if (m.dmName.empty()) m.dmName = extractJsonString(e.contentJson, "displayname");
-                if (m.dmAvatarUrl.empty()) m.dmAvatarUrl = extractJsonStringDecoded(e.contentJson, "avatar_url");
-            }
-        }
-    }
-    return m;
 }
 
 } // namespace
@@ -2243,14 +2196,14 @@ void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
         RoomData& rd = *rdPtr;
 
         std::string myUserId = client_ ? client_->account().userId : "";
-        RoomMeta meta = extractRoomMeta(room, myUserId);
+        auto meta = RoomStore::extractRoomMeta(room, myUserId);
         if (!meta.name.empty()) {
             rd.name = meta.name;
         } else if (!meta.canonicalAlias.empty()) {
             rd.name = meta.canonicalAlias;
         } else if (existingRow < 0) {
             // DM: use other member's displayname
-            if (!meta.dmName.empty()) rd.name = meta.dmName;
+            if (!meta.dmDisplayName.empty()) rd.name = meta.dmDisplayName;
             else rd.name = roomId;
         }
         // else keep existing name

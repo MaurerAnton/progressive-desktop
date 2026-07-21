@@ -16,7 +16,7 @@
 // forward-declare key structs for sizeof() logging
 #include "../core/fast_sync.hpp"
 #include "../ui/room_list_model.hpp"
-#include "../ui/timeline_model.hpp"
+#include "../ui/timeline/timeline_model.hpp"
 #include "../core/crypto/olm_account.hpp"
 #include "../core/crypto/megolm_store.hpp"
 #include "../core/crypto/decryptor.hpp"

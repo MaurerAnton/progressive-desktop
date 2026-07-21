@@ -1,7 +1,7 @@
 // src/ui/room_list_delegate.cpp — paints room list with avatars.
 #include "room_list_delegate.hpp"
-#include "image_loader.hpp"
-#include "theme.hpp"
+#include "shared/image_loader.hpp"
+#include "shared/theme.hpp"
 
 #include <QPainter>
 #include <QPainterPath>

@@ -28,8 +28,8 @@
 #include "core/version.h"
 #include "core/memory_stats.hpp"
 #include "ui/main_window.hpp"
-#include "ui/login_dialog.hpp"
-#include "ui/theme.hpp"
+#include "ui/dialogs/login_dialog.hpp"
+#include "ui/shared/theme.hpp"
 
 #include <simdjson.h>
 #include <progressive/markdown.hpp>

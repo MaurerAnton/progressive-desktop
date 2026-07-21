@@ -2,7 +2,7 @@
 #pragma once
 #include <QWidget>
 #include "core/matrix_client.hpp"
-#include "timeline_model.hpp"
+#include "../timeline/timeline_model.hpp"
 #include <functional>
 #include <string>
 

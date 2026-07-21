@@ -1303,26 +1303,38 @@ void MainWindow::onSwitchAccount(int index) {
     if (index >= (int)accounts.size()) return;
 
     auto& acct = accounts[index];
-    if (acct.userId == client_->account().userId) return;  // already active
+    if (acct.userId == client_->account().userId) return;
+
+    // Block re-entry during switch
+    accountCombo_->setEnabled(false);
 
     sync_.stop();
 
     // Save E2EE sessions for current account before switching
     std::string oldKey = client_->account().userId + "/" + client_->account().deviceId;
-    if (sync_.decryptor()->isInitialized()) {
+    if (sync_.decryptor() && sync_.decryptor()->isInitialized()) {
         auto mp = sync_.decryptor()->megolm()->pickleAll(oldKey);
         if (!mp.empty()) store_->saveMegolmSessions(mp);
         auto op = sync_.decryptor()->pickleOlmSessions(oldKey);
         if (!op.empty()) store_->saveOlmSessions(op);
     }
 
+    // Clear UI state
+    roomModel_->clear();
+    timelineModel_->clear();
+    timelineView_->hide();
+    timelinePlaceholder_->show();
+    messageEdit_->hide();
+    currentRoomId_.clear();
+    memberAvatarCache_.clear();
+    chatView_->clear();
+
     // Switch account
     client_->setAccount(acct);
 
     // Re-init E2EE for new account
     std::string newKey = acct.userId + "/" + acct.deviceId;
-    if (sync_.decryptor()->init()) {
-        // Load olm account for new user
+    if (sync_.decryptor() && sync_.decryptor()->init()) {
         if (store_) {
             auto saved = store_->loadOlmAccount();
             if (saved) sync_.decryptor()->init(saved->first, saved->second);
@@ -1338,6 +1350,8 @@ void MainWindow::onSwitchAccount(int index) {
     userLabel_->setText(" " + QString::fromStdString(acct.userId) + " ");
     timelineDelegate_->setMyUserId(acct.userId);
     imageLoader_->setClient(client_);
+    accountCombo_->setCurrentIndex(index);
+    accountCombo_->setEnabled(true);
 
     sync_.setClient(client_);
     sync_.setSessionStore(store_);

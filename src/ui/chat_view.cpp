@@ -77,11 +77,28 @@ void ChatView::doSend(const std::string& body) {
     model_->appendBack(echo);
 
     std::string roomId = roomId_;
+    std::string threadRoot = threadRoot_;
     MatrixClient* client = client_;
     QString myUserId = QString::fromStdString(client->account().userId);
     QPointer<ChatView> guard(this);
 
-    std::thread([guard, client, roomId, body, tempId, myUserId, encrypted = encrypted_]() {
+    std::thread([guard, client, roomId, body, tempId, myUserId, threadRoot, encrypted = encrypted_]() {
+        // Thread reply (unencrypted)
+        if (!threadRoot.empty() && !encrypted) {
+            auto r = client->sendThreadReply(roomId, body, threadRoot);
+            QMetaObject::invokeMethod(guard, [guard, r, tempId, body, myUserId, threadRoot]() {
+                if (guard.isNull() || !r.ok) return;
+                DisplayedEvent real;
+                real.eventId = r.data; real.senderId = myUserId.toStdString();
+                real.senderName = "you"; real.type = "m.room.message";
+                real.msgtype = "m.text"; real.body = body;
+                real.isThreadReply = true; real.threadRootId = threadRoot;
+                real.originServerTs = static_cast<int64_t>(QDateTime::currentMSecsSinceEpoch());
+                guard->model_->replaceEcho(tempId, real);
+            }, Qt::QueuedConnection);
+            return;
+        }
+        // Encrypted (Megolm)
         if (encrypted && guard && guard->sync_ && guard->sync_->decryptor()->isInitialized()) {
             auto* dec = guard->sync_->decryptor();
             std::string deviceId = client->account().deviceId;
@@ -105,6 +122,13 @@ void ChatView::doSend(const std::string& body) {
                 real.originServerTs = static_cast<int64_t>(QDateTime::currentMSecsSinceEpoch());
                 guard->model_->replaceEcho(tempId, real);
             }, Qt::QueuedConnection);
+            // Share room key once
+            dec->shareRoomKey(roomId,
+                {},  // will be populated by decryptor
+                client->account().userId,
+                client->account().deviceId,
+                client->account().homeserverUrl,
+                client->account().accessToken);
         } else {
             auto r = client->sendMessage(roomId, body);
             QMetaObject::invokeMethod(guard, [guard, r, tempId, body, myUserId]() {

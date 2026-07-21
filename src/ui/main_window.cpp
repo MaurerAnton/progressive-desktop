@@ -904,7 +904,6 @@ void MainWindow::loadMemberAvatarsForRoom(const std::string& roomId) {
     if (!client_ || !client_->isLoggedIn()) return;
     MatrixClient* client = client_;
     QPointer<MainWindow> guard(this);
-    // Collect user IDs from already-loaded timeline to fetch only those
     std::unordered_set<std::string> relevantIds;
     for (int i = 0; i < timelineModel_->rowCount(QModelIndex()); ++i) {
         auto* evt = timelineModel_->at(i);
@@ -943,7 +942,6 @@ void MainWindow::loadMemberAvatarsForRoom(const std::string& roomId) {
                     }
                 }
             }
-            // Fallback: use getUserProfile for users not resolved yet
             if (!*usedMembers && !relevantIds.empty()) {
                 for (const auto& uid : relevantIds) {
                     auto profileResp = client->getUserProfile(uid);

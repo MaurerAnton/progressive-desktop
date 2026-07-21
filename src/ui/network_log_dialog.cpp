@@ -5,6 +5,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QScrollBar>
 #include <QTimer>
 #include <sstream>
 

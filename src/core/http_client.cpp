@@ -17,13 +17,11 @@
 
 namespace progressive::desktop {
 
-namespace {
-
 // Global proxy config (set via setGlobalProxy, read in each request).
-ProxyConfig g_proxy;
-std::mutex g_proxy_mutex;
+static ProxyConfig g_proxy;
+static std::mutex g_proxy_mutex;
 
-bool g_initialized = false;
+static bool g_initialized = false;
 
 // HTTP request log ring buffer (max 500 entries).
 static constexpr size_t kMaxLogEntries = 500;
@@ -34,7 +32,6 @@ static void logHttpRequest(const std::string& method, const std::string& url,
                            int statusCode, size_t responseBytes, int64_t elapsedMs,
                            const std::string& error) {
     std::lock_guard<std::mutex> lk(g_log_mutex);
-    // Truncate URL to domain + path (remove query params to avoid leaking tokens)
     std::string shortUrl = url;
     auto q = shortUrl.find('?');
     if (q != std::string::npos) shortUrl = shortUrl.substr(0, q);
@@ -47,7 +44,7 @@ std::vector<HttpLogEntry> getHttpLog() {
     return std::vector<HttpLogEntry>(g_log.begin(), g_log.end());
 }
 
-// libcurl write callback — append to a std::string
+namespace {
 size_t writeCb(char* ptr, size_t size, size_t nmemb, void* userdata) {
     auto* out = static_cast<std::string*>(userdata);
     out->append(ptr, size * nmemb);

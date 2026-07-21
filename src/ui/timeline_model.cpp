@@ -93,6 +93,7 @@ void TimelineModel::appendBack(const DisplayedEvent& evt) {
     beginInsertRows(QModelIndex(), row, row);
     events_.push_back(evt);
     endInsertRows();
+    if (!evt.eventId.empty()) rowIndex_[evt.eventId] = row;
     updateGroupMarkers(events_);
 
     if (static_cast<int>(events_.size()) > MAX_TIMELINE_EVENTS) {
@@ -107,25 +108,31 @@ void TimelineModel::appendBack(const DisplayedEvent& evt) {
 }
 
 void TimelineModel::replaceEcho(const std::string& tempEventId, const DisplayedEvent& realEvent) {
-    // Find the echo by temp event ID
-    for (size_t i = 0; i < events_.size(); ++i) {
-        if (events_[i].eventId == tempEventId) {
-            // Replace the echo with the real event
-            if (!realEvent.eventId.empty() && seenIds_.count(realEvent.eventId)) {
-                // Real event already exists — just remove the echo
-                beginRemoveRows(QModelIndex(), i, i);
-                events_.erase(events_.begin() + i);
-                endRemoveRows();
-            } else {
-                events_[i] = realEvent;
-                if (!realEvent.eventId.empty()) seenIds_.insert(realEvent.eventId);
-                emit dataChanged(index(i), index(i));
-            }
-            return;
-        }
+    auto rit = rowIndex_.find(tempEventId);
+    if (rit == rowIndex_.end()) {
+        appendBack(realEvent);
+        return;
     }
-    // Echo not found — just append the real event
-    appendBack(realEvent);
+    int i = rit->second;
+    if (i < 0 || i >= (int)events_.size()) { appendBack(realEvent); return; }
+    rowIndex_.erase(tempEventId);
+
+    if (!realEvent.eventId.empty() && seenIds_.count(realEvent.eventId)) {
+        beginRemoveRows(QModelIndex(), i, i);
+        events_.erase(events_.begin() + i);
+        endRemoveRows();
+        // Rebuild index after removal
+        rowIndex_.clear();
+        for (size_t j = 0; j < events_.size(); ++j)
+            if (!events_[j].eventId.empty()) rowIndex_[events_[j].eventId] = (int)j;
+    } else {
+        events_[i] = realEvent;
+        if (!realEvent.eventId.empty()) {
+            seenIds_.insert(realEvent.eventId);
+            rowIndex_[realEvent.eventId] = i;
+        }
+        emit dataChanged(index(i), index(i));
+    }
 }
 
 void TimelineModel::markDeleted(const std::string& eventId) {
@@ -160,6 +167,10 @@ void TimelineModel::appendFront(const std::vector<DisplayedEvent>& evts) {
     beginInsertRows(QModelIndex(), 0, n - 1);
     events_.insert(events_.begin(), newOnes.rbegin(), newOnes.rend());
     endInsertRows();
+    rowIndex_.clear();
+    for (size_t i = 0; i < events_.size(); ++i) {
+        if (!events_[i].eventId.empty()) rowIndex_[events_[i].eventId] = (int)i;
+    }
     updateGroupMarkers(events_);
 }
 
@@ -168,6 +179,7 @@ void TimelineModel::clear() {
     beginResetModel();
     events_.clear();
     seenIds_.clear();
+    rowIndex_.clear();
     endResetModel();
 }
 
@@ -237,10 +249,8 @@ DisplayedEvent* TimelineModel::at(int row) {
 }
 
 int TimelineModel::findRow(const std::string& eventId) const {
-    for (size_t i = 0; i < events_.size(); ++i) {
-        if (events_[i].eventId == eventId) return static_cast<int>(i);
-    }
-    return -1;
+    auto it = rowIndex_.find(eventId);
+    return it != rowIndex_.end() ? it->second : -1;
 }
 
 } // namespace progressive::desktop

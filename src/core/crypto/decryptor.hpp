@@ -102,6 +102,10 @@ public:
     // Drop the outbound session for a room (e.g. when room is left).
     void dropOutboundSession(const std::string& roomId);
 
+    // Check if room key was already shared for current outbound session.
+    bool roomKeyShared(const std::string& roomId) const;
+    void markRoomKeyShared(const std::string& roomId);
+
     // ---- Room key sharing (full E2EE outbound) ----
     // Shares the outbound megolm session key with all room members' devices.
     // Steps:
@@ -135,8 +139,10 @@ private:
     std::mutex outboundMtx_;
     // Inbound Olm 1:1 sessions, keyed by (senderCurve25519).
     // We store them as pickled strings; created on-demand from pre-key messages.
-    std::unordered_map<std::string, std::string> olmSessions_;  // senderKey → pickle
+    std::unordered_map<std::string, std::string> olmSessions_;
     std::mutex olmMtx_;
+    // Track which rooms have had their key shared for current outbound session
+    std::unordered_map<std::string, bool> roomKeysShared_;
 
     // Sign a canonical JSON string with Ed25519. Returns base64 signature.
     std::string signCanonicalJson(const std::string& canonicalJson);

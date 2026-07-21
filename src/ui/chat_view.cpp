@@ -139,31 +139,35 @@ void ChatView::doSend(const std::string& body) {
                 real.originServerTs = static_cast<int64_t>(QDateTime::currentMSecsSinceEpoch());
                 guard->model_->replaceEcho(tempId, real);
             }, Qt::QueuedConnection);
-            // Share room key with members (once per outbound session)
-            std::string ourUserId = client->account().userId;
-            std::string ourDeviceId = client->account().deviceId;
-            std::string homeserver = client->account().homeserverUrl;
-            std::string token = client->account().accessToken;
-            auto membersResp = client->getRoomMembers(roomId);
-            if (membersResp.ok) {
-                std::vector<std::string> userIds;
-                simdjson::dom::parser mp;
-                auto doc = mp.parse(membersResp.data);
-                if (doc.error() == simdjson::SUCCESS) {
-                    auto chunk = doc.value()["chunk"].get_array();
-                    if (chunk.error() == simdjson::SUCCESS) {
-                        for (auto evt : chunk.value()) {
-                            auto mship = evt["content"]["membership"].get_string();
-                            if (mship.error() != simdjson::SUCCESS ||
-                                std::string(mship.value()) != "join") continue;
-                            auto sk = evt["state_key"].get_string();
-                            if (sk.error() == simdjson::SUCCESS)
-                                userIds.push_back(std::string(sk.value()));
+            // Share room key ONCE per session
+            if (!dec->roomKeyShared(roomId)) {
+                std::string ourUserId = client->account().userId;
+                std::string ourDeviceId = client->account().deviceId;
+                std::string homeserver = client->account().homeserverUrl;
+                std::string token = client->account().accessToken;
+                auto membersResp = client->getRoomMembers(roomId);
+                if (membersResp.ok) {
+                    std::vector<std::string> userIds;
+                    simdjson::dom::parser mp;
+                    auto doc = mp.parse(membersResp.data);
+                    if (doc.error() == simdjson::SUCCESS) {
+                        auto chunk = doc.value()["chunk"].get_array();
+                        if (chunk.error() == simdjson::SUCCESS) {
+                            for (auto evt : chunk.value()) {
+                                auto mship = evt["content"]["membership"].get_string();
+                                if (mship.error() != simdjson::SUCCESS ||
+                                    std::string(mship.value()) != "join") continue;
+                                auto sk = evt["state_key"].get_string();
+                                if (sk.error() == simdjson::SUCCESS)
+                                    userIds.push_back(std::string(sk.value()));
+                            }
                         }
                     }
+                    if (!userIds.empty()) {
+                        dec->shareRoomKey(roomId, userIds, ourUserId, ourDeviceId, homeserver, token);
+                        dec->markRoomKeyShared(roomId);
+                    }
                 }
-                if (!userIds.empty())
-                    dec->shareRoomKey(roomId, userIds, ourUserId, ourDeviceId, homeserver, token);
             }
         } else {
             auto r = client->sendMessage(roomId, body);

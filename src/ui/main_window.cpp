@@ -365,6 +365,53 @@ std::string extractReplyToId(std::string_view contentJson) {
     return std::string(obj.substr(eidPos, eidEnd - eidPos));
 }
 
+// Single-pass room metadata extraction — replaces 7 separate loops
+struct RoomMeta {
+    std::string name;
+    std::string avatarUrl;
+    std::string dmName;
+    std::string dmAvatarUrl;
+    std::string canonicalAlias;
+    bool isEncrypted = false;
+};
+static RoomMeta extractRoomMeta(const FastRoom& room, const std::string& myUserId) {
+    RoomMeta m;
+    for (const auto& e : room.stateEvents) {
+        if (e.type == "m.room.name" && m.name.empty() && !e.contentJson.empty())
+            m.name = extractJsonStringDecoded(e.contentJson, "name");
+        else if (e.type == "m.room.avatar" && m.avatarUrl.empty() && !e.contentJson.empty())
+            m.avatarUrl = extractJsonStringDecoded(e.contentJson, "url");
+        else if (e.type == "m.room.canonical_alias" && m.canonicalAlias.empty() && !e.contentJson.empty())
+            m.canonicalAlias = extractJsonStringDecoded(e.contentJson, "alias");
+        else if (e.type == "m.room.encryption")
+            m.isEncrypted = true;
+        else if (e.type == "m.room.member" && !e.contentJson.empty()) {
+            auto mem = extractJsonString(e.contentJson, "membership");
+            if (mem == "join" && std::string(e.stateKey) != myUserId) {
+                if (m.dmName.empty()) m.dmName = extractJsonString(e.contentJson, "displayname");
+                if (m.dmAvatarUrl.empty()) m.dmAvatarUrl = extractJsonStringDecoded(e.contentJson, "avatar_url");
+            }
+        }
+    }
+    // Fallback from timeline events for missing fields
+    for (const auto& e : room.timeline.events) {
+        if (m.name.empty() && e.type == "m.room.name" && !e.contentJson.empty())
+            m.name = extractJsonStringDecoded(e.contentJson, "name");
+        if (m.avatarUrl.empty() && e.type == "m.room.avatar" && !e.contentJson.empty())
+            m.avatarUrl = extractJsonStringDecoded(e.contentJson, "url");
+        if (m.canonicalAlias.empty() && e.type == "m.room.canonical_alias" && !e.contentJson.empty())
+            m.canonicalAlias = extractJsonStringDecoded(e.contentJson, "alias");
+        if (m.dmName.empty() && e.type == "m.room.member" && !e.contentJson.empty()) {
+            auto mem = extractJsonString(e.contentJson, "membership");
+            if (mem == "join" && std::string(e.stateKey) != myUserId) {
+                if (m.dmName.empty()) m.dmName = extractJsonString(e.contentJson, "displayname");
+                if (m.dmAvatarUrl.empty()) m.dmAvatarUrl = extractJsonStringDecoded(e.contentJson, "avatar_url");
+            }
+        }
+    }
+    return m;
+}
+
 } // namespace
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
@@ -2106,12 +2153,23 @@ DisplayedEvent MainWindow::fastEventToDisplayed(const FastEvent& fe) {
     }
 
     if (de.type == "m.room.message") {
-        de.msgtype = extractMsgtype(de.contentJson);
-        de.body = extractBody(de.contentJson);
-        if (de.msgtype == "m.image" || de.msgtype == "m.video") {
-            de.mxcUrl = extractMxcUrl(de.contentJson);
-            de.mimetype = extractMimetype(de.contentJson);
-            if (de.mimetype == "image/gif") de.isMovie = true;
+        // Use simdjson for fast extraction (replaces string::find on de.contentJson)
+        if (!de.contentJson.empty()) {
+            simdjson::dom::parser cp;
+            auto cd = cp.parse(de.contentJson);
+            if (cd.error() == simdjson::SUCCESS) {
+                auto mt = cd.value()["msgtype"].get_string();
+                if (mt.error() == simdjson::SUCCESS) de.msgtype = std::string(mt.value());
+                auto bd = cd.value()["body"].get_string();
+                if (bd.error() == simdjson::SUCCESS) de.body = std::string(bd.value());
+                if (de.msgtype == "m.image" || de.msgtype == "m.video") {
+                    auto url = cd.value()["url"].get_string();
+                    if (url.error() == simdjson::SUCCESS) de.mxcUrl = std::string(url.value());
+                    auto mm = cd.value()["mimetype"].get_string();
+                    if (mm.error() == simdjson::SUCCESS) de.mimetype = std::string(mm.value());
+                    if (de.mimetype == "image/gif") de.isMovie = true;
+                }
+            }
         }
         // Check for m.relates_to (thread reply or regular reply)
         std::string_view cv(de.contentJson);
@@ -2172,13 +2230,20 @@ void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
         RoomData& rd = *rdPtr;
 
         std::string myUserId = client_ ? client_->account().userId : "";
-        std::string name = computeRoomName(room.stateEvents, room.timeline.events, roomId, myUserId);
-        if (!name.empty()) {
-            rd.name = name;
+        RoomMeta meta = extractRoomMeta(room, myUserId);
+        if (!meta.name.empty()) {
+            rd.name = meta.name;
+        } else if (!meta.canonicalAlias.empty()) {
+            rd.name = meta.canonicalAlias;
         } else if (existingRow < 0) {
-            rd.name = roomId;
+            // DM: use other member's displayname
+            if (!meta.dmName.empty()) rd.name = meta.dmName;
+            else rd.name = roomId;
         }
-        // else keep existing name (existingRow >= 0 && name empty)
+        // else keep existing name
+
+        rd.avatarUrl = meta.avatarUrl.empty() ? meta.dmAvatarUrl : meta.avatarUrl;
+        rd.isEncrypted = meta.isEncrypted || room.isEncrypted;
 
         auto lastMsg = extractLastMessageBody(room.timeline.events);
         if (!lastMsg.empty()) rd.lastMessage = jsonUnescape(lastMsg);
@@ -2187,43 +2252,9 @@ void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
             rd.lastActivityTs = room.timeline.events.front().originServerTs;
         rd.unreadCount = room.notificationCount;
         rd.highlightCount = room.highlightCount;
-        rd.isEncrypted = room.isEncrypted;
         rd.typingUsers.clear();
         for (auto& tu : room.typingUsers)
             rd.typingUsers.push_back(std::string(tu));
-
-        // Extract room avatar from m.room.avatar state event
-        for (const auto& e : room.stateEvents) {
-            if (e.type == "m.room.avatar" && !e.contentJson.empty()) {
-                auto av = extractJsonStringDecoded(e.contentJson, "url");
-                if (!av.empty()) { rd.avatarUrl = av; break; }
-            }
-        }
-        if (rd.avatarUrl.empty()) {
-            for (const auto& e : room.timeline.events) {
-                if (e.type == "m.room.avatar" && !e.contentJson.empty()) {
-                    auto av = extractJsonStringDecoded(e.contentJson, "url");
-                    if (!av.empty()) { rd.avatarUrl = av; break; }
-                }
-            }
-        }
-
-        // DM avatar from first other member
-        if (rd.avatarUrl.empty() && client_) {
-            for (const auto& e : room.stateEvents) {
-                if (e.type == "m.room.member" && !e.contentJson.empty()) {
-                    if (extractJsonString(e.contentJson, "membership") != "join") continue;
-                    if (std::string(e.stateKey) == myUserId) continue;
-                    auto av = extractJsonStringDecoded(e.contentJson, "avatar_url");
-                    if (!av.empty()) { rd.avatarUrl = av; }
-                    if ((rd.name.empty() || rd.name == roomId) && existingRow < 0) {
-                        auto dn = extractJsonString(e.contentJson, "displayname");
-                        if (!dn.empty()) rd.name = dn;
-                    }
-                    if (!rd.avatarUrl.empty()) break;
-                }
-            }
-        }
 
         if (existingRow >= 0) {
             emit roomModel_->dataChanged(roomModel_->index(existingRow),

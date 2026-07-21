@@ -359,6 +359,7 @@ std::string Decryptor::getOrCreateOutboundSession(const std::string& roomId) {
     s.sessionKey = sessionKey;
     s.messageIndex = 0;
     outboundSessions_[roomId] = std::move(s);
+    roomKeysShared_[roomId] = false;
     return sessionId;
 }
 
@@ -426,6 +427,16 @@ void Decryptor::dropOutboundSession(const std::string& roomId) {
         }
         outboundSessions_.erase(it);
     }
+    roomKeysShared_.erase(roomId);
+}
+
+bool Decryptor::roomKeyShared(const std::string& roomId) const {
+    auto it = roomKeysShared_.find(roomId);
+    return it != roomKeysShared_.end() && it->second;
+}
+
+void Decryptor::markRoomKeyShared(const std::string& roomId) {
+    roomKeysShared_[roomId] = true;
 }
 
 // ---- Room key sharing (full E2EE outbound) ----

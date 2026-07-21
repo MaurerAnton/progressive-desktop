@@ -120,6 +120,7 @@ public:
 private:
     std::vector<DisplayedEvent> events_;
     std::unordered_set<std::string> seenIds_;
+    std::unordered_map<std::string, int> rowIndex_;
 };
 
 } // namespace progressive::desktop

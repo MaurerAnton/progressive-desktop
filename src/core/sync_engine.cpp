@@ -28,11 +28,12 @@ void SyncEngine::start() {
 }
 
 void SyncEngine::stop() {
-    if (!running_.exchange(false)) return;
+    // Always set running_ and detach the worker thread.
+    // Can't early-return on !exchange→false because authErrCb_ already
+    // sets running_=false — if we return here, worker_ stays joinable
+    // and ~thread() calls std::terminate().
+    running_ = false;
     cv_.notify_all();
-    // Don't join — the worker may be blocked in a 10s HTTP request.
-    // Detach so it finishes on its own when running_ is checked next.
-    // The worker checks running_ after each sync cycle and exits.
     if (worker_.joinable()) worker_.detach();
 }
 

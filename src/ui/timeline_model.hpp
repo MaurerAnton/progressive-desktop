@@ -99,7 +99,8 @@ public:
 
     // Add/update a reaction on an event.
     void addReaction(const std::string& eventId, const std::string& emoji,
-                      const std::string& userId, const std::string& reactionEventId = "");
+                      const std::string& userId, const std::string& reactionEventId = "",
+                      const std::string& myUserId = "");
     void removeReaction(const std::string& eventId, const std::string& emoji, const std::string& userId);
 
     // Mark an event as pinned/unpinned.

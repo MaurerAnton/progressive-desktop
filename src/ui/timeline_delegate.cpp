@@ -2,6 +2,7 @@
 #include "timeline_delegate.hpp"
 #include "timeline_model.hpp"
 #include "image_loader.hpp"
+#include "theme.hpp"
 
 #include <QPainter>
 #include <QPainterPath>
@@ -16,9 +17,11 @@
 #include <QRegularExpression>
 #include <QPalette>
 #include <QGuiApplication>
+#include <QApplication>
 #include <QPointer>
 
 #include <progressive/markdown.hpp>
+#include <simdjson.h>
 
 namespace progressive::desktop {
 
@@ -65,7 +68,7 @@ QColor colorFromId(const QString& id) {
 static int calcTextHeight(const QString& body, const QString& msgtype, int textWidth) {
     if (body.isEmpty()) return 0;
     QTextDocument doc;
-    doc.setDefaultFont(QFont("sans-serif", 10));
+    doc.setDefaultFont(QFont(QApplication::font().family(), 10));
     if (msgtype == "m.text" || msgtype == "m.emote" || msgtype.isEmpty()) {
         std::string html = progressive::markdownToHtml(body.toStdString());
         if (html.empty()) doc.setPlainText(body);
@@ -80,8 +83,11 @@ static int calcTextHeight(const QString& body, const QString& msgtype, int textW
 static void drawRichText(QPainter* p, const QRect& r, const QString& body,
                          const QString& msgtype) {
     QTextDocument doc;
-    doc.setDefaultFont(QFont("sans-serif", 10));
-    if (msgtype == "m.text" || msgtype == "m.emote" || msgtype.isEmpty()) {
+    doc.setDefaultFont(QFont(QApplication::font().family(), 10));
+    if (msgtype == "m.notice" && body == "[Message deleted]") {
+        QString html = "<s style='color:#666;'>" + body.toHtmlEscaped() + "</s>";
+        doc.setHtml(html);
+    } else if (msgtype == "m.text" || msgtype == "m.emote" || msgtype.isEmpty()) {
         std::string html = progressive::markdownToHtml(body.toStdString());
         if (html.empty()) doc.setPlainText(body);
         else doc.setHtml(QString::fromStdString(html));
@@ -95,7 +101,7 @@ static void drawRichText(QPainter* p, const QRect& r, const QString& body,
     QAbstractTextDocumentLayout::PaintContext ctx;
     ctx.palette = QGuiApplication::palette();
     // #f0f0f0 gives 5:1+ contrast on both #2a2a3e (incoming) and #0f3460 (outgoing)
-    ctx.palette.setColor(QPalette::Text, QColor("#f0f0f0"));
+    ctx.palette.setColor(QPalette::Text, Design::textColor);
     doc.documentLayout()->draw(p, ctx);
     p->restore();
 }
@@ -150,7 +156,15 @@ void TimelineDelegate::drawBubbleAvatar(QPainter* p, int x, int y,
         p->setBrush(color);
         p->setPen(Qt::NoPen);
         p->drawEllipse(r);
-        QString letter = senderName.isEmpty() ? QString("?") : QString(senderName[0].toUpper());
+        // Safe first character (handles emoji/surrogate pairs)
+        QString letter = "?";
+        if (!senderName.isEmpty()) {
+            QChar first = senderName[0];
+            if (first.isHighSurrogate() && senderName.size() > 1)
+                letter = senderName.left(2);  // emoji pair
+            else
+                letter = QString(first.toUpper());
+        }
         QFont f = p->font();
         f.setBold(true);
         f.setPointSize(11);
@@ -203,7 +217,7 @@ void TimelineDelegate::drawBubble(QPainter* p, int x, int y, int w, int h,
 void TimelineDelegate::drawSystemRow(QPainter* p, const QRect& rect,
                                        const QModelIndex& idx,
                                        const QString& type) const {
-    p->setPen(QColor("#777"));
+    p->setPen(Design::systemTextColor);
     QFont f = p->font();
     f.setItalic(true);
     f.setPointSize(10);
@@ -214,12 +228,14 @@ void TimelineDelegate::drawSystemRow(QPainter* p, const QRect& rect,
         QString sender = idx.data(TimelineModel::SenderNameRole).toString();
         if (sender.isEmpty()) sender = shortName(idx.data(TimelineModel::SenderRole).toString());
         QString contentJson = idx.data(TimelineModel::ContentJsonRole).toString();
+        // Parse membership with simdjson
+        std::string cj = contentJson.toStdString();
         QString membership;
-        auto pos = contentJson.indexOf("\"membership\":\"");
-        if (pos >= 0) {
-            auto start = pos + 14;
-            auto end = contentJson.indexOf('"', start);
-            if (end > start) membership = contentJson.mid(start, end - start);
+        simdjson::dom::parser pj;
+        auto doc = pj.parse(cj);
+        if (doc.error() == simdjson::SUCCESS) {
+            auto ms = doc.value()["membership"].get_string();
+            if (ms.error() == simdjson::SUCCESS) membership = QString::fromUtf8(ms.value().data(), (int)ms.value().size());
         }
         QString action;
         if (membership == "join") action = "joined";
@@ -411,7 +427,7 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
     int bl = L.isLastInGroup ? r : 0;
 
     // Bubble background
-    QColor bubbleColor = isOutgoing ? QColor("#0f3460") : QColor("#2a2a3e");
+    QColor bubbleColor = isOutgoing ? Design::outgoingBubble : Design::incomingBubble;
     if (isEmote) bubbleColor = QColor(0, 0, 0, 0);
     if (bubbleColor.alpha() > 0) {
         drawBubble(p, bubbleX, bubbleY, bubbleW, L.bubbleH, bubbleColor, tl, tr, br, bl);
@@ -523,7 +539,7 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
                 curY += scaled.height() + 2;
                 if (msgtype == "m.video") {
                     p->setPen(Qt::NoPen);
-                    p->setBrush(QColor(0, 0, 0, 100));
+                    p->setBrush(QColor(255, 255, 255, 80));
                     QRect playBtn(imgRect.center().x() - 15, imgRect.center().y() - 15, 30, 30);
                     p->drawEllipse(playBtn);
                     p->setPen(Qt::white);
@@ -567,7 +583,7 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
     // Timestamp — bottom-right inside bubble
     QString timeStr = formatTime(ts);
     if (!timeStr.isEmpty()) {
-        p->setPen(QColor("#888"));
+        p->setPen(QColor("#aaa"));
         QFont f = p->font(); f.setPointSize(9); p->setFont(f);
         QFontMetrics fm(f);
         int tw = fm.horizontalAdvance(timeStr);
@@ -635,9 +651,9 @@ void TimelineDelegate::paint(QPainter* p, const QStyleOptionViewItem& opt,
     p->setRenderHint(QPainter::Antialiasing);
 
     if (opt.state & QStyle::State_Selected) {
-        p->fillRect(opt.rect, QColor(50, 80, 130));
+        p->fillRect(opt.rect, Design::rowBgDark);
     } else {
-        p->fillRect(opt.rect, QColor(20, 20, 20));
+        p->fillRect(opt.rect, Design::rowBgDark);
     }
 
     QString type = idx.data(TimelineModel::TypeRole).toString();

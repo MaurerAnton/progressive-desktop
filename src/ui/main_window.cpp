@@ -506,11 +506,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if (link == "back") closeThreadView();
     });
 
-    rightLayout->addWidget(threadBanner_);
-    connect(threadBanner_, &QLabel::linkActivated, this, [this](const QString& link) {
-        if (link == "back") closeThreadView();
-    });
-
     // Toolbar row: load more + save chat + threads
     auto* timelineToolbar = new QWidget(rightPanel);
     auto* timelineToolbarLayout = new QHBoxLayout(timelineToolbar);

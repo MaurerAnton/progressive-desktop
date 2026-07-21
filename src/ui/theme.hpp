@@ -19,7 +19,6 @@ struct Design {
 
     // Backgrounds
     static inline QColor rowBgDark  = QColor(20, 20, 20);
-    static inline QColor rowBgLight = QColor(30, 30, 30);
     static inline QColor selectedBg = QColor(50, 80, 130);
 
     // Reactions

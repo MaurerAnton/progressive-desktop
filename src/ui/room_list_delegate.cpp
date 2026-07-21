@@ -22,7 +22,7 @@ QColor RoomListDelegate::colorFromId(const QString& id) const {
     uint hash = 0;
     for (QChar c : id) hash = hash * 31 + c.unicode();
     int hue = static_cast<int>(hash % 360);
-    return QColor::fromHsl(hue, 120, 130);
+    return QColor::fromHsl(hue, 180, 140);
 }
 
 void RoomListDelegate::drawAvatar(QPainter* painter, const QRect& rect,

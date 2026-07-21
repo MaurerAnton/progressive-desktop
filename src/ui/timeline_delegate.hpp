@@ -35,8 +35,6 @@ signals:
 private:
     ImageLoader* loader_;
     QString myUserId_;
-    // Per-row cached text height for faster sizeHint
-    mutable QHash<QString, int> heightCache_;
 
     void drawBubbleAvatar(QPainter* p, int x, int y, const QModelIndex& idx,
                           const QString& senderId, const QString& senderName,

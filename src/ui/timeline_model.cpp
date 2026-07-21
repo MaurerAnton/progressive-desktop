@@ -148,24 +148,26 @@ void TimelineModel::setImage(const std::string& eventId, const QImage& img) {
 }
 
 void TimelineModel::addReaction(const std::string& eventId, const std::string& emoji,
-                                  const std::string& userId, const std::string& reactionEventId) {
+                                  const std::string& userId, const std::string& reactionEventId,
+                                  const std::string& myUserId) {
     int row = findRow(eventId);
     if (row < 0) return;
     auto& reactions = events_[row].reactions;
     for (auto& r : reactions) {
         if (r.emoji == emoji) {
-            // Deduplicate: local echo may call addReaction twice (pre + post server)
             for (const auto& u : r.userIds) {
                 if (u == userId) return;
             }
             r.count++;
             r.userIds.push_back(userId);
+            if (!myUserId.empty() && userId == myUserId) r.addedByMe = true;
             if (!reactionEventId.empty()) r.reactionEventId = reactionEventId;
             emit dataChanged(index(row), index(row), {ReactionsRole});
             return;
         }
     }
     reactions.push_back({emoji, 1, false, {userId}, reactionEventId});
+    if (!myUserId.empty() && userId == myUserId) reactions.back().addedByMe = true;
     emit dataChanged(index(row), index(row), {ReactionsRole});
 }
 

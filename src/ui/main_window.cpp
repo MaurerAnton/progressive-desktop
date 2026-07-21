@@ -1910,9 +1910,20 @@ void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
         RoomData rd;
         rd.roomId = roomId;
 
-        // Debug: log each room
-        std::fprintf(stderr, "[rooms]   processing room: %s (state=%zu, timeline=%zu)\n",
-                     roomId.c_str(), room.stateEvents.size(), room.timeline.events.size());
+        // Enhanced debug: show all state event types and content previews
+        std::fprintf(stderr, "[rooms]   room=%s state=%zu timeline=%zu encrypted=%d\n",
+                     roomId.c_str(), room.stateEvents.size(),
+                     room.timeline.events.size(), room.isEncrypted ? 1 : 0);
+        for (const auto& e : room.stateEvents) {
+            std::string_view type, content;
+            if (e.type.size() > 50) type = "<long>";
+            else type = e.type;
+            if (e.contentJson.size() > 200) content = e.contentJson.substr(0, 200);
+            else content = e.contentJson;
+            std::fprintf(stderr, "[rooms]     state type=%.*s content=%.*s...\n",
+                         (int)type.size(), type.data(),
+                         (int)content.size(), content.data());
+        }
 
         // Compute name from BOTH state and timeline events.
         // Returns empty if no name found — then we keep the old name.
@@ -2003,6 +2014,10 @@ void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
                 }
             }
         }
+
+        std::fprintf(stderr, "[rooms]     result: name='%s' avatar=%s\n",
+                     rd.name.c_str(),
+                     rd.avatarUrl.empty() ? "(none)" : rd.avatarUrl.c_str());
 
         roomModel_->upsertRoom(rd);
 

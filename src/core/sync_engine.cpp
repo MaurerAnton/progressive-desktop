@@ -69,13 +69,11 @@ void SyncEngine::run() {
         }
         if (!running_) break;
 
-        // Do one sync.
-        // Use 10s long-poll timeout.
-        // First sync after start() always uses full_state=true to load ALL
-        // rooms including their state events (names, avatars, members).
-        // Without this, rooms appear with random names and no avatars.
+        // First sync uses full_state=true — server returns ALL rooms with full
+        // state. This can take longer (10MB+ response). Use 30s timeout.
         bool fullState = isFirstSync_.exchange(false) || sinceToken_.empty();
-        auto result = client_->syncFast(sinceToken_, 10000, fullState);
+        int timeout = fullState ? 30000 : 10000;
+        auto result = client_->syncFast(sinceToken_, timeout, fullState);
 
         if (!result.ok) {
             stats_.errors++;

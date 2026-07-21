@@ -1,4 +1,4 @@
-// src/ui/chat_view.hpp — message input, sending, file attach, emoji picker.
+// src/ui/chat_view.hpp — message input, sending, file attach, emoji react.
 #pragma once
 #include <QWidget>
 #include "core/matrix_client.hpp"
@@ -6,26 +6,22 @@
 #include <functional>
 #include <string>
 
-class QTextEdit;
-
 namespace progressive::desktop {
 
 class MessageEdit;
+class SyncEngine;
 
-// ChatView encapsulates message sending logic extracted from MainWindow.
-// Handles: local echo, encrypted send, thread reply, file attach, emoji react.
 class ChatView : public QWidget {
     Q_OBJECT
 public:
     ChatView(MatrixClient* client, TimelineModel* model, MessageEdit* edit,
-             QWidget* parent = nullptr);
+             SyncEngine* sync, QWidget* parent = nullptr);
 
     void setCurrentRoom(const std::string& roomId, const std::string& threadRoot = "",
                         bool isEncrypted = false);
     void clear();
-    bool currentRoomId() const { return roomId_; }
 
-    using SendCallback = std::function<void()>;  // for UI updates after send
+    using SendCallback = std::function<void()>;
     void onSend(SendCallback cb) { sendCb_ = std::move(cb); }
 
 private:
@@ -36,6 +32,7 @@ private:
     MatrixClient* client_;
     TimelineModel* model_;
     MessageEdit* edit_;
+    SyncEngine* sync_;
     std::string roomId_;
     std::string threadRoot_;
     bool encrypted_ = false;

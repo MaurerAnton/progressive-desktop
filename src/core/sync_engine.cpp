@@ -16,13 +16,13 @@ SyncEngine::~SyncEngine() {
 
 void SyncEngine::start() {
     if (running_.exchange(true)) return;  // already running
-    isFirstSync_ = true;  // first sync will use full_state=true to load ALL rooms
 
-    // Load saved since-token if available.
+    // Load saved since-token if available (for incremental sync after first run).
     if (store_) {
         auto tok = store_->loadSyncToken();
         if (tok) sinceToken_ = *tok;
     }
+    firstRun_ = true;  // next sync uses empty since → gets current state for all rooms
 
     worker_ = std::thread([this] { run(); });
 }
@@ -69,11 +69,18 @@ void SyncEngine::run() {
         }
         if (!running_) break;
 
-        // First sync uses full_state=true — server returns ALL rooms with full
-        // state. This can take longer (10MB+ response). Use 30s timeout.
-        bool fullState = isFirstSync_.exchange(false) || sinceToken_.empty();
-        int timeout = fullState ? 30000 : 10000;
-        auto result = client_->syncFast(sinceToken_, timeout, fullState);
+        // First sync after start(): use empty since token even if we have a saved
+        // one. This tells the server "give me current state for all rooms" WITHOUT
+        // the massive overhead of full_state=true (which sends ALL historical state
+        // events). With empty since + full_state=false, the server returns one copy
+        // of each current state event — enough for room names, avatars, encryption.
+        // Subsequent syncs use the real sinceToken_ for efficient incremental sync.
+        // Timeout: 15s for initial sync (more data), 10s for incremental.
+        bool useEmptySince = firstRun_;
+        firstRun_ = false;
+        std::string since = useEmptySince ? "" : sinceToken_;
+        int timeout = useEmptySince ? 15000 : 10000;
+        auto result = client_->syncFast(since, timeout, false);
 
         if (!result.ok) {
             stats_.errors++;

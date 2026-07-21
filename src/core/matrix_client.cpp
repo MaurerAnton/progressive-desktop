@@ -566,6 +566,26 @@ ApiResult<std::string> MatrixClient::getRoomState(const std::string& roomId) {
     return r;
 }
 
+ApiResult<std::string> MatrixClient::getRoomStateEvent(const std::string& roomId,
+                                                          const std::string& eventType,
+                                                          const std::string& stateKey) {
+    ApiResult<std::string> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    std::string url = account_.homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId)
+                      + "/state/" + eventType;
+    if (!stateKey.empty()) url += "/" + stateKey;
+    auto resp = httpGet(url, authHeaders(), 10000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) { r.ok = true; r.data = resp.body; }
+    else {
+        // 404 is not an error for state events — means the state isn't set
+        if (resp.statusCode == 404) { r.ok = true; r.data = ""; }
+        else { if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+               r.error.message = resp.errorMessage.empty() ? r.error.message : resp.errorMessage; }
+    }
+    return r;
+}
+
 ApiResult<bool> MatrixClient::sendStateEvent(const std::string& roomId,
                                               const std::string& eventType,
                                               const std::string& stateKey,
@@ -857,14 +877,9 @@ MatrixClient::FastSyncResult MatrixClient::syncFast(const std::string& since,
     }
     std::ostringstream url;
     url << account_.homeserverUrl << "/_matrix/client/v3/sync"
-        << "?timeout=" << timeoutMs;
-    // full_state=true loads ALL room state (even rooms with no recent activity).
-    // Used on the first sync after start() to populate the room model completely.
-    if (fullState || since.empty()) {
-        url << "&full_state=true";
-    } else {
-        url << "&full_state=false&since=" << since;
-    }
+        << "?timeout=" << timeoutMs
+        << "&full_state=" << (fullState ? "true" : "false");
+    if (!since.empty()) url << "&since=" << since;
 
     auto resp = httpGet(url.str(), authHeaders(), timeoutMs + 10000);
     r.httpStatus = resp.statusCode;

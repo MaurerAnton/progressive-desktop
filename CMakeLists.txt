@@ -120,6 +120,15 @@ if(PROGRESSIVE_BUILD_TESTS)
     target_compile_options(test_phase3 PRIVATE
         -include "${CMAKE_CURRENT_SOURCE_DIR}/third_party/android_shim/progressive_compat.h")
     # Not registered with ctest — needs network for --record, fixture for bench
+
+    add_executable(test_phase4 tests/test_phase4.cpp)
+    add_test(NAME phase4 COMMAND test_phase4)
+
+    # GUI test: requires Qt (automatic via ENABLE_AUTOMOC)
+    add_executable(test_gui_phase4 tests/test_gui_phase4.cpp)
+    target_link_libraries(test_gui_phase4 PRIVATE Qt6::Widgets)
+    set_target_properties(test_gui_phase4 PROPERTIES AUTOMOC ON)
+    add_test(NAME gui_phase4 COMMAND test_gui_phase4)
 endif()
 
 # --- Ignore test fixtures from git ---

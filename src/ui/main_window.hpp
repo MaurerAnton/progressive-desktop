@@ -68,6 +68,7 @@ private slots:
 
 private:
     void rebuildRoomList(const FastSyncResponse& resp);
+    void batchLoadRoomStates();  // lazy-fetch missing room names/avatars after first sync
     void appendTimelineForRoom(const std::string& roomId, const std::vector<FastEvent>& events,
                                 const std::unordered_map<std::string, std::string>* memberAvatars = nullptr);
     void loadRoomHistory(const std::string& roomId);

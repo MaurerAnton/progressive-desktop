@@ -1756,20 +1756,18 @@ void MainWindow::onSync(const FastSyncResponse& resp) {
             if (room.highlightCount > 0) {
                 std::string roomId(roomIdView);
                 QString roomName = QString::fromStdString(roomId);
-                // Find the room name from the model
                 int row = roomModel_->findRowByRoomId(roomId);
                 if (row >= 0) {
                     const RoomData* rd = roomModel_->at(row);
                     if (rd) roomName = QString::fromStdString(rd->name);
                 }
-                // Find the last message body from the timeline
                 QString body = "You have " + QString::number(room.highlightCount) + " highlight(s)";
                 if (!room.timeline.events.empty()) {
                     auto lastBody = extractLastMessageBody(room.timeline.events);
                     if (!lastBody.empty()) body = QString::fromUtf8(jsonUnescape(lastBody).data(), (int)jsonUnescape(lastBody).size());
                 }
                 notifier_.notify(roomName, body);
-                break;  // only notify once per sync
+                break;
             }
         }
     }
@@ -1779,6 +1777,9 @@ void MainWindow::onSync(const FastSyncResponse& resp) {
         // Release unused heap pages back to OS
         int trimmed = trimMemory();
         std::fprintf(stderr, "[mem] malloc_trim returned %d\n", trimmed);
+        // Lazy-load room names/avatars for any rooms that didn't get state
+        // from this sync (safety net — server may not return state for all rooms).
+        batchLoadRoomStates();
     }
     firstSync = false;
 
@@ -1816,6 +1817,77 @@ void MainWindow::updateRoomListHeader() {
     } else {
         inviteHeader_->hide();
     }
+}
+
+void MainWindow::batchLoadRoomStates() {
+    if (!client_ || !client_->isLoggedIn()) return;
+
+    // Collect rooms that need state (name == roomId means no real name found).
+    // Skip rooms that clearly have a name already.
+    std::vector<std::string> roomIds;
+    for (int i = 0; i < roomModel_->rowCount(); ++i) {
+        auto* rd = roomModel_->at(i);
+        if (!rd || rd->isInvite) continue;
+        if (rd->name == rd->roomId || rd->avatarUrl.empty()) {
+            roomIds.push_back(rd->roomId);
+        }
+    }
+    if (roomIds.empty()) return;
+
+    std::fprintf(stderr, "[lazy] batch-loading state for %zu rooms\n", roomIds.size());
+
+    MatrixClient* client = client_;
+    QPointer<MainWindow> guard(this);
+    std::string myUserId = client_->account().userId;
+
+    std::thread([guard, client, roomIds = std::move(roomIds), myUserId]() {
+        for (const auto& roomId : roomIds) {
+            if (guard.isNull()) return;
+
+            // Fetch m.room.name
+            auto nameResp = client->getRoomStateEvent(roomId, "m.room.name");
+            // Fetch m.room.avatar
+            auto avatarResp = client->getRoomStateEvent(roomId, "m.room.avatar");
+
+            QMetaObject::invokeMethod(guard, [guard, roomId, nameResp, avatarResp, myUserId]() {
+                if (guard.isNull()) return;
+                int row = guard->roomModel_->findRowByRoomId(roomId);
+                if (row < 0) return;
+                auto* rd = const_cast<RoomData*>(guard->roomModel_->at(row));
+                if (!rd) return;
+
+                bool changed = false;
+
+                if (nameResp.ok && !nameResp.data.empty()) {
+                    std::string name = extractJsonStringDecoded(nameResp.data, "name");
+                    if (!name.empty() && rd->name == roomId) {
+                        rd->name = name;
+                        changed = true;
+                    }
+                }
+                if (avatarResp.ok && !avatarResp.data.empty()) {
+                    std::string avatarUrl = extractJsonStringDecoded(avatarResp.data, "url");
+                    if (!avatarUrl.empty() && rd->avatarUrl.empty()) {
+                        rd->avatarUrl = avatarUrl;
+                        changed = true;
+                    }
+                }
+
+                // If still no avatar and no name (DM room), the DM handling
+                // in rebuildRoomList (from m.room.member events received
+                // during sync) will cover this. No extra fetch needed.
+
+                if (changed) {
+                    QModelIndex idx = guard->roomModel_->index(row);
+                    emit guard->roomModel_->dataChanged(idx, idx);
+                    if (guard->currentRoomId_.toStdString() == roomId) {
+                        guard->setWindowTitle(QString("Progressive Chat — %1")
+                            .arg(QString::fromStdString(rd->name)));
+                    }
+                }
+            }, Qt::QueuedConnection);
+        }
+    }).detach();
 }
 
 DisplayedEvent MainWindow::fastEventToDisplayed(const FastEvent& fe) {

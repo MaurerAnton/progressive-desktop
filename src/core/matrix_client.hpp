@@ -160,6 +160,13 @@ public:
     // GET /_matrix/client/v3/rooms/{roomId}/state — all state events as raw JSON array.
     ApiResult<std::string> getRoomState(const std::string& roomId);
 
+    // GET /_matrix/client/v3/rooms/{roomId}/state/{eventType}/{stateKey}
+    // Fetch a single state event. stateKey defaults to "" (empty string).
+    // Returns raw JSON content of the state event (e.g. {"name":"My Room"}).
+    ApiResult<std::string> getRoomStateEvent(const std::string& roomId,
+                                               const std::string& eventType,
+                                               const std::string& stateKey = "");
+
     // PUT /_matrix/client/v3/rooms/{roomId}/state/{eventType}/{stateKey}
     ApiResult<bool> sendStateEvent(const std::string& roomId,
                                     const std::string& eventType,

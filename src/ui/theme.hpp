@@ -14,7 +14,7 @@ struct Design {
     static inline QColor incomingBubble  = QColor("#2a2a3e");
     static inline QColor outgoingBubble  = QColor("#0f3460");
     static inline QColor textColor       = QColor("#f0f0f0");
-    static inline QColor timeColor       = QColor("#888");
+    static inline QColor timeColor       = QColor("#aaa");
     static inline QColor systemTextColor = QColor("#777");
 
     // Backgrounds
@@ -22,8 +22,9 @@ struct Design {
     static inline QColor selectedBg = QColor(50, 80, 130);
 
     // Reactions
-    static inline QColor reactionBg    = QColor("#2a2a2a");
-    static inline QColor reactionBorder = QColor("#3a3a3a");
+    static inline QColor reactionBg      = QColor("#2a2a2a");
+    static inline QColor reactionBorder   = QColor("#3a3a3a");
+    static inline QColor linkOnOutgoing   = QColor("#6bb4ff");
 
     // Avatar
     static constexpr int avatarSize    = 36;

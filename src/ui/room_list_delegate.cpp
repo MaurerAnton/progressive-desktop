@@ -1,6 +1,7 @@
 // src/ui/room_list_delegate.cpp — paints room list with avatars.
 #include "room_list_delegate.hpp"
 #include "image_loader.hpp"
+#include "theme.hpp"
 
 #include <QPainter>
 #include <QPainterPath>
@@ -46,7 +47,14 @@ void RoomListDelegate::drawAvatar(QPainter* painter, const QRect& rect,
     painter->setBrush(color);
     painter->setPen(Qt::NoPen);
     painter->drawEllipse(rect);
-    QString letter = name.isEmpty() ? "?" : QString(name[0].toUpper());
+    QString letter = "?";
+    if (!name.isEmpty()) {
+        QChar first = name[0];
+        if (first.isHighSurrogate() && name.size() > 1)
+            letter = name.left(2);
+        else
+            letter = QString(first.toUpper());
+    }
     QFont font = painter->font();
     font.setBold(true);
     font.setPointSize(12);
@@ -58,14 +66,14 @@ void RoomListDelegate::drawAvatar(QPainter* painter, const QRect& rect,
 void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& option,
                                 const QModelIndex& index) const {
     painter->save();
+    painter->setRenderHint(QPainter::Antialiasing);
     bool isInvite = index.data(RoomListModel::IsInviteRole).toBool();
-    // Background — invites get an amber tint to stand out
     if (option.state & QStyle::State_Selected) {
-        painter->fillRect(option.rect, QColor(50, 80, 130));
+        painter->fillRect(option.rect, Design::selectedBg);
     } else if (isInvite) {
         painter->fillRect(option.rect, QColor(40, 30, 20));
     } else {
-        painter->fillRect(option.rect, QColor(20, 20, 20));
+        painter->fillRect(option.rect, QColor(0x1e, 0x1e, 0x1e));
     }
 
     QString name = index.data(RoomListModel::NameRole).toString();
@@ -120,7 +128,7 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
 
     // Text area (right of avatar)
     int textX = avatarRect.right() + padding;
-    int textWidth = option.rect.width() - textX - padding - 30;
+    int textWidth = option.rect.width() - textX - padding - 60;
     QRect nameRect(textX, option.rect.y() + 6, textWidth, 20);
     QRect msgRect(textX, option.rect.y() + 26, textWidth, 20);
 
@@ -159,21 +167,31 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         btnFont.setPointSize(11);
         btnFont.setBold(true);
         painter->setFont(btnFont);
-        int btnY = option.rect.y() + (option.rect.height() - 22) / 2;
-        // Accept (green circle)
-        QRect acceptRect(option.rect.right() - 52, btnY, 22, 22);
+        int btnY = option.rect.y() + (option.rect.height() - 28) / 2;
+        QRect acceptRect(option.rect.right() - 62, btnY, 28, 28);
         painter->setBrush(QColor("#2d6a2d"));
         painter->setPen(Qt::NoPen);
-        painter->drawRoundedRect(acceptRect, 4, 4);
+        painter->drawRoundedRect(acceptRect, 5, 5);
         painter->setPen(QColor("#6c6"));
         painter->drawText(acceptRect, Qt::AlignCenter, "✓");
-        // Reject (red circle)
-        QRect rejectRect(option.rect.right() - 26, btnY, 22, 22);
+        QRect rejectRect(option.rect.right() - 30, btnY, 28, 28);
         painter->setBrush(QColor("#6a2d2d"));
         painter->setPen(Qt::NoPen);
         painter->drawRoundedRect(rejectRect, 4, 4);
         painter->setPen(QColor("#f66"));
         painter->drawText(rejectRect, Qt::AlignCenter, "✗");
+    } else if (hasTyping && !typingUsers.isEmpty()) {
+        painter->setPen(QColor("#6c6"));
+        QString first = typingUsers.first();
+        if (!first.isEmpty() && first[0] == '@') {
+            auto c = first.indexOf(':');
+            if (c > 1) first = first.mid(1, c - 1); else first = first.mid(1);
+        }
+        QString hint = typingUsers.size() == 1 ? (first + " is typing...")
+                     : (first + " and " + QString::number(typingUsers.size()-1) + " others are typing...");
+        painter->setFont(msgFont);
+        painter->drawText(msgRect, Qt::AlignLeft | Qt::AlignVCenter,
+                          QFontMetrics(msgFont).elidedText(hint, Qt::ElideRight, textWidth));
     } else {
         painter->setPen(QColor("#969696"));
         painter->drawText(msgRect, Qt::AlignLeft | Qt::AlignVCenter,
@@ -210,9 +228,9 @@ bool RoomListDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
     bool isInvite = index.data(RoomListModel::IsInviteRole).toBool();
     if (!isInvite) return false;
 
-    int btnY = option.rect.y() + (option.rect.height() - 22) / 2;
-    QRect acceptRect(option.rect.right() - 52, btnY, 22, 22);
-    QRect rejectRect(option.rect.right() - 26, btnY, 22, 22);
+    int btnY = option.rect.y() + (option.rect.height() - 28) / 2;
+    QRect acceptRect(option.rect.right() - 62, btnY, 28, 28);
+    QRect rejectRect(option.rect.right() - 30, btnY, 28, 28);
 
     if (acceptRect.contains(me->pos())) {
         emit inviteAccepted(index.data(RoomListModel::RoomIdRole).toString());

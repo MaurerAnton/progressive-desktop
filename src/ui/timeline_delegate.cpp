@@ -267,6 +267,7 @@ struct BubbleLayout {
     int imageH      = 0;
     int pinnedH     = 0;
     int threadReplyH = 0;
+    int replyH      = 0;
     int threadCountH = 0;
     int reactionH   = 0;
     int bubbleH     = 0;
@@ -278,6 +279,7 @@ struct BubbleLayout {
         int h = nameH + PAD_TOP;
         if (pinnedH)     h += pinnedH;
         if (threadReplyH) h += threadReplyH;
+        if (replyH)       h += replyH;
         if (textH > 0)   h += textH + 4;
         if (imageH > 0)  h += imageH + 4;
         h += PAD_BOTTOM + TIME_ROW_H;
@@ -301,6 +303,8 @@ static BubbleLayout computeLayout(const QModelIndex& idx,
     int threadCount = idx.data(TimelineModel::ThreadCountRole).toInt();
     bool isThreadReply = idx.data(TimelineModel::IsThreadReplyRole).toBool();
     bool pinned = idx.data(TimelineModel::IsPinnedRole).toBool();
+    bool isReply = idx.data(TimelineModel::IsReplyRole).toBool();
+    QString replyTo = idx.data(TimelineModel::ReplyToRole).toString();
     bool isOutgoing = !myUserId.isEmpty() && senderId == myUserId;
     bool isEmote = (msgtype == "m.emote");
     bool hasImage = (msgtype == "m.image" || msgtype == "m.video") && !mxcUrl.isEmpty();
@@ -334,6 +338,7 @@ static BubbleLayout computeLayout(const QModelIndex& idx,
 
     if (pinned)           L.pinnedH     = 14;
     if (isThreadReply)     L.threadReplyH = 14;
+    if (isReply && !replyTo.isEmpty()) L.replyH = 14;
     if (threadCount > 0)  L.threadCountH = 16;
 
     // Reactions inside bubble — add height
@@ -468,7 +473,7 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
         QString emoteText = "* " + senderName + " " + body;
         p->setPen(QColor("#c0c0c0"));
         QFont f = p->font(); f.setItalic(true); f.setPointSize(10); p->setFont(f);
-        QRect emoteRect(bubbleX + PAD, bubbleY + 6, textW, L.textH + 20);
+        QRect emoteRect(bubbleX + PAD, bubbleY + 6, textW, L.textH + 14);
         p->drawText(emoteRect, Qt::AlignLeft | Qt::TextWordWrap, emoteText);
     } else if (!body.isEmpty()) {
         int textBottom = bubbleY + L.bubbleH - 18;
@@ -566,7 +571,7 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
     // Timestamp — bottom-right inside bubble
     QString timeStr = formatTime(ts);
     if (!timeStr.isEmpty()) {
-        p->setPen(QColor("#aaa"));
+        p->setPen(Design::timeColor);
         QFont f = p->font(); f.setPointSize(9); p->setFont(f);
         QFontMetrics fm(f);
         int tw = fm.horizontalAdvance(timeStr);
@@ -606,8 +611,8 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
                         QString more = "+" + QString::number(left);
                         int mw = fm.horizontalAdvance(more) + 16;
                         QRect pr(rx, ry, mw, 20);
-                        p->setPen(QColor("#3a3a3a"));
-                        p->setBrush(QColor("#2a2a2a"));
+                        p->setPen(Design::reactionBorder);
+                        p->setBrush(Design::reactionBg);
                         p->drawRoundedRect(pr, 8, 8);
                         p->setPen(QColor("#e8e8e8"));
                         p->drawText(pr, Qt::AlignCenter, more);
@@ -634,9 +639,10 @@ void TimelineDelegate::paint(QPainter* p, const QStyleOptionViewItem& opt,
     p->setRenderHint(QPainter::Antialiasing);
 
     if (opt.state & QStyle::State_Selected) {
-        p->fillRect(opt.rect, Design::rowBgDark);
+        p->fillRect(opt.rect, Design::selectedBg);
     } else {
-        p->fillRect(opt.rect, Design::rowBgDark);
+        // Match QListView background (theme.cpp sets #1e1e1e)
+        p->fillRect(opt.rect, QColor(0x1e, 0x1e, 0x1e));
     }
 
     QString type = idx.data(TimelineModel::TypeRole).toString();
@@ -662,91 +668,112 @@ QSize TimelineDelegate::sizeHint(const QStyleOptionViewItem& opt,
 
     BubbleLayout L = computeLayout(idx, myUserId_, bubbleW);
 
-    int totalH = (L.isFirstInGroup ? 4 : SAME_SENDER_GAP) + L.bubbleH + 2;
+    int totalH = (L.isFirstInGroup ? 4 : SAME_SENDER_GAP) + L.bubbleH
+                 + (L.isLastInGroup && L.reactionH ? L.reactionH : 0) + 2;
     return QSize(width, qMax(totalH, AVATAR + 8));
 }
 
 bool TimelineDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
                                      const QStyleOptionViewItem& option,
                                      const QModelIndex& index) {
-    if (event->type() == QEvent::MouseButtonRelease) {
-        auto* me = static_cast<QMouseEvent*>(event);
-        QString eventId = index.data(TimelineModel::EventIdRole).toString();
-        QString mxcUrl = index.data(TimelineModel::MxcUrlRole).toString();
-        QString msgtype = index.data(TimelineModel::MsgTypeRole).toString();
-        QString body = index.data(TimelineModel::BodyRole).toString();
-        bool isReply = index.data(TimelineModel::IsReplyRole).toBool();
-        QString replyTo = index.data(TimelineModel::ReplyToRole).toString();
+    if (event->type() != QEvent::MouseButtonRelease)
+        return QStyledItemDelegate::editorEvent(event, model, option, index);
 
-        // Compute bubble position for hit zones
-        int avail = option.rect.width() - AVATAR - GAP - MARGIN * 2;
-        int bubbleW = qMin(MAX_BUBBLE_W, avail);
-        QString senderId = index.data(TimelineModel::SenderRole).toString();
-        bool isOutgoing = !myUserId_.isEmpty() && senderId == myUserId_;
-        int bubbleX = isOutgoing ? (option.rect.right() - MARGIN - AVATAR - GAP - bubbleW)
-                                  : (option.rect.x() + MARGIN + AVATAR + GAP);
+    auto* me = static_cast<QMouseEvent*>(event);
+    QString eventId = index.data(TimelineModel::EventIdRole).toString();
+    QString mxcUrl = index.data(TimelineModel::MxcUrlRole).toString();
+    QString msgtype = index.data(TimelineModel::MsgTypeRole).toString();
+    QString body = index.data(TimelineModel::BodyRole).toString();
+    QString type = index.data(TimelineModel::TypeRole).toString();
+    if (type == "m.room.member" || type == "m.room.redaction") return false;
 
-        // Reaction zone: bottom of bubble
-        auto rxns = index.data(TimelineModel::ReactionsRole).value<QStringList>();
-        if (!rxns.isEmpty()) {
-            int ry = option.rect.y() + option.rect.height() - 24;
-            QRect reactionZone(bubbleX, ry, bubbleW, 22);
-            if (reactionZone.contains(me->pos())) {
-                // Show first reaction emoji as tooltip
-                QString tip;
-                for (const QString& r : rxns) tip += r + " ";
-                emit reactionClicked(eventId, rxns.first());
+    // Use the same layout as paint/sizeHint for accurate hit zones
+    int width = option.rect.width();
+    int bubbleW = qMin(MAX_BUBBLE_W, width - AVATAR - GAP - MARGIN * 2);
+    BubbleLayout L = computeLayout(index, myUserId_, bubbleW);
+    QString senderId = index.data(TimelineModel::SenderRole).toString();
+    bool isOutgoing = !myUserId_.isEmpty() && senderId == myUserId_;
+    int bubbleX = isOutgoing ? (option.rect.right() - MARGIN - AVATAR - GAP - bubbleW)
+                              : (option.rect.x() + MARGIN + AVATAR + GAP);
+    int topY = option.rect.y() + (L.isFirstInGroup ? 4 : SAME_SENDER_GAP);
+    int bubbleY = topY + L.nameH;
+
+    // Reaction zone — iterate per-pill using same logic as paint
+    auto rxns = index.data(TimelineModel::ReactionsRole).value<QStringList>();
+    if (!rxns.isEmpty()) {
+        int baseY = L.isLastInGroup ? (bubbleY + L.bubbleH + 2)
+                                     : (bubbleY + L.bubbleH - PAD_BOTTOM - TIME_ROW_H - L.reactionH);
+        int rx = bubbleX + PAD, ry = baseY;
+        QFont pillFont; pillFont.setPointSize(9);
+        QFontMetrics fm(pillFont);
+        int maxX = bubbleX + bubbleW - PAD;
+        int shown = 0, rowNum = 0;
+        for (int i = 0; i < rxns.size(); ++i) {
+            int pw = fm.horizontalAdvance(rxns[i]) + 16;
+            if (rx + pw > maxX && shown > 0) { rx = bubbleX + PAD; ry += 20; rowNum++; shown = 0; if (rowNum >= 2) break; }
+            if (rx + pw > maxX && shown == 0) pw = maxX - rx;
+            QRect pr(rx, ry, pw, 20);
+            if (pr.contains(me->pos())) {
+                emit reactionClicked(eventId, rxns[i]);
                 return true;
             }
+            rx += pw + 3; shown++;
         }
-
-        // Reply preview zone — click to scroll to original
-        if (isReply && !replyTo.isEmpty()) {
-            auto* tm = static_cast<const TimelineModel*>(model);
-            int origRow = tm->findRow(replyTo.toStdString());
-            if (origRow >= 0) {
-                QRect replyZone(bubbleX + PAD, option.rect.y() + 32, bubbleW - PAD*2, 16);
-                if (replyZone.contains(me->pos())) {
-                    emit messageClicked(replyTo);  // signal to scroll to original
-                    return true;
-                }
-            }
-        }
-
-        // Image zone
-        if ((msgtype == "m.image" || msgtype == "m.video") && !mxcUrl.isEmpty()) {
-            // Image is drawn inside bubble — check if click is in lower half
-            if (me->pos().y() > option.rect.y() + 60) {
-                emit imageClicked(eventId, mxcUrl);
-                return true;
-            }
-        }
-
-        // Markdown link check
-        if (msgtype == "m.text" || msgtype.isEmpty()) {
-            QTextDocument doc;
-            doc.setDefaultFont(QFont(QApplication::font().family(), 10));
-            std::string html = progressive::markdownToHtml(body.toStdString());
-            doc.setHtml(html.empty() ? body.toHtmlEscaped() : QString::fromStdString(html));
-            doc.setTextWidth(bubbleW - PAD * 2);
-            QPointF docPos(me->pos().x() - bubbleX - PAD, me->pos().y() - option.rect.y() - 40);
-            QString anchor = doc.documentLayout()->anchorAt(docPos);
-            if (!anchor.isEmpty()) {
-                if (anchor.startsWith("https://") || anchor.startsWith("http://")) {
-                    emit linkClicked(anchor);
-                    return true;
-                }
-                if (anchor.startsWith("matrix.to")) {
-                    emit linkClicked("https://" + anchor);
-                    return true;
-                }
-            }
-        }
-
-        emit messageClicked(eventId);
-        return true;
     }
-    return QStyledItemDelegate::editorEvent(event, model, option, index);
+
+    // Reply zone
+    bool isReply = index.data(TimelineModel::IsReplyRole).toBool();
+    if (isReply && L.replyH > 0) {
+        int replyY = bubbleY + PAD_TOP;
+        if (L.pinnedH) replyY += 14;
+        if (L.threadReplyH) replyY += 14;
+        QRect replyZone(bubbleX + PAD, replyY, bubbleW - PAD*2, 14);
+        if (replyZone.contains(me->pos())) {
+            emit messageClicked(index.data(TimelineModel::ReplyToRole).toString());
+            return true;
+        }
+    }
+
+    // Image zone
+    if ((msgtype == "m.image" || msgtype == "m.video") && !mxcUrl.isEmpty() && L.imageH > 0) {
+        int imgY = bubbleY + PAD_TOP;
+        if (L.pinnedH) imgY += 14;
+        if (L.threadReplyH) imgY += 14;
+        if (L.replyH) imgY += 14;
+        if (L.textH > 0) imgY += L.textH + 4;
+        QRect imgZone(bubbleX + PAD, imgY, qMin(bubbleW - PAD*2, 300), L.imageH);
+        if (imgZone.contains(me->pos())) {
+            emit imageClicked(eventId, mxcUrl);
+            return true;
+        }
+    }
+
+    // Link zone — use body text area
+    if (msgtype == "m.text" || msgtype.isEmpty()) {
+        QTextDocument doc;
+        doc.setDefaultFont(QFont(QApplication::font().family(), 10));
+        std::string html = progressive::markdownToHtml(body.toStdString());
+        doc.setHtml(html.empty() ? body.toHtmlEscaped() : QString::fromStdString(html));
+        doc.setTextWidth(bubbleW - PAD * 2);
+        int textY = bubbleY + PAD_TOP;
+        if (L.pinnedH) textY += 14;
+        if (L.threadReplyH) textY += 14;
+        if (L.replyH) textY += 14;
+        QPointF docPos(me->pos().x() - bubbleX - PAD, me->pos().y() - textY);
+        QString anchor = doc.documentLayout()->anchorAt(docPos);
+        if (!anchor.isEmpty() && (anchor.startsWith("https://") || anchor.startsWith("http://"))) {
+            emit linkClicked(anchor);
+            return true;
+        }
+        if (!anchor.isEmpty() && anchor.startsWith("matrix.to")) {
+            emit linkClicked("https://" + anchor);
+            return true;
+        }
+    }
+
+    // Select the row
+    emit messageClicked(eventId);
+    return true;
 }
 
 QColor TimelineDelegate::avatarColor(const QString& userId) const {

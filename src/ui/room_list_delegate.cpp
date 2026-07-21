@@ -73,6 +73,9 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     QString avatarUrl = index.data(RoomListModel::AvatarUrlRole).toString();
     int unread = index.data(RoomListModel::UnreadRole).toInt();
     bool isEncrypted = index.data(RoomListModel::IsEncryptedRole).toBool();
+    auto typingVar = index.data(RoomListModel::TypingUsersRole);
+    QStringList typingUsers = typingVar.value<QStringList>();
+    bool hasTyping = !typingUsers.isEmpty();
 
     int padding = 8;
     int avatarSize = 36;
@@ -89,7 +92,22 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
             if (avatarImg.isNull()) {
                 std::fprintf(stderr, "[avatar] cached but null for %s\n", roomId.toUtf8().data());
             }
-        } else {
+    } else if (hasTyping && !typingUsers.isEmpty()) {
+        painter->setPen(QColor("#6c6"));
+        // Show first typing user name + "..."
+        QString firstName = typingUsers.first();
+        if (!firstName.isEmpty() && firstName[0] == '@') {
+            auto colon = firstName.indexOf(':');
+            if (colon > 1) firstName = firstName.mid(1, colon - 1);
+            else firstName = firstName.mid(1);
+        }
+        int count = typingUsers.size();
+        QString hint = (count == 1) ? (firstName + " is typing...")
+                     : (count == 2) ? (firstName + " and 1 other are typing...")
+                     : (firstName + " and " + QString::number(count - 1) + " others are typing...");
+        painter->drawText(msgRect, Qt::AlignLeft | Qt::AlignVCenter,
+                          QFontMetrics(msgFont).elidedText(hint, Qt::ElideRight, textWidth));
+    } else {
             // Trigger async load — the callback will update the model via
             // dataChanged, causing a repaint.
             QString roomIdCopy = roomId;

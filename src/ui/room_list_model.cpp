@@ -33,6 +33,13 @@ QVariant RoomListModel::data(const QModelIndex& index, int role) const {
         case AvatarUrlRole:    return QString::fromStdString(r.avatarUrl);
         case IsInviteRole:     return r.isInvite;
         case InviterRole:      return QString::fromStdString(r.inviterId);
+        case TypingUsersRole: {
+            QStringList names;
+            for (const auto& u : r.typingUsers) {
+                names << QString::fromStdString(u);
+            }
+            return names;
+        }
         case Qt::ToolTipRole:
             return QString("%1\n%2\nunread: %3")
                 .arg(QString::fromStdString(r.name))

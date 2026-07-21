@@ -351,6 +351,8 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
     int threadCount = idx.data(TimelineModel::ThreadCountRole).toInt();
     int64_t ts = idx.data(TimelineModel::TimeRole).toLongLong();
     bool pinned = idx.data(TimelineModel::IsPinnedRole).toBool();
+    bool isReply = idx.data(TimelineModel::IsReplyRole).toBool();
+    QString replyToEventId = idx.data(TimelineModel::ReplyToRole).toString();
     bool isOutgoing = !myUserId_.isEmpty() && senderId == myUserId_;
     bool isEmote = (msgtype == "m.emote");
     bool hasImage = (msgtype == "m.image" || msgtype == "m.video") && !mxcUrl.isEmpty();
@@ -416,12 +418,38 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
         curY += 14;
     }
 
-    // Thread reply
+    // Thread reply indicator
     if (isThreadReply) {
         p->setPen(QColor("#6699cc"));
         QFont f = p->font(); f.setPointSize(9); p->setFont(f);
         p->drawText(textX, curY, textW, 14, Qt::AlignLeft, "🧵 thread reply");
         curY += 14;
+    }
+
+    // Reply preview — show small snippet of the original message
+    if (isReply && !replyToEventId.isEmpty()) {
+        const auto* model = static_cast<const TimelineModel*>(idx.model());
+        int origRow = model->findRow(replyToEventId.toStdString());
+        if (origRow >= 0) {
+            auto* orig = model->at(origRow);
+            if (orig) {
+                QString preview = QString::fromStdString(orig->body).left(60);
+                if (preview.isEmpty()) preview = "...";
+                p->setPen(QColor("#888"));
+                QFont f = p->font(); f.setPointSize(9); p->setFont(f);
+                // Left border line
+                p->setPen(QColor("#555"));
+                p->drawLine(textX + 2, curY + 2, textX + 2, curY + 14);
+                p->setPen(QColor("#888"));
+                p->drawText(textX + 8, curY + 2, textW - 8, 14, Qt::AlignLeft, orig->senderName + ": " + preview);
+                curY += 14;
+            }
+        } else {
+            p->setPen(QColor("#888"));
+            QFont f = p->font(); f.setPointSize(9); p->setFont(f);
+            p->drawText(textX, curY, textW, 14, Qt::AlignLeft, "↩ replied");
+            curY += 14;
+        }
     }
 
     // Body text — fills available space from curY to 18px above bubble bottom

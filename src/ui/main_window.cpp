@@ -338,6 +338,32 @@ std::string extractMsgtype(std::string_view contentJson) {
     return extractJsonStringDecoded(contentJson, "msgtype");
 }
 
+// Extract reply-to event_id from m.in_reply_to relation
+std::string extractReplyToId(std::string_view contentJson) {
+    auto relPos = contentJson.find("\"m.in_reply_to\"");
+    if (relPos == std::string_view::npos) return {};
+    auto objStart = contentJson.find('{', relPos);
+    if (objStart == std::string_view::npos) return {};
+    int depth = 0;
+    size_t objEnd = objStart;
+    for (; objEnd < contentJson.size(); ++objEnd) {
+        if (contentJson[objEnd] == '{') depth++;
+        else if (contentJson[objEnd] == '}') { depth--; if (depth == 0) { objEnd++; break; } }
+    }
+    std::string_view obj = contentJson.substr(objStart, objEnd - objStart);
+    auto eidPos = obj.find("\"event_id\":\"");
+    if (eidPos == std::string_view::npos) {
+        eidPos = obj.find("\"event_id\": \"");
+        if (eidPos == std::string_view::npos) return {};
+        eidPos += 13;
+    } else {
+        eidPos += 12;
+    }
+    auto eidEnd = obj.find('"', eidPos);
+    if (eidEnd == std::string_view::npos) return {};
+    return std::string(obj.substr(eidPos, eidEnd - eidPos));
+}
+
 } // namespace
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
@@ -819,6 +845,22 @@ void MainWindow::onRoomClicked(const QModelIndex& idx) {
     messageEdit_->setFocus();
     setWindowTitle(QString("Progressive Chat — %1").arg(QString::fromStdString(r->name)));
 
+    // Read marker: mark room as read up to the latest known event
+    if (client_ && client_->isLoggedIn()) {
+        int lastRow = timelineModel_->rowCount(QModelIndex()) - 1;
+        if (lastRow >= 0) {
+            auto* evt = timelineModel_->at(lastRow);
+            if (evt && !evt->eventId.empty()) {
+                std::string roomIdStr = r->roomId;
+                std::string eventIdStr = evt->eventId;
+                MatrixClient* client = client_;
+                std::thread([client, roomIdStr, eventIdStr]() {
+                    client->setReadMarker(roomIdStr, eventIdStr);
+                }).detach();
+            }
+        }
+    }
+
     // Pre-load member avatars from room state for better timeline display
     loadMemberAvatarsForRoom(r->roomId);
 
@@ -958,6 +1000,11 @@ void MainWindow::loadRoomHistory(const std::string& roomId) {
                                 de.threadRootId = extractThreadRootId(cv);
                             }
                         }
+                    }
+                    auto replyTo = extractReplyToId(cv);
+                    if (!replyTo.empty()) {
+                        de.isReply = true;
+                        de.replyToEventId = replyTo;
                     }
                 }
 
@@ -2059,6 +2106,11 @@ void MainWindow::onLoadMoreClicked() {
                         de.isThreadReply = true;
                         de.threadRootId = threadRoot;
                     }
+                    std::string replyTo = extractReplyToId(cv);
+                    if (!replyTo.empty()) {
+                        de.isReply = true;
+                        de.replyToEventId = replyTo;
+                    }
                 }
                 // Set avatars from cache
                 auto it = guard->memberAvatarCache_.find(de.senderId);
@@ -2430,6 +2482,9 @@ void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
         rd.unreadCount = room.notificationCount;
         rd.highlightCount = room.highlightCount;
         rd.isEncrypted = room.isEncrypted;
+        rd.typingUsers.clear();
+        for (auto& tu : room.typingUsers)
+            rd.typingUsers.push_back(std::string(tu));
 
         // Extract room avatar from m.room.avatar state event
         for (const auto& e : room.stateEvents) {

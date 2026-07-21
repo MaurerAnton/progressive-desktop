@@ -110,40 +110,27 @@ FastRoom buildFastRoom(simdjson::dom::element room,
         r.highlightCount   = static_cast<int>(getIntOrZero(unread, "highlight_count"));
     }
 
+    // Ephemeral: m.typing
+    auto ephemeralResult = room["ephemeral"]["events"].get_array();
+    if (ephemeralResult.error() == simdjson::SUCCESS) {
+        for (auto eph : ephemeralResult.value()) {
+            auto type = eph["type"].get_string();
+            if (type.error() != simdjson::SUCCESS) continue;
+            if (type.value() != "m.typing") continue;
+            auto users = eph["content"]["user_ids"].get_array();
+            if (users.error() != simdjson::SUCCESS) continue;
+            for (auto u : users.value()) {
+                auto uid = u.get_string();
+                if (uid.error() == simdjson::SUCCESS)
+                    r.typingUsers.push_back(uid.value());
+            }
+        }
+    }
+
     return r;
 }
 
 } // namespace
-
-std::string_view FastRoom::name() const {
-    for (const auto& e : stateEvents) {
-        if (e.type == "m.room.name" && !e.contentJson.empty()) {
-            // Inline parse — look for "name":"..." in the content JSON.
-            // The content is small (~50 bytes) so even a string scan is fast.
-            // Using simdjson here would require a parser — too heavy for inline.
-            std::string_view key = "\"name\":\"";
-            auto pos = e.contentJson.find(key);
-            if (pos != std::string_view::npos) {
-                pos += key.size();
-                auto end = e.contentJson.find('"', pos);
-                if (end != std::string_view::npos) {
-                    return e.contentJson.substr(pos, end - pos);
-                }
-            }
-            // Try with space: "name": "..."
-            key = "\"name\": \"";
-            pos = e.contentJson.find(key);
-            if (pos != std::string_view::npos) {
-                pos += key.size();
-                auto end = e.contentJson.find('"', pos);
-                if (end != std::string_view::npos) {
-                    return e.contentJson.substr(pos, end - pos);
-                }
-            }
-        }
-    }
-    return {};
-}
 
 FastSyncResponse parseSyncResponseFast(std::string json, std::string& errorMessage) {
     FastSyncResponse resp;
@@ -186,7 +173,7 @@ FastSyncResponse parseSyncResponseFast(std::string json, std::string& errorMessa
             for (auto field : inviteResult.value()) {
                 InvitedRoom inv;
                 inv.roomId = field.key;
-                auto inviteData = field.value();
+                simdjson::dom::element inviteData = field;  // convert key_value_pair to element
                 // Parse invite_state.events for inviter, room name, avatar, encryption
                 auto stateEvents = inviteData["invite_state"]["events"].get_array();
                 if (stateEvents.error() == simdjson::SUCCESS) {

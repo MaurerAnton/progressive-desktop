@@ -51,14 +51,12 @@ struct FastRoomTimeline {
 };
 
 struct FastRoom {
-    std::vector<FastEvent> stateEvents;     // "state.events" — for room name, encryption, etc.
-    FastRoomTimeline timeline;              // "timeline.events"
-    int notificationCount = 0;              // "unread_notifications.notification_count"
-    int highlightCount = 0;                 // "unread_notifications.highlight_count"
-    bool isEncrypted = false;               // has m.room.encryption in state
-
-    // Convenience: try to extract room name from state events.
-    std::string_view name() const;
+    std::vector<FastEvent> stateEvents;
+    FastRoomTimeline timeline;
+    int notificationCount = 0;
+    int highlightCount = 0;
+    bool isEncrypted = false;
+    std::vector<std::string_view> typingUsers;  // ephemeral m.typing
 };
 
 struct InvitedRoom {

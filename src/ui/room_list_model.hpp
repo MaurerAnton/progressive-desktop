@@ -24,10 +24,11 @@ struct RoomData {
     bool isDirect = false;
     bool isEncrypted = false;
     bool isSpace = false;
-    bool isInvite = false;           // true if this room is an invite (not joined yet)
-    std::string inviterId;           // for invites: who invited us
-    std::string avatarUrl;           // mxc:// URL for room avatar
-    std::string parentId;            // parent space ID (empty if none)
+    bool isInvite = false;
+    std::string inviterId;
+    std::string avatarUrl;
+    std::string parentId;
+    std::vector<std::string> typingUsers;  // users currently typing
 };
 
 class RoomListModel : public QAbstractListModel {
@@ -62,6 +63,7 @@ public:
         AvatarUrlRole,
         IsInviteRole,
         InviterRole,
+        TypingUsersRole,
     };
 
 private:

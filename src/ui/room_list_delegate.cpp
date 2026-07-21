@@ -50,7 +50,7 @@ void RoomListDelegate::drawAvatar(QPainter* painter, const QRect& rect,
     }
     QFont font = painter->font();
     font.setBold(true);
-    font.setPointSize(12);
+    font.setPointSize(qMax(1, (int)(12 * Design::fontScale)));
     painter->setFont(font);
     painter->setPen(Qt::white);
     painter->drawText(rect, Qt::AlignCenter, letter);
@@ -128,7 +128,7 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     // Name
     QFont nameFont = painter->font();
     nameFont.setBold(true);
-    nameFont.setPointSize(10);
+    nameFont.setPointSize(qMax(1, (int)(10 * Design::fontScale)));
     painter->setFont(nameFont);
     painter->setPen(QColor("#e8e8e8"));
     QString displayName = name;
@@ -140,7 +140,7 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     // Last message / invite hint
     QFont msgFont = painter->font();
     msgFont.setBold(false);
-    msgFont.setPointSize(9);
+    msgFont.setPointSize(qMax(1, (int)(9 * Design::fontScale)));
     painter->setFont(msgFont);
     if (isInvite) {
         painter->setPen(Design::inviteTextColor);
@@ -157,7 +157,7 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
                           QFontMetrics(msgFont).elidedText(hint, Qt::ElideRight, textWidth - 60));
         // Draw small [✓] [✗] buttons on the right
         QFont btnFont = painter->font();
-        btnFont.setPointSize(11);
+        btnFont.setPointSize(qMax(1, (int)(11 * Design::fontScale)));
         btnFont.setBold(true);
         painter->setFont(btnFont);
         int btnY = option.rect.y() + (option.rect.height() - 28) / 2;
@@ -199,7 +199,7 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         painter->drawEllipse(badgeRect);
         QFont badgeFont = painter->font();
         badgeFont.setBold(true);
-        badgeFont.setPointSize(8);
+        badgeFont.setPointSize(qMax(1, (int)(8 * Design::fontScale)));
         painter->setFont(badgeFont);
         painter->setPen(Qt::white);
         painter->drawText(badgeRect, Qt::AlignCenter, QString::number(unread));

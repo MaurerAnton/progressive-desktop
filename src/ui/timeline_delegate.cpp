@@ -29,6 +29,9 @@ namespace progressive::desktop {
 
 namespace {
 
+// DPI-aware point size scaling
+static int ds(double pt) { return qMax(1, (int)(pt * Design::fontScale)); }
+
 static const int AVATAR      = Design::avatarSize;
 static const int MARGIN      = Design::margin;
 static const int GAP         = Design::gap;
@@ -63,7 +66,7 @@ QString shortName(const QString& mxid) {
 static int calcTextHeight(const QString& body, const QString& msgtype, int textWidth) {
     if (body.isEmpty()) return 0;
     QTextDocument doc;
-    doc.setDefaultFont(QFont(QApplication::font().family(), 10));
+    doc.setDefaultFont(QFont(QApplication::font().family(), ds(10)));
     if (msgtype == "m.text" || msgtype == "m.emote" || msgtype.isEmpty()) {
         std::string html = progressive::markdownToHtml(body.toStdString());
         if (html.empty()) doc.setPlainText(body);
@@ -78,7 +81,7 @@ static int calcTextHeight(const QString& body, const QString& msgtype, int textW
 static void drawRichText(QPainter* p, const QRect& r, const QString& body,
                          const QString& msgtype, bool isOutgoing) {
     QTextDocument doc;
-    doc.setDefaultFont(QFont(QApplication::font().family(), 10));
+    doc.setDefaultFont(QFont(QApplication::font().family(), ds(10)));
     if (msgtype == "m.notice" && body == "[Message deleted]") {
         QString html = "<s style='color:#666;'>" + body.toHtmlEscaped() + "</s>";
         doc.setHtml(html);
@@ -167,7 +170,7 @@ void TimelineDelegate::drawBubbleAvatar(QPainter* p, int x, int y,
         }
         QFont f = p->font();
         f.setBold(true);
-        f.setPointSize(11);
+        f.setPointSize(ds(11));
         p->setFont(f);
         p->setPen(Qt::white);
         p->drawText(r, Qt::AlignCenter, letter);
@@ -220,7 +223,7 @@ void TimelineDelegate::drawSystemRow(QPainter* p, const QRect& rect,
     p->setPen(Design::systemTextColor);
     QFont f = p->font();
     f.setItalic(true);
-    f.setPointSize(10);
+    f.setPointSize(ds(10));
     p->setFont(f);
 
     QString text;
@@ -393,7 +396,7 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
     // Sender name above bubble (incoming only, first in group)
     if (!isOutgoing && !isEmote && L.isFirstInGroup && !senderName.isEmpty()) {
         QFont nameFont = p->font();
-        nameFont.setPointSize(10);
+        nameFont.setPointSize(ds(10));
         nameFont.setBold(true);
         p->setFont(nameFont);
         p->setPen(colorFromId(senderId));
@@ -423,7 +426,7 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
     // Pinned
     if (pinned) {
         p->setPen(Design::pinnedColor);
-        QFont f = p->font(); f.setPointSize(9); p->setFont(f);
+        QFont f = p->font(); f.setPointSize(ds(9)); p->setFont(f);
         p->drawText(textX, curY, textW, 14, Qt::AlignLeft, "📌 Pinned");
         curY += 14;
     }
@@ -431,7 +434,7 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
     // Thread reply indicator
     if (isThreadReply) {
         p->setPen(Design::threadColor);
-        QFont f = p->font(); f.setPointSize(9); p->setFont(f);
+        QFont f = p->font(); f.setPointSize(ds(9)); p->setFont(f);
         p->drawText(textX, curY, textW, 14, Qt::AlignLeft, "🧵 thread reply");
         curY += 14;
     }
@@ -446,7 +449,7 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
                 QString preview = QString::fromStdString(orig->body).left(60);
                 if (preview.isEmpty()) preview = "...";
                 p->setPen(QColor("#888"));
-                QFont f = p->font(); f.setPointSize(9); p->setFont(f);
+                QFont f = p->font(); f.setPointSize(ds(9)); p->setFont(f);
                 // Left border line
                 p->setPen(QColor("#555"));
                 p->drawLine(textX + 2, curY + 2, textX + 2, curY + 14);
@@ -457,7 +460,7 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
             }
         } else {
             p->setPen(QColor("#888"));
-            QFont f = p->font(); f.setPointSize(9); p->setFont(f);
+            QFont f = p->font(); f.setPointSize(ds(9)); p->setFont(f);
             p->drawText(textX, curY, textW, 14, Qt::AlignLeft, "↩ replied");
             curY += 14;
         }
@@ -467,7 +470,7 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
     if (isEmote) {
         QString emoteText = "* " + senderName + " " + body;
         p->setPen(Design::emoteColor);
-        QFont f = p->font(); f.setItalic(true); f.setPointSize(10); p->setFont(f);
+        QFont f = p->font(); f.setItalic(true); f.setPointSize(ds(10)); p->setFont(f);
         QRect emoteRect(bubbleX + PAD, bubbleY + 6, textW, L.textH + 14);
         p->drawText(emoteRect, Qt::AlignLeft | Qt::TextWordWrap, emoteText);
     } else if (!body.isEmpty()) {
@@ -486,19 +489,19 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
             p->setPen(QPen(QColor(msgtype == "m.audio" ? "#4a6" : "#48a"), 3));
             p->drawLine(textX + 2, curY + 4, textX + 2, curY + cardH - 4);
             // Icon
-            QFont iconFont = p->font(); iconFont.setPointSize(14); p->setFont(iconFont);
+            QFont iconFont = p->font(); iconFont.setPointSize(ds(14)); p->setFont(iconFont);
             p->setPen(QColor("#ccc"));
             p->drawText(textX + 12, curY + 4, 24, 30, Qt::AlignCenter,
                         msgtype == "m.audio" ? "🎵" : "📄");
             // Filename
-            QFont nameF = p->font(); nameF.setPointSize(10); nameF.setBold(true);
+            QFont nameF = p->font(); nameF.setPointSize(ds(10)); nameF.setBold(true);
             p->setFont(nameF);
             p->setPen(QColor("#ddd"));
             QFontMetrics nfm(nameF);
             p->drawText(textX + 40, curY + 6, cardW - 48, 18, Qt::AlignLeft,
                         nfm.elidedText(body, Qt::ElideMiddle, cardW - 48));
             // Type label
-            QFont typeF = p->font(); typeF.setPointSize(8); p->setFont(typeF);
+            QFont typeF = p->font(); typeF.setPointSize(ds(8)); p->setFont(typeF);
             p->setPen(QColor("#888"));
             p->drawText(textX + 40, curY + 22, cardW - 48, 14, Qt::AlignLeft,
                         msgtype == "m.audio" ? "Audio file" : "File");
@@ -526,7 +529,7 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
                     QRect playBtn(imgRect.center().x() - 15, imgRect.center().y() - 15, 30, 30);
                     p->drawEllipse(playBtn);
                     p->setPen(Qt::white);
-                    QFont pf = p->font(); pf.setPointSize(12); p->setFont(pf);
+                    QFont pf = p->font(); pf.setPointSize(ds(12)); p->setFont(pf);
                     p->drawText(playBtn, Qt::AlignCenter, "▶");
                 }
             }
@@ -536,7 +539,7 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
             p->setBrush(QColor("#1a1a1a"));
             p->drawRoundedRect(placeholderRect, 6, 6);
             p->setPen(QColor("#888"));
-            QFont pf = p->font(); pf.setPointSize(10); p->setFont(pf);
+            QFont pf = p->font(); pf.setPointSize(ds(10)); p->setFont(pf);
             p->drawText(placeholderRect, Qt::AlignCenter,
                         msgtype == "m.video" ? "🎬 loading..." : "🖼 loading...");
             curY += 102;
@@ -556,7 +559,7 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
     // Thread reply count — right above timestamp, at the bottom of bubble
     if (threadCount > 0) {
         p->setPen(Design::threadColor);
-        QFont f = p->font(); f.setPointSize(9); p->setFont(f);
+        QFont f = p->font(); f.setPointSize(ds(9)); p->setFont(f);
         int tcY = bubbleY + L.bubbleH - PAD_BOTTOM - TIME_ROW_H - L.threadCountH - 2;
         p->drawText(textX, tcY, textW, 14, Qt::AlignLeft,
                     QString("💬 %1 %2").arg(threadCount)
@@ -567,7 +570,7 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
     QString timeStr = formatTime(ts);
     if (!timeStr.isEmpty()) {
         p->setPen(Design::timeColor);
-        QFont f = p->font(); f.setPointSize(9); p->setFont(f);
+        QFont f = p->font(); f.setPointSize(ds(9)); p->setFont(f);
         QFontMetrics fm(f);
         int tw = fm.horizontalAdvance(timeStr);
         int ty = bubbleY + L.bubbleH - PAD_BOTTOM - TIME_ROW_H;
@@ -588,7 +591,7 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
             if (threadCount > 0) baseY -= L.threadCountH + 2;
         }
         int ry = baseY;
-        QFont pillFont = p->font(); pillFont.setPointSize(9); p->setFont(pillFont);
+        QFont pillFont = p->font(); pillFont.setPointSize(ds(9)); p->setFont(pillFont);
         QFontMetrics fm(pillFont);
         int maxX = bubbleX + bubbleW - PAD;
         int rowNum = 0;
@@ -699,7 +702,7 @@ bool TimelineDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
         int baseY = L.isLastInGroup ? (bubbleY + L.bubbleH + 2)
                                      : (bubbleY + L.bubbleH - PAD_BOTTOM - TIME_ROW_H - L.reactionH);
         int rx = bubbleX + PAD, ry = baseY;
-        QFont pillFont; pillFont.setPointSize(9);
+        QFont pillFont; pillFont.setPointSize(ds(9));
         QFontMetrics fm(pillFont);
         int maxX = bubbleX + bubbleW - PAD;
         int shown = 0, rowNum = 0;
@@ -746,7 +749,7 @@ bool TimelineDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
     // Link zone — use body text area
     if (msgtype == "m.text" || msgtype.isEmpty()) {
         QTextDocument doc;
-        doc.setDefaultFont(QFont(QApplication::font().family(), 10));
+        doc.setDefaultFont(QFont(QApplication::font().family(), ds(10)));
         std::string html = progressive::markdownToHtml(body.toStdString());
         doc.setHtml(html.empty() ? body.toHtmlEscaped() : QString::fromStdString(html));
         doc.setTextWidth(bubbleW - PAD * 2);

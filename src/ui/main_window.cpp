@@ -10,6 +10,7 @@
 #include "profile_dialog.hpp"
 #include "prefs_dialog.hpp"
 #include "network_log_dialog.hpp"
+#include "timeline_handlers.hpp"
 
 #include <QApplication>
 #include <QCloseEvent>
@@ -1478,10 +1479,8 @@ void MainWindow::onTimelineContextMenu(const QPoint& pos) {
 
 void MainWindow::showTimelineContextMenu(const QString& eventId, const QPoint& globalPos) {
     QMenu menu(this);
-
     auto* reactAction = menu.addAction("Add reaction...");
 
-    // Build "Remove reaction" submenu if the user has reactions on this message
     auto* removeReactMenu = menu.addMenu("Remove reaction");
     std::string eidStr = eventId.toStdString();
     int row = timelineModel_->findRow(eidStr);
@@ -1491,25 +1490,17 @@ void MainWindow::showTimelineContextMenu(const QString& eventId, const QPoint& g
         auto* evt = timelineModel_->at(row);
         if (evt) {
             for (const auto& r : evt->reactions) {
-                // Check if we added this reaction
                 for (const auto& uid : r.userIds) {
                     if (uid == myUserId) {
                         auto* action = removeReactMenu->addAction(QString::fromStdString(r.emoji));
                         connect(action, &QAction::triggered, this, [this, eventId, eidStr, r]() {
                             if (currentRoomId_.isEmpty() || !client_) return;
-                            std::string roomId = currentRoomId_.toStdString();
-                            std::string reactionEventId = r.reactionEventId;
-                            MatrixClient* client = client_;
-                            QPointer<MainWindow> guard(this);
-                            std::thread([guard, client, roomId, reactionEventId, eidStr, emoji = r.emoji]() {
-                                auto r = client->redactEvent(roomId, reactionEventId);
-                                QMetaObject::invokeMethod(guard, [guard, r, eidStr, emoji]() {
-                                    if (guard.isNull()) return;
-                                    if (r.ok) {
-                                        guard->timelineModel_->removeReaction(eidStr, emoji, guard->client_->account().userId);
-                                        guard->statusLabel_->setText("Reaction removed.");
-                                    } else {
-                                        guard->statusLabel_->setText("Failed to remove: " + QString::fromStdString(r.error.message));
+                            std::thread([this, roomId = currentRoomId_.toStdString(), reid = r.reactionEventId, eidStr, emoji = r.emoji]() {
+                                auto res = client_->redactEvent(roomId, reid);
+                                QMetaObject::invokeMethod(this, [this, res, eidStr, emoji]() {
+                                    if (res.ok) {
+                                        timelineModel_->removeReaction(eidStr, emoji, client_->account().userId);
+                                        statusLabel_->setText("Reaction removed.");
                                     }
                                 }, Qt::QueuedConnection);
                             }).detach();
@@ -1527,10 +1518,6 @@ void MainWindow::showTimelineContextMenu(const QString& eventId, const QPoint& g
     auto* unpinAction = menu.addAction("Unpin message");
     auto* replyThreadAction = menu.addAction("Reply in thread");
     auto* viewThreadAction = menu.addAction("View thread replies");
-    // Show "View thread" if:
-    // - The message has thread replies (isThreadRoot with threadReplyCount > 0), OR
-    // - The message IS a thread reply (has threadRootId) — clicking opens the
-    //   thread from the root, showing all replies including this one.
     bool canViewThread = false;
     QString threadRootForView;
     {
@@ -1538,12 +1525,9 @@ void MainWindow::showTimelineContextMenu(const QString& eventId, const QPoint& g
         if (row >= 0) {
             auto* evt = timelineModel_->at(row);
             if (evt) {
-                if (evt->threadReplyCount > 0) {
-                    canViewThread = true;
-                    threadRootForView = eventId;  // this IS the root
-                } else if (evt->isThreadReply && !evt->threadRootId.empty()) {
-                    canViewThread = true;
-                    threadRootForView = QString::fromStdString(evt->threadRootId);
+                if (evt->threadReplyCount > 0) { canViewThread = true; threadRootForView = eventId; }
+                else if (evt->isThreadReply && !evt->threadRootId.empty()) {
+                    canViewThread = true; threadRootForView = QString::fromStdString(evt->threadRootId);
                 }
             }
         }
@@ -1557,164 +1541,49 @@ void MainWindow::showTimelineContextMenu(const QString& eventId, const QPoint& g
     auto* selected = menu.exec(globalPos);
     if (!selected) return;
 
+    std::string roomIdStr = currentRoomId_.toStdString();
+    std::string eidStrVal = eventId.toStdString();
+
     if (selected == reactAction) {
-        EmojiPicker picker(this);
-        connect(&picker, &EmojiPicker::emojiSelected, this, [this, eventId](const QString& emoji) {
-            if (currentRoomId_.isEmpty() || !client_) return;
-            std::string roomId = currentRoomId_.toStdString();
-            std::string eid = eventId.toStdString();
-            std::string em = emoji.toStdString();
-            MatrixClient* client = client_;
-            QPointer<MainWindow> guard(this);
-            std::thread([guard, client, roomId, eid, em]() {
-                auto r = client->sendReaction(roomId, eid, em);
-                QMetaObject::invokeMethod(guard, [guard, r, eid, em]() {
-                    if (guard.isNull()) return;
-                    if (r.ok) {
-                        guard->statusLabel_->setText("Reaction sent.");
-                        // Store the reaction event_id for later removal
-                        guard->timelineModel_->addReaction(eid, em,
-                            guard->client_->account().userId, r.data);
-                    } else {
-                        guard->statusLabel_->setText("Reaction failed: " + QString::fromStdString(r.error.message));
-                    }
-                }, Qt::QueuedConnection);
-            }).detach();
-            // Local echo of the reaction (without event_id — will be updated when server responds)
-            timelineModel_->addReaction(eventId.toStdString(), emoji.toStdString(),
-                                         client_->account().userId);
-        });
-        picker.exec();
+        handleReaction(this, client_, roomIdStr, eidStrVal, timelineModel_, statusLabel_);
     } else if (selected == pinAction) {
-        if (currentRoomId_.isEmpty() || !client_) return;
-        std::string roomId = currentRoomId_.toStdString();
-        std::string eid = eventId.toStdString();
-        MatrixClient* client = client_;
-        QPointer<MainWindow> guard(this);
-        std::thread([guard, client, roomId, eid]() {
-            auto r = client->pinMessage(roomId, eid);
-            QMetaObject::invokeMethod(guard, [guard, r, eid]() {
-                if (guard.isNull()) return;
-                if (r.ok) { guard->timelineModel_->setPinned(eid, true);
-                            guard->statusLabel_->setText("Message pinned."); }
-                else guard->statusLabel_->setText("Pin failed: " + QString::fromStdString(r.error.message));
-            }, Qt::QueuedConnection);
-        }).detach();
+        handlePin(this, client_, roomIdStr, eidStrVal, timelineModel_, statusLabel_);
     } else if (selected == unpinAction) {
-        if (currentRoomId_.isEmpty() || !client_) return;
-        std::string roomId = currentRoomId_.toStdString();
-        std::string eid = eventId.toStdString();
-        MatrixClient* client = client_;
-        QPointer<MainWindow> guard(this);
-        std::thread([guard, client, roomId, eid]() {
-            auto r = client->unpinMessage(roomId, eid);
-            QMetaObject::invokeMethod(guard, [guard, r, eid]() {
-                if (guard.isNull()) return;
-                if (r.ok) { guard->timelineModel_->setPinned(eid, false);
-                            guard->statusLabel_->setText("Message unpinned."); }
-                else guard->statusLabel_->setText("Unpin failed: " + QString::fromStdString(r.error.message));
+        std::thread([this, roomIdStr, eidStrVal]() {
+            auto r = client_->unpinMessage(roomIdStr, eidStrVal);
+            QMetaObject::invokeMethod(this, [this, r, eidStrVal]() {
+                if (r.ok) { timelineModel_->setPinned(eidStrVal, false); statusLabel_->setText("Message unpinned."); }
             }, Qt::QueuedConnection);
         }).detach();
     } else if (selected == replyThreadAction) {
-        // Reply in thread: show the root message text + input for reply
         if (currentRoomId_.isEmpty() || !client_) return;
-        // Get the root message text for preview
         QString rootText;
         int row = timelineModel_->findRow(eventId.toStdString());
-        if (row >= 0) {
-            auto* evt = timelineModel_->at(row);
-            if (evt) rootText = QString::fromStdString(evt->body);
-        }
+        if (row >= 0) { auto* evt = timelineModel_->at(row); if (evt) rootText = QString::fromStdString(evt->body); }
         bool ok;
         QString reply = QInputDialog::getText(this, "Reply in thread",
-            QString("Replying to:\n\"%1\"\n\nYour reply:").arg(rootText.left(100)),
-            QLineEdit::Normal, "", &ok);
+            QString("Replying to:\n\"%1\"\n\nYour reply:").arg(rootText.left(100)), QLineEdit::Normal, "", &ok);
         if (!ok || reply.trimmed().isEmpty()) return;
-        std::string roomId = currentRoomId_.toStdString();
-        std::string eid = eventId.toStdString();
-        std::string body = reply.toStdString();
-        MatrixClient* client = client_;
-        QPointer<MainWindow> guard(this);
-        std::thread([guard, client, roomId, eid, body]() {
-            auto r = client->sendThreadReply(roomId, body, eid);
-            QMetaObject::invokeMethod(guard, [guard, r, eid, body]() {
-                if (guard.isNull()) return;
+        std::thread([this, roomIdStr, eidStrVal, body = reply.toStdString()]() {
+            auto r = client_->sendThreadReply(roomIdStr, body, eidStrVal);
+            QMetaObject::invokeMethod(this, [this, r, eidStrVal]() {
                 if (r.ok) {
-                    guard->statusLabel_->setText("Thread reply sent.");
-                    // Increment thread count on root message
-                    int rootRow = guard->timelineModel_->findRow(eid);
+                    int rootRow = timelineModel_->findRow(eidStrVal);
                     if (rootRow >= 0) {
-                        auto* rootEvt = guard->timelineModel_->at(rootRow);
-                        if (rootEvt) {
-                            rootEvt->threadReplyCount++;
-                            emit guard->timelineModel_->dataChanged(
-                                guard->timelineModel_->index(rootRow),
-                                guard->timelineModel_->index(rootRow));
-                        }
+                        auto* rootEvt = timelineModel_->at(rootRow);
+                        if (rootEvt) { rootEvt->threadReplyCount++; emit timelineModel_->dataChanged(timelineModel_->index(rootRow), timelineModel_->index(rootRow)); }
                     }
                 }
-                else guard->statusLabel_->setText("Thread reply failed: " + QString::fromStdString(r.error.message));
             }, Qt::QueuedConnection);
         }).detach();
     } else if (selected == viewThreadAction) {
-        // Use the root event ID (may differ from eventId if we clicked a reply)
         openThreadView(threadRootForView.isEmpty() ? eventId : threadRootForView);
     } else if (selected == copyLinkAction) {
-        // Build matrix.to permalink
-        std::string roomId = currentRoomId_.toStdString();
-        std::string eid = eventId.toStdString();
-        std::string permalink = "https://matrix.to/#/" + roomId + "/" + eid;
-        QGuiApplication::clipboard()->setText(QString::fromStdString(permalink));
-        statusLabel_->setText("Permalink copied to clipboard.");
+        handleCopyLink(this, roomIdStr, eidStrVal, statusLabel_);
     } else if (selected == editAction) {
-        if (currentRoomId_.isEmpty() || !client_) return;
-        // Get the current body text for editing
-        int row = timelineModel_->findRow(eventId.toStdString());
-        if (row < 0) return;
-        auto* evt = timelineModel_->at(row);
-        if (!evt) return;
-        bool ok;
-        QString newText = QInputDialog::getText(this, "Edit message",
-            "New text:", QLineEdit::Normal, QString::fromStdString(evt->body), &ok);
-        if (!ok || newText.trimmed().isEmpty()) return;
-        std::string roomId = currentRoomId_.toStdString();
-        std::string eid = eventId.toStdString();
-        std::string newBody = newText.toStdString();
-        MatrixClient* client = client_;
-        QPointer<MainWindow> guard(this);
-        std::thread([guard, client, roomId, eid, newBody]() {
-            auto r = client->editMessage(roomId, eid, newBody);
-            QMetaObject::invokeMethod(guard, [guard, r, eid, newBody]() {
-                if (guard.isNull()) return;
-                if (r.ok) {
-                    guard->timelineModel_->updateBody(eid, newBody);
-                    guard->statusLabel_->setText("Message edited.");
-                } else {
-                    guard->statusLabel_->setText("Edit failed: " + QString::fromStdString(r.error.message));
-                }
-            }, Qt::QueuedConnection);
-        }).detach();
+        handleEdit(this, client_, roomIdStr, eidStrVal, timelineModel_, statusLabel_);
     } else if (selected == deleteAction) {
-        auto reply = QMessageBox::question(this, "Delete",
-            "Delete this message? This cannot be undone.",
-            QMessageBox::Yes | QMessageBox::No);
-        if (reply != QMessageBox::Yes) return;
-        std::string roomId = currentRoomId_.toStdString();
-        std::string eid = eventId.toStdString();
-        MatrixClient* client = client_;
-        QPointer<MainWindow> guard(this);
-        std::thread([guard, client, roomId, eid]() {
-            auto r = client->redactEvent(roomId, eid);
-            QMetaObject::invokeMethod(guard, [guard, r, eid]() {
-                if (guard.isNull()) return;
-                if (r.ok) {
-                    guard->timelineModel_->markDeleted(eid);
-                    guard->statusLabel_->setText("Message deleted.");
-                } else {
-                    guard->statusLabel_->setText("Delete failed: " + QString::fromStdString(r.error.message));
-                }
-            }, Qt::QueuedConnection);
-        }).detach();
+        handleDelete(this, client_, roomIdStr, eidStrVal, timelineModel_, statusLabel_);
     }
 }
 

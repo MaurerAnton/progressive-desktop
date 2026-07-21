@@ -1,18 +1,33 @@
-// src/ui/timeline_handlers.hpp — timeline context menu handlers.
+// src/ui/timeline_handlers.hpp — timeline context menu action handlers.
 #pragma once
-#include <QString>
-#include <string>
 #include <QPointer>
+#include <string>
+
+class QWidget;
+class QLabel;
 
 namespace progressive::desktop {
 
-class MainWindow;
 class MatrixClient;
+class TimelineModel;
 
-// Handle right-click context menu on a timeline message.
-// Extracted from MainWindow::showTimelineContextMenu.
-void handleTimelineContextMenu(MainWindow* win, const QString& eventId,
-                                const QPoint& globalPos, MatrixClient* client,
-                                const std::string& roomId);
+void handleReaction(QPointer<QWidget> parent, MatrixClient* client,
+                     const std::string& roomId, const std::string& eventId,
+                     TimelineModel* model, QLabel* statusLabel);
+
+void handleEdit(QPointer<QWidget> parent, MatrixClient* client,
+                 const std::string& roomId, const std::string& eventId,
+                 TimelineModel* model, QLabel* statusLabel);
+
+void handleDelete(QPointer<QWidget> parent, MatrixClient* client,
+                   const std::string& roomId, const std::string& eventId,
+                   TimelineModel* model, QLabel* statusLabel);
+
+void handlePin(QPointer<QWidget> parent, MatrixClient* client,
+                const std::string& roomId, const std::string& eventId,
+                TimelineModel* model, QLabel* statusLabel);
+
+void handleCopyLink(QPointer<QWidget> parent, const std::string& roomId,
+                     const std::string& eventId, QLabel* statusLabel);
 
 } // namespace progressive::desktop

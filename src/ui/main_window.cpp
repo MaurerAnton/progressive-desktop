@@ -1478,8 +1478,11 @@ void MainWindow::onImageClicked(const QString& eventId, const QString& mxcUrl) {
 }
 
 void MainWindow::onMessageClicked(const QString& eventId) {
-    // Could open thread view, reply, etc. For now, do nothing.
-    (void)eventId;
+    int row = timelineModel_->findRow(eventId.toStdString());
+    if (row >= 0) {
+        QModelIndex idx = timelineModel_->index(row);
+        timelineView_->selectionModel()->select(idx, QItemSelectionModel::ClearAndSelect);
+    }
 }
 
 void MainWindow::onTimelineContextMenu(const QPoint& pos) {

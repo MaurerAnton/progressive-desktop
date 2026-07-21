@@ -53,6 +53,8 @@ QVariant TimelineModel::data(const QModelIndex& index, int role) const {
     return {};
 }
 
+static const int MAX_TIMELINE_EVENTS = 200;
+
 void TimelineModel::appendBack(const DisplayedEvent& evt) {
     if (!evt.eventId.empty() && seenIds_.count(evt.eventId)) return;
     if (!evt.eventId.empty()) seenIds_.insert(evt.eventId);
@@ -61,6 +63,16 @@ void TimelineModel::appendBack(const DisplayedEvent& evt) {
     beginInsertRows(QModelIndex(), row, row);
     events_.push_back(evt);
     endInsertRows();
+
+    if (static_cast<int>(events_.size()) > MAX_TIMELINE_EVENTS) {
+        int excess = static_cast<int>(events_.size()) - MAX_TIMELINE_EVENTS;
+        beginRemoveRows(QModelIndex(), 0, excess - 1);
+        for (int i = 0; i < excess; ++i) {
+            seenIds_.erase(events_[static_cast<size_t>(i)].eventId);
+        }
+        events_.erase(events_.begin(), events_.begin() + excess);
+        endRemoveRows();
+    }
 }
 
 void TimelineModel::replaceEcho(const std::string& tempEventId, const DisplayedEvent& realEvent) {

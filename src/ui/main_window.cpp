@@ -2032,8 +2032,13 @@ void MainWindow::toggleThreadPanel() {
 }
 
 void MainWindow::onSync(FastSyncResponse resp) {
-    rebuildRoomList(resp);
-    if (!resp.joinedRooms.empty()) logMemorySnapshot("after-rebuildRoomList");
+    bool hasData = !resp.joinedRooms.empty() || !resp.leftRoomIds.empty()
+                   || !resp.invitedRoomIds.empty();
+
+    if (hasData) {
+        rebuildRoomList(resp);
+        if (!resp.joinedRooms.empty()) logMemorySnapshot("after-rebuildRoomList");
+    }
 
     // Desktop notification: if any room has highlight_count > 0, notify the user.
     // We do this only after the first sync (so initial sync doesn't spam).
@@ -2061,12 +2066,19 @@ void MainWindow::onSync(FastSyncResponse resp) {
     // Memory diagnostic: snapshot after first sync (biggest allocation)
     if (firstSync) {
         logMemorySnapshot("after-first-sync");
-        // Release unused heap pages back to OS
-        int trimmed = trimMemory();
-        std::fprintf(stderr, "[mem] malloc_trim returned %d\n", trimmed);
         // Lazy-load room names/avatars for any rooms that didn't get state
-        // from this sync (safety net — server may not return state for all rooms).
         batchLoadRoomStates();
+    }
+    // Release unused heap pages back to OS after every sync.
+    // Each sync allocates HTTP response buffer + parser (5-20 MB),
+    // which fragments the heap without this call.
+    int trimmed = trimMemory();
+    if (trimmed) {
+        static int trimCount = 0;
+        if (trimCount++ % 10 == 0) {
+            std::fprintf(stderr, "[mem] malloc_trim returned %d (call #%d)\n", trimmed, trimCount);
+            logMemorySnapshot("after-trim");
+        }
     }
     firstSync = false;
 
@@ -2283,19 +2295,11 @@ void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
         RoomData rd;
         rd.roomId = roomId;
 
-        // Enhanced debug: show all state event types and content previews
-        std::fprintf(stderr, "[rooms]   room=%s state=%zu timeline=%zu encrypted=%d\n",
-                     roomId.c_str(), room.stateEvents.size(),
-                     room.timeline.events.size(), room.isEncrypted ? 1 : 0);
-        for (const auto& e : room.stateEvents) {
-            std::string_view type, content;
-            if (e.type.size() > 50) type = "<long>";
-            else type = e.type;
-            if (e.contentJson.size() > 200) content = e.contentJson.substr(0, 200);
-            else content = e.contentJson;
-            std::fprintf(stderr, "[rooms]     state type=%.*s content=%.*s...\n",
-                         (int)type.size(), type.data(),
-                         (int)content.size(), content.data());
+        // Debug: log only when state or timeline events exist
+        if (!room.stateEvents.empty() || !room.timeline.events.empty()) {
+            std::fprintf(stderr, "[rooms]   room=%s state=%zu timeline=%zu encrypted=%d\n",
+                         roomId.c_str(), room.stateEvents.size(),
+                         room.timeline.events.size(), room.isEncrypted ? 1 : 0);
         }
 
         // Compute name from BOTH state and timeline events.
@@ -2387,10 +2391,6 @@ void MainWindow::rebuildRoomList(const FastSyncResponse& resp) {
                 }
             }
         }
-
-        std::fprintf(stderr, "[rooms]     result: name='%s' avatar=%s\n",
-                     rd.name.c_str(),
-                     rd.avatarUrl.empty() ? "(none)" : rd.avatarUrl.c_str());
 
         roomModel_->upsertRoom(rd);
 

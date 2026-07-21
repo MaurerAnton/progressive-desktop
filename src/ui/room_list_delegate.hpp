@@ -29,7 +29,6 @@ signals:
 
 private:
     ImageLoader* loader_;
-    QColor colorFromId(const QString& id) const;
     void drawAvatar(QPainter* painter, const QRect& rect,
                     const QString& roomId, const QString& name,
                     const QImage& img) const;

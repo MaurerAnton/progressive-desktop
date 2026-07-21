@@ -58,13 +58,6 @@ QString shortName(const QString& mxid) {
     return mxid;
 }
 
-QColor colorFromId(const QString& id) {
-    uint hash = 0;
-    for (QChar c : id) hash = hash * 31 + c.unicode();
-    int hue = static_cast<int>(hash % 360);
-    return QColor::fromHsl(hue, 180, 140);
-}
-
 // Compute rendered text height for a body + msgtype at given width.
 // Returns the document height (not including extra padding).
 static int calcTextHeight(const QString& body, const QString& msgtype, int textWidth) {
@@ -427,7 +420,7 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
 
     // Pinned
     if (pinned) {
-        p->setPen(QColor("#ffaa00"));
+        p->setPen(Design::pinnedColor);
         QFont f = p->font(); f.setPointSize(9); p->setFont(f);
         p->drawText(textX, curY, textW, 14, Qt::AlignLeft, "📌 Pinned");
         curY += 14;
@@ -435,7 +428,7 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
 
     // Thread reply indicator
     if (isThreadReply) {
-        p->setPen(QColor("#6699cc"));
+        p->setPen(Design::threadColor);
         QFont f = p->font(); f.setPointSize(9); p->setFont(f);
         p->drawText(textX, curY, textW, 14, Qt::AlignLeft, "🧵 thread reply");
         curY += 14;
@@ -471,7 +464,7 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
     // Body text — fills available space from curY to 18px above bubble bottom
     if (isEmote) {
         QString emoteText = "* " + senderName + " " + body;
-        p->setPen(QColor("#c0c0c0"));
+        p->setPen(Design::emoteColor);
         QFont f = p->font(); f.setItalic(true); f.setPointSize(10); p->setFont(f);
         QRect emoteRect(bubbleX + PAD, bubbleY + 6, textW, L.textH + 14);
         p->drawText(emoteRect, Qt::AlignLeft | Qt::TextWordWrap, emoteText);
@@ -560,7 +553,7 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
 
     // Thread reply count — right above timestamp, at the bottom of bubble
     if (threadCount > 0) {
-        p->setPen(QColor("#6699cc"));
+        p->setPen(Design::threadColor);
         QFont f = p->font(); f.setPointSize(9); p->setFont(f);
         int tcY = bubbleY + L.bubbleH - PAD_BOTTOM - TIME_ROW_H - L.threadCountH - 2;
         p->drawText(textX, tcY, textW, 14, Qt::AlignLeft,
@@ -642,7 +635,7 @@ void TimelineDelegate::paint(QPainter* p, const QStyleOptionViewItem& opt,
         p->fillRect(opt.rect, Design::selectedBg);
     } else {
         // Match QListView background (theme.cpp sets #1e1e1e)
-        p->fillRect(opt.rect, QColor(0x1e, 0x1e, 0x1e));
+        p->fillRect(opt.rect, Design::viewBg);
     }
 
     QString type = idx.data(TimelineModel::TypeRole).toString();
@@ -774,10 +767,6 @@ bool TimelineDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
     // Select the row
     emit messageClicked(eventId);
     return true;
-}
-
-QColor TimelineDelegate::avatarColor(const QString& userId) const {
-    return colorFromId(userId);
 }
 
 } // namespace progressive::desktop

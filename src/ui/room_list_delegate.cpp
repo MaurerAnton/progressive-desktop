@@ -19,13 +19,6 @@ namespace progressive::desktop {
 RoomListDelegate::RoomListDelegate(ImageLoader* loader, QObject* parent)
     : QStyledItemDelegate(parent), loader_(loader) {}
 
-QColor RoomListDelegate::colorFromId(const QString& id) const {
-    uint hash = 0;
-    for (QChar c : id) hash = hash * 31 + c.unicode();
-    int hue = static_cast<int>(hash % 360);
-    return QColor::fromHsl(hue, 180, 140);
-}
-
 void RoomListDelegate::drawAvatar(QPainter* painter, const QRect& rect,
                                     const QString& roomId, const QString& name,
                                     const QImage& img) const {
@@ -71,9 +64,9 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     if (option.state & QStyle::State_Selected) {
         painter->fillRect(option.rect, Design::selectedBg);
     } else if (isInvite) {
-        painter->fillRect(option.rect, QColor(40, 30, 20));
+        painter->fillRect(option.rect, Design::inviteRowBg);
     } else {
-        painter->fillRect(option.rect, QColor(0x1e, 0x1e, 0x1e));
+        painter->fillRect(option.rect, Design::viewBg);
     }
 
     QString name = index.data(RoomListModel::NameRole).toString();
@@ -150,7 +143,7 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     msgFont.setPointSize(9);
     painter->setFont(msgFont);
     if (isInvite) {
-        painter->setPen(QColor("#ffaa44"));
+        painter->setPen(Design::inviteTextColor);
         QString inviterName = index.data(RoomListModel::InviterRole).toString();
         // Clean up inviter MXID: @bob:matrix.org → bob
         if (!inviterName.isEmpty() && inviterName[0] == '@') {
@@ -172,7 +165,7 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         painter->setBrush(QColor("#2d6a2d"));
         painter->setPen(Qt::NoPen);
         painter->drawRoundedRect(acceptRect, 5, 5);
-        painter->setPen(QColor("#6c6"));
+        painter->setPen(Design::typingColor);
         painter->drawText(acceptRect, Qt::AlignCenter, "✓");
         QRect rejectRect(option.rect.right() - 30, btnY, 28, 28);
         painter->setBrush(QColor("#6a2d2d"));
@@ -181,7 +174,7 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         painter->setPen(QColor("#f66"));
         painter->drawText(rejectRect, Qt::AlignCenter, "✗");
     } else if (hasTyping && !typingUsers.isEmpty()) {
-        painter->setPen(QColor("#6c6"));
+        painter->setPen(Design::typingColor);
         QString first = typingUsers.first();
         if (!first.isEmpty() && first[0] == '@') {
             auto c = first.indexOf(':');
@@ -201,7 +194,7 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     // Unread badge (right side)
     if (unread > 0) {
         QRect badgeRect(option.rect.right() - 28, option.rect.y() + 12, 24, 24);
-        painter->setBrush(QColor(50, 130, 220));
+        painter->setBrush(Design::unreadBadgeColor);
         painter->setPen(Qt::NoPen);
         painter->drawEllipse(badgeRect);
         QFont badgeFont = painter->font();

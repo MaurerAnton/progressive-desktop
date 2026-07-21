@@ -47,8 +47,7 @@ private:
     void drawSystemRow(QPainter* p, const QRect& rect, const QModelIndex& idx,
                        const QString& type) const;
     void drawMessageBubble(QPainter* p, const QRect& rowRect,
-                           const QModelIndex& idx) const;
-    QColor avatarColor(const QString& userId) const;
+                            const QModelIndex& idx) const;
 };
 
 } // namespace progressive::desktop

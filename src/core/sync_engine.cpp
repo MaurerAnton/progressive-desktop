@@ -78,7 +78,6 @@ void SyncEngine::run() {
         // Subsequent syncs use the real sinceToken_ for efficient incremental sync.
         // Timeout: 15s for initial sync (more data), 10s for incremental.
         bool useEmptySince = firstRun_;
-        firstRun_ = false;
         std::string since = useEmptySince ? "" : sinceToken_;
         int timeout = useEmptySince ? 15000 : 10000;
         auto result = client_->syncFast(since, timeout, false);
@@ -163,6 +162,7 @@ void SyncEngine::run() {
         }
 
         // Success — update token + stats.
+        firstRun_ = false;  // only clear on SUCCESS — retries must still use empty since
         stats_.errors = 0;
         stats_.syncs++;
         sinceToken_ = std::string(result.data.nextBatch);

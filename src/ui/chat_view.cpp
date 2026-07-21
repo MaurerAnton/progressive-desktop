@@ -22,10 +22,14 @@ ChatView::ChatView(MatrixClient* client, TimelineModel* model, MessageEdit* edit
                    SyncEngine* sync, QWidget* parent)
     : QWidget(parent), client_(client), model_(model), edit_(edit), sync_(sync) {
     connect(edit_, &MessageEdit::sendMessage, this, [this](const std::string& body) {
+        std::fprintf(stderr, "[chat] send: room=%s body=\"%s\" encrypted=%d thread=%s\n",
+                     roomId_.c_str(), body.c_str(), encrypted_ ? 1 : 0,
+                     threadRoot_.empty() ? "(none)" : threadRoot_.c_str());
         doSend(body);
     });
     connect(edit_, &MessageEdit::slashCommand, this, [this](const std::string& cmd, const std::string& args) {
         if (cmd == "me" && !roomId_.empty()) {
+            std::fprintf(stderr, "[chat] slash: /me %s\n", args.c_str());
             DisplayedEvent echo;
             echo.senderId = client_->account().userId;
             echo.senderName = "you";
@@ -37,15 +41,23 @@ ChatView::ChatView(MatrixClient* client, TimelineModel* model, MessageEdit* edit
             std::thread([client = client_, roomId = roomId_, body = args]() {
                 client->sendMessage(roomId, body, "m.emote");
             }).detach();
+        } else {
+            emit slashCommandForward(cmd, args);
         }
     });
     connect(edit_, &MessageEdit::attachFileRequested, this, [this]() {
+        std::fprintf(stderr, "[chat] file: room=%s attach requested\n", roomId_.c_str());
         if (roomId_.empty() || !client_) return;
         QString filePath = QFileDialog::getOpenFileName(this, "Attach file",
             QString(), "All files (*.*)");
-        if (!filePath.isEmpty()) doAttachFile(filePath);
+        if (!filePath.isEmpty()) {
+            std::fprintf(stderr, "[chat] file: selected path=%s\n", filePath.toUtf8().data());
+            doAttachFile(filePath);
+        }
     });
     connect(edit_, &MessageEdit::quickReact, this, [this](const QString& emoji) {
+        std::fprintf(stderr, "[chat] react: room=%s emoji=%s\n",
+                     roomId_.c_str(), emoji.toUtf8().data());
         doQuickReact(emoji);
     });
 }
@@ -65,6 +77,7 @@ void ChatView::clear() {
 
 void ChatView::doSend(const std::string& body) {
     if (roomId_.empty() || !client_) return;
+    std::fprintf(stderr, "[send] message: room=%s body=\"%s\"\n", roomId_.c_str(), body.c_str());
     DisplayedEvent echo;
     echo.eventId = "pending-" + std::to_string(QDateTime::currentMSecsSinceEpoch());
     echo.senderId = client_->account().userId;
@@ -166,6 +179,8 @@ void ChatView::doSend(const std::string& body) {
 
 void ChatView::doAttachFile(const QString& filePath) {
     if (roomId_.empty() || !client_) return;
+    std::fprintf(stderr, "[send] file: room=%s path=%s\n",
+                 roomId_.c_str(), filePath.toUtf8().data());
     QFileInfo fi(filePath);
     QString fileName = fi.fileName();
     QMimeDatabase db;
@@ -215,6 +230,8 @@ void ChatView::doQuickReact(const QString& emoji) {
     if (lastRow < 0) return;
     auto* evt = model_->at(lastRow);
     if (!evt || evt->eventId.empty()) return;
+    std::fprintf(stderr, "[send] react: room=%s event=%s emoji=%s\n",
+                 roomId_.c_str(), evt->eventId.c_str(), emoji.toUtf8().data());
     std::string eid = evt->eventId;
     std::string em = emoji.toStdString();
     MatrixClient* client = client_;

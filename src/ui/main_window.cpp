@@ -567,6 +567,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     // ChatView handles message sending, file attach, slash commands, quick react
     chatView_ = new ChatView(client_, timelineModel_, messageEdit_, &sync_, this);
+    connect(chatView_, &ChatView::slashCommandForward, this, [this](const std::string& cmd, const std::string& args) {
+        onSlashCommand(cmd, args);
+    });
     connect(messageEdit_, &MessageEdit::emojiPickerRequested, this, [this]() {
         EmojiPicker picker(this);
         connect(&picker, &EmojiPicker::emojiSelected, this, [this](const QString& emoji) {

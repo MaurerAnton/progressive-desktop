@@ -21,8 +21,8 @@ public:
                         bool isEncrypted = false);
     void clear();
 
-    using SendCallback = std::function<void()>;
-    void onSend(SendCallback cb) { sendCb_ = std::move(cb); }
+signals:
+    void slashCommandForward(const std::string& cmd, const std::string& args);
 
 private:
     void doSend(const std::string& body);
@@ -36,7 +36,6 @@ private:
     std::string roomId_;
     std::string threadRoot_;
     bool encrypted_ = false;
-    SendCallback sendCb_;
 };
 
 } // namespace progressive::desktop

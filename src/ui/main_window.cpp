@@ -618,6 +618,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     // ChatView handles message sending, file attach, slash commands, quick react
     chatView_ = new ChatView(client_, timelineModel_, messageEdit_, &sync_, this);
+    roomStore_ = new RoomStore(client_, store_);
     connect(chatView_, &ChatView::slashCommandForward, this, [this](const std::string& cmd, const std::string& args) {
         onSlashCommand(cmd, args);
     });
@@ -1939,8 +1940,20 @@ void MainWindow::onSync(FastSyncResponse resp) {
     bool hasData = !resp.joinedRooms.empty() || !resp.leftRoomIds.empty()
                    || !resp.invitedRooms.empty();
 
-    if (hasData) {
-        rebuildRoomList(resp);
+    if (hasData && roomStore_) {
+        QString inviteText;
+        bool hasInvites = false;
+        std::string myUserId = client_ ? client_->account().userId : "";
+        roomStore_->rebuildFromSync(resp, roomModel_, timelineModel_,
+            currentRoomId_.toStdString(), myUserId,
+            inviteText, hasInvites);
+        if (hasInvites) {
+            inviteHeader_->setText(inviteText);
+            inviteHeader_->show();
+        } else {
+            inviteHeader_->hide();
+        }
+        updateRoomListHeader();
         if (!resp.joinedRooms.empty()) logMemorySnapshot("after-rebuildRoomList");
     }
 

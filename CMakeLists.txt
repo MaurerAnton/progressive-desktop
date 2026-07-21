@@ -93,6 +93,7 @@ add_executable(progressive-desktop
     src/ui/network_log_dialog.cpp
     src/ui/chat_view.cpp
     src/ui/timeline_handlers.cpp
+    src/ui/room/room_store.cpp
     src/ui/message_edit.cpp
     src/ui/theme.cpp
     resources/resources.qrc

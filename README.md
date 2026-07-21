@@ -16,9 +16,23 @@ Desktop sister to [`progressive-android-next`](https://github.com/MaurerAnton/pr
 
 ## Status
 
-Phase 0 — toolchain scaffolding. The app opens a Qt6 window and links against `progressive_native`. No Matrix functionality yet.
+Phase 2 — minimal usable UI. The app logs in, syncs, and renders a working
+chat client:
 
-See [`ROADMAP.md`](ROADMAP.md) (planned) and the [Phase 0 audit](docs/audit.md) for which `progressive_native` modules are real vs stubs.
+- Login dialog with homeserver discovery + password login
+- Room list sidebar (avatars, unread badges, invites with accept/reject)
+- Timeline with chat bubbles, avatars, sender names, grouping, timestamps
+- Markdown body rendering via `progressive::markdownToHtml`
+- Reactions, replies (with preview), threads, pinned messages
+- Image / video / file / audio attachments, image viewer dialog
+- Slash commands (`/help`, `/clear`, `/logout`, `/me`)
+- Emoji picker, profile / room settings / room members / room directory dialogs
+- SQLite-backed session persistence (WAL + `synchronous=FULL`)
+- Background `/sync` loop with exponential backoff
+
+**Not yet:** E2EE (encrypted rooms show a placeholder), backward pagination UI,
+read-receipt auto-send, typing indicators. See [`docs/phase2.md`](docs/phase2.md)
+"Known limitations" for the full list.
 
 ## Build
 
@@ -46,9 +60,21 @@ cmake --preset desktop         # Linux desktop, release, LTO on
 cmake --preset ci              # CI
 ```
 
+## CLI subcommands
+
+The binary also runs headless for testing:
+
+```bash
+./build/progressive-desktop --smoke                # link + markdown probe
+./build/progressive-desktop --discover matrix.org  # server discovery + versions + login flows
+./build/progressive-desktop --login <user> <pass>  # login + persist session
+./build/progressive-desktop --sync <n>             # do N syncs then stop
+./build/progressive-desktop --memcheck             # struct-size + memory snapshots
+```
+
 ## Module audit
 
-`progressive_native` is built from the [`progressive-android-experiments`](https://github.com/MaurerAnton/progressive-android-experiments) submodule. Of the 889 `.cpp` files, not all are real implementations. Run the audit:
+`progressive_native` is built from the [`progressive-android-experiments`](https://github.com/MaurerAnton/progressive-android-experiments) submodule. Of the 878 `.cpp` files, not all are real implementations; Tier filtering drops 283 stubs + 8 JNI files — **595 sources** actually compiled. Run the audit:
 
 ```bash
 ./scripts/audit_modules.py            # summary
@@ -60,7 +86,7 @@ cmake --preset ci              # CI
 Tiers:
 - **A** — real hand-written implementations (used directly)
 - **B** — auto-generated templates (echo JSON back; need real impl upstream)
-- **C** — pure stubs (hash/size echo; need real impl upstream)
+- **C** — pure stubs (hash/size echo; excluded from desktop build)
 - **D** — Android JNI glue (excluded from desktop build)
 
 ## Architecture
@@ -70,15 +96,46 @@ progressive-desktop/
   CMakeLists.txt          top-level
   CMakePresets.json       pinetab2 / desktop / ci
   cmake/
-    progressive_native.cmake    builds the shared C++ core
+    progressive_native.cmake    builds the shared C++ core (Tier filter)
   third_party/
     progressive-android-experiments/   git submodule (sparse: progressive/src/main/cpp/)
-    android_shim/                    <android/log.h> shim for desktop
+    android_shim/                    <android/log.h> + STL compat shims for desktop
   src/
-    main.cpp              Phase 0 stub window
+    main.cpp              Phase 2 entry: CLI subcommands + GUI mode
+    core/
+      http_client.{hpp,cpp}      libcurl wrapper (TLS, SOCKS5, proxy)
+      matrix_client.{hpp,cpp}   CS API: login / sync / send / messages / read_markers
+      session_store.{hpp,cpp}   SQLite persistence (WAL + checkpoint)
+      sync_engine.{hpp,cpp}     background /sync loop with backoff
+      fast_sync.{hpp,cpp}       incremental sync parser
+      memory_stats.{hpp,cpp}    struct-size + snapshot diagnostics
+      notifications.{hpp,cpp}   desktop notifications
+      crypto/                  libolm wrappers (Phase 4)
+    ui/
+      main_window.{hpp,cpp}         top-level window + sync wiring
+      login_dialog.{hpp,cpp}        modal login
+      chat_view.{hpp,cpp}           message sending / file attach logic
+      room_list_model.{hpp,cpp}     QAbstractListModel for rooms
+      room_list_delegate.{hpp,cpp}  paints room list rows
+      timeline_model.{hpp,cpp}       QAbstractListModel for events
+      timeline_delegate.{hpp,cpp}    paints chat bubbles
+      timeline_handlers.{hpp,cpp}    context-menu actions (react/edit/delete/pin)
+      message_edit.{hpp,cpp}         input + slash commands
+      emoji_picker.{hpp,cpp}         emoji picker
+      image_loader.{hpp,cpp}         async mxc:// thumbnail fetcher
+      image_viewer_dialog.{hpp,cpp}  full-size image viewer
+      prefs_dialog / profile_dialog / room_directory_dialog /
+      room_members_dialog / room_settings_dialog / threads_dialog /
+      user_profile_dialog / network_log_dialog
+      theme.{hpp,cpp}                dark palette + design tokens
   scripts/
     build-pt2.sh          PineTab 2 build wrapper (ccache + ninja)
     audit-modules.py      Tier A/B/C/D classifier
+  docs/
+    phase1.md            Phase 1 — core plumbing
+    phase2.md            Phase 2 — minimal usable UI
+  tests/
+    test_phase1.cpp       unit tests (no network)
 ```
 
 ## License

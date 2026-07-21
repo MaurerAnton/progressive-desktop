@@ -55,6 +55,36 @@ QVariant TimelineModel::data(const QModelIndex& index, int role) const {
 
 static const int MAX_TIMELINE_EVENTS = 200;
 
+// Update groupFirst/groupLast on all events after model mutation
+static void updateGroupMarkers(std::vector<DisplayedEvent>& events) {
+    for (size_t i = 0; i < events.size(); ++i) {
+        auto& e = events[i];
+        bool isSystem = (e.type == "m.room.member" || e.type == "m.room.redaction");
+        bool isEmote = (e.msgtype == "m.emote");
+        if (isSystem || isEmote) { e.groupFirst = true; e.groupLast = true; continue; }
+        // Check prev (skip system/emote)
+        bool first = true;
+        for (int p = (int)i - 1; p >= 0; --p) {
+            auto& prev = events[p];
+            if (prev.type != "m.room.member" && prev.type != "m.room.redaction" && prev.msgtype != "m.emote") {
+                first = (prev.senderId != e.senderId);
+                break;
+            }
+        }
+        // Check next
+        bool last = true;
+        for (size_t n = i + 1; n < events.size(); ++n) {
+            auto& next = events[n];
+            if (next.type != "m.room.member" && next.type != "m.room.redaction" && next.msgtype != "m.emote") {
+                last = (next.senderId != e.senderId);
+                break;
+            }
+        }
+        e.groupFirst = first;
+        e.groupLast = last;
+    }
+}
+
 void TimelineModel::appendBack(const DisplayedEvent& evt) {
     if (!evt.eventId.empty() && seenIds_.count(evt.eventId)) return;
     if (!evt.eventId.empty()) seenIds_.insert(evt.eventId);
@@ -63,6 +93,7 @@ void TimelineModel::appendBack(const DisplayedEvent& evt) {
     beginInsertRows(QModelIndex(), row, row);
     events_.push_back(evt);
     endInsertRows();
+    updateGroupMarkers(events_);
 
     if (static_cast<int>(events_.size()) > MAX_TIMELINE_EVENTS) {
         int excess = static_cast<int>(events_.size()) - MAX_TIMELINE_EVENTS;
@@ -129,6 +160,7 @@ void TimelineModel::appendFront(const std::vector<DisplayedEvent>& evts) {
     beginInsertRows(QModelIndex(), 0, n - 1);
     events_.insert(events_.begin(), newOnes.rbegin(), newOnes.rend());
     endInsertRows();
+    updateGroupMarkers(events_);
 }
 
 void TimelineModel::clear() {

@@ -3,6 +3,8 @@
 #include "timeline_model.hpp"
 #include "image_loader.hpp"
 #include "theme.hpp"
+#include "image_loader.hpp"
+#include "theme.hpp"
 
 #include <QPainter>
 #include <QPainterPath>
@@ -123,12 +125,15 @@ void TimelineDelegate::drawBubbleAvatar(QPainter* p, int x, int y,
     if (loader_ && !avatarUrl.isEmpty()) {
         if (loader_->hasImage(avatarUrl.toStdString())) {
             avatarImg = loader_->getCached(avatarUrl.toStdString());
-        } else {
+        } else if (!pendingFetches_.count(avatarUrl.toStdString())) {
             QString av = avatarUrl;
+            auto* self = const_cast<TimelineDelegate*>(this);
+            self->pendingFetches_.insert(av.toStdString());
             auto* model = const_cast<QAbstractItemModel*>(idx.model());
-            const_cast<TimelineDelegate*>(this)->loader_->fetchThumbnail(
+            self->loader_->fetchThumbnail(
                 av.toStdString(), AVATAR * 2, AVATAR * 2,
-                [av, model](const QImage& img) {
+                [self, av, model](const QImage& img) {
+                    self->pendingFetches_.erase(av.toStdString());
                     if (!img.isNull() && model) {
                         for (int i = 0; i < model->rowCount(); ++i) {
                             auto mi = model->index(i, 0);
@@ -301,41 +306,19 @@ static BubbleLayout computeLayout(const QModelIndex& idx,
     bool hasImage = (msgtype == "m.image" || msgtype == "m.video") && !mxcUrl.isEmpty();
     L.isEmote = isEmote;
 
-    // Group position: skip system messages when checking prev/next
-    auto isSystem = [](const QModelIndex& i) {
-        QString t = i.data(TimelineModel::TypeRole).toString();
-        return t == "m.room.member" || t == "m.room.redaction";
-    };
-    auto isMsg = [&](const QModelIndex& i) {
-        return !isSystem(i) && i.data(TimelineModel::MsgTypeRole).toString() != "m.emote";
-    };
-
-    // Emotes always stand alone (no grouping)
-    if (isEmote) {
-        L.isFirstInGroup = true;
-        L.isLastInGroup = true;
-    } else {
-        // Check prev (walk back skipping system/emote rows)
-        int p = idx.row() - 1;
-        while (p >= 0) {
-            auto pi = idx.model()->index(p, 0);
-            if (isMsg(pi)) {
-                L.isFirstInGroup = (pi.data(TimelineModel::SenderRole).toString() != senderId);
-                break;
-            }
-            p--;
-        }
-        // Check next (walk forward skipping system/emote rows)
-        int n = idx.row() + 1;
-        while (n < idx.model()->rowCount()) {
-            auto ni = idx.model()->index(n, 0);
-            if (isMsg(ni)) {
-                L.isLastInGroup = (ni.data(TimelineModel::SenderRole).toString() != senderId);
-                break;
-            }
-            n++;
-        }
+    // O(1) group lookup — cached in DisplayedEvent by updateGroupMarkers
+    L.isFirstInGroup = idx.data(TimelineModel::EventIdRole).isValid()
+        ? idx.model()->data(idx, Qt::UserRole + 99).toBool() : true;
+    // Read groupFirst/groupLast directly from model
+    bool groupFirst = true, groupLast = true;
+    int row = idx.row();
+    auto* tm = static_cast<const TimelineModel*>(idx.model());
+    if (tm && row >= 0 && row < tm->rowCount(QModelIndex())) {
+        auto* evt = tm->at(row);
+        if (evt) { groupFirst = evt->groupFirst; groupLast = evt->groupLast; }
     }
+    L.isFirstInGroup = groupFirst || isEmote;
+    L.isLastInGroup = groupLast || isEmote;
 
     if (!isOutgoing && !isEmote && L.isFirstInGroup && !senderName.isEmpty())
         L.nameH = 18;
@@ -688,29 +671,71 @@ bool TimelineDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
                                      const QModelIndex& index) {
     if (event->type() == QEvent::MouseButtonRelease) {
         auto* me = static_cast<QMouseEvent*>(event);
-        (void)me;
-        (void)option;
         QString eventId = index.data(TimelineModel::EventIdRole).toString();
         QString mxcUrl = index.data(TimelineModel::MxcUrlRole).toString();
         QString msgtype = index.data(TimelineModel::MsgTypeRole).toString();
         QString body = index.data(TimelineModel::BodyRole).toString();
+        bool isReply = index.data(TimelineModel::IsReplyRole).toBool();
+        QString replyTo = index.data(TimelineModel::ReplyToRole).toString();
 
-        // Check if click is on a markdown link
+        // Compute bubble position for hit zones
+        int avail = option.rect.width() - AVATAR - GAP - MARGIN * 2;
+        int bubbleW = qMin(MAX_BUBBLE_W, avail);
+        QString senderId = index.data(TimelineModel::SenderRole).toString();
+        bool isOutgoing = !myUserId_.isEmpty() && senderId == myUserId_;
+        int bubbleX = isOutgoing ? (option.rect.right() - MARGIN - AVATAR - GAP - bubbleW)
+                                  : (option.rect.x() + MARGIN + AVATAR + GAP);
+
+        // Reaction zone: bottom of bubble
+        auto rxns = index.data(TimelineModel::ReactionsRole).value<QStringList>();
+        if (!rxns.isEmpty()) {
+            int ry = option.rect.y() + option.rect.height() - 24;
+            QRect reactionZone(bubbleX, ry, bubbleW, 22);
+            if (reactionZone.contains(me->pos())) {
+                // Show first reaction emoji as tooltip
+                QString tip;
+                for (const QString& r : rxns) tip += r + " ";
+                emit reactionClicked(eventId, rxns.first());
+                return true;
+            }
+        }
+
+        // Reply preview zone — click to scroll to original
+        if (isReply && !replyTo.isEmpty()) {
+            auto* tm = static_cast<const TimelineModel*>(model);
+            int origRow = tm->findRow(replyTo.toStdString());
+            if (origRow >= 0) {
+                QRect replyZone(bubbleX + PAD, option.rect.y() + 32, bubbleW - PAD*2, 16);
+                if (replyZone.contains(me->pos())) {
+                    emit messageClicked(replyTo);  // signal to scroll to original
+                    return true;
+                }
+            }
+        }
+
+        // Image zone
+        if ((msgtype == "m.image" || msgtype == "m.video") && !mxcUrl.isEmpty()) {
+            // Image is drawn inside bubble — check if click is in lower half
+            if (me->pos().y() > option.rect.y() + 60) {
+                emit imageClicked(eventId, mxcUrl);
+                return true;
+            }
+        }
+
+        // Markdown link check
         if (msgtype == "m.text" || msgtype.isEmpty()) {
             QTextDocument doc;
             doc.setDefaultFont(QFont(QApplication::font().family(), 10));
             std::string html = progressive::markdownToHtml(body.toStdString());
             doc.setHtml(html.empty() ? body.toHtmlEscaped() : QString::fromStdString(html));
-            doc.setTextWidth(option.rect.width() - 60);
-            int contentX = option.rect.x() + MARGIN + AVATAR + GAP + PAD;
-            QPointF docPos(me->position().x() - contentX, me->position().y() - option.rect.y() - 40);
+            doc.setTextWidth(bubbleW - PAD * 2);
+            QPointF docPos(me->pos().x() - bubbleX - PAD, me->pos().y() - option.rect.y() - 40);
             QString anchor = doc.documentLayout()->anchorAt(docPos);
             if (!anchor.isEmpty()) {
                 if (anchor.startsWith("https://") || anchor.startsWith("http://")) {
                     emit linkClicked(anchor);
                     return true;
                 }
-                // matrix.to links
                 if (anchor.startsWith("matrix.to")) {
                     emit linkClicked("https://" + anchor);
                     return true;
@@ -718,11 +743,7 @@ bool TimelineDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
             }
         }
 
-        if ((msgtype == "m.image" || msgtype == "m.video") && !mxcUrl.isEmpty()) {
-            emit imageClicked(eventId, mxcUrl);
-        } else {
-            emit messageClicked(eventId);
-        }
+        emit messageClicked(eventId);
         return true;
     }
     return QStyledItemDelegate::editorEvent(event, model, option, index);

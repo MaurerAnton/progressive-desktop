@@ -39,6 +39,10 @@ struct DisplayedEvent {
     bool isThreadReply = false;    // this message is a reply in a thread
     std::string threadRootId;      // root event_id if isThreadReply
     bool isPinned = false;
+    bool groupFirst = true;         // first message in same-sender group
+    bool groupLast  = true;         // last message in same-sender group
+    enum Delivery { Sending, Delivered, Failed };
+    Delivery delivery = Delivered;  // delivery state for own messages
     std::vector<ReactionData> reactions;
     QImage image;                  // cached thumbnail (empty if not loaded yet)
     bool imageLoaded = false;

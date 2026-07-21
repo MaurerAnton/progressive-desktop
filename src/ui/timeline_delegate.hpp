@@ -2,6 +2,7 @@
 #pragma once
 #include <QStyledItemDelegate>
 #include <QHash>
+#include <unordered_set>
 #include <memory>
 
 class QTextDocument;
@@ -35,6 +36,7 @@ signals:
 private:
     ImageLoader* loader_;
     QString myUserId_;
+    mutable std::unordered_set<std::string> pendingFetches_;
 
     void drawBubbleAvatar(QPainter* p, int x, int y, const QModelIndex& idx,
                           const QString& senderId, const QString& senderName,

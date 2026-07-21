@@ -38,6 +38,7 @@
 #include <QFileInfo>
 #include <QMimeDatabase>
 #include <QTextCursor>
+#include <QUuid>
 
 #include <progressive/markdown.hpp>
 #include <progressive/json_parser.hpp>
@@ -545,13 +546,23 @@ void MainWindow::wireSyncCallbacks() {
 void MainWindow::startWithSavedSession() {
     if (!client_ || !client_->isLoggedIn()) return;
 
+    // Generate a unique device_id on first run — prevents token conflicts
+    // when multiple installations share the same account.
+    auto acct = client_->account();
+    if (acct.deviceId.empty() || acct.deviceId == "PROGRESSIVE_DESKTOP") {
+        acct.deviceId = "pd-" + QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+        client_->setAccount(acct);
+        client_->persistSession();
+        std::fprintf(stderr, "[session] generated device_id: %s\n", acct.deviceId.c_str());
+    }
+
     // Log session details for debugging logout issues
-    const auto& acct = client_->account();
-    std::fprintf(stderr, "[session] loaded: user=%s device=%s homeserver=%s token_prefix=%s...\n",
+    std::fprintf(stderr, "[session] loaded: user=%s device=%s homeserver=%s token_prefix=%s refresh=%s\n",
                  acct.userId.c_str(),
                  acct.deviceId.c_str(),
                  acct.homeserverUrl.c_str(),
-                 acct.accessToken.substr(0, 8).c_str());
+                 acct.accessToken.substr(0, 8).c_str(),
+                 acct.refreshToken.empty() ? "(none)" : (acct.refreshToken.substr(0, 8) + "...").c_str());
 
     // Set client on image loader
     imageLoader_->setClient(client_);
@@ -563,8 +574,7 @@ void MainWindow::startWithSavedSession() {
     statusLabel_->setText("Starting sync...");
 
     // Initialize E2EE: load saved olm account pickle, or create new one.
-    std::string pickleKey = client_->account().userId + "/" +
-        (client_->account().deviceId.empty() ? "PROGRESSIVE_DESKTOP" : client_->account().deviceId);
+    std::string pickleKey = client_->account().userId + "/" + client_->account().deviceId;
     try {
         std::string savedPickle;
         std::string savedKey;

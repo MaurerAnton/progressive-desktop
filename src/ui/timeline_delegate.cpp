@@ -24,14 +24,16 @@ namespace progressive::desktop {
 
 namespace {
 
-// ---- Layout constants ----
-static const int AVATAR = 36;
-static const int MARGIN = 8;
-static const int GAP = 8;
-static const int PAD = 10;
-static const int RADIUS = 12;
+static const int AVATAR      = 36;
+static const int MARGIN      = 8;
+static const int GAP         = 8;
+static const int PAD         = 10;
+static const int PAD_TOP     = 6;
+static const int PAD_BOTTOM  = 4;
+static const int RADIUS      = 12;
 static const int MAX_BUBBLE_W = 480;
 static const int SAME_SENDER_GAP = 2;
+static const int TIME_ROW_H  = 14;
 
 QString formatTime(int64_t ts) {
     if (ts <= 0) return "";
@@ -55,13 +57,13 @@ QColor colorFromId(const QString& id) {
     uint hash = 0;
     for (QChar c : id) hash = hash * 31 + c.unicode();
     int hue = static_cast<int>(hash % 360);
-    return QColor::fromHsl(hue, static_cast<int>(200 * 0.9), 150);
+    return QColor::fromHsl(hue, 180, 140);
 }
 
-// ---- Text layout helpers ----
-
-int textHeight(const QString& body, const QString& msgtype, int width) {
-    if (body.isEmpty()) return 20;
+// Compute rendered text height for a body + msgtype at given width.
+// Returns the document height (not including extra padding).
+static int calcTextHeight(const QString& body, const QString& msgtype, int textWidth) {
+    if (body.isEmpty()) return 0;
     QTextDocument doc;
     doc.setDefaultFont(QFont("sans-serif", 10));
     if (msgtype == "m.text" || msgtype == "m.emote" || msgtype.isEmpty()) {
@@ -71,12 +73,12 @@ int textHeight(const QString& body, const QString& msgtype, int width) {
     } else {
         doc.setPlainText(body);
     }
-    doc.setTextWidth(width - PAD * 2);
-    return static_cast<int>(doc.size().height()) + 4;
+    doc.setTextWidth(textWidth);
+    return static_cast<int>(doc.size().height());
 }
 
-void drawRichText(QPainter* p, const QRect& r, const QString& body,
-                  const QString& msgtype) {
+static void drawRichText(QPainter* p, const QRect& r, const QString& body,
+                         const QString& msgtype) {
     QTextDocument doc;
     doc.setDefaultFont(QFont("sans-serif", 10));
     if (msgtype == "m.text" || msgtype == "m.emote" || msgtype.isEmpty()) {
@@ -92,7 +94,8 @@ void drawRichText(QPainter* p, const QRect& r, const QString& body,
     p->translate(r.topLeft());
     QAbstractTextDocumentLayout::PaintContext ctx;
     ctx.palette = QGuiApplication::palette();
-    ctx.palette.setColor(QPalette::Text, QColor("#d0d0d0"));
+    // #f0f0f0 gives 5:1+ contrast on both #2a2a3e (incoming) and #0f3460 (outgoing)
+    ctx.palette.setColor(QPalette::Text, QColor("#f0f0f0"));
     doc.documentLayout()->draw(p, ctx);
     p->restore();
 }
@@ -202,6 +205,74 @@ void TimelineDelegate::drawSystemRow(QPainter* p, const QRect& rect,
     p->drawText(rect, Qt::AlignHCenter | Qt::AlignVCenter, text);
 }
 
+// ---- Bubble height calculation (shared between paint and sizeHint) ----
+
+struct BubbleLayout {
+    int nameH       = 0;
+    int textH       = 0;
+    int imageH      = 0;
+    int pinnedH     = 0;
+    int threadReplyH = 0;
+    int threadCountH = 0;
+    int bubbleH     = 0;
+
+    // Sum all parts: name + PAD_TOP + text + optional image + indicators + PAD_BOTTOM + time row
+    int totalBubbleH() const {
+        int h = nameH + PAD_TOP;
+        if (pinnedH)     h += pinnedH;
+        if (threadReplyH) h += threadReplyH;
+        if (textH > 0)   h += textH + 4;
+        if (imageH > 0)  h += imageH + 4;
+        h += PAD_BOTTOM + TIME_ROW_H;
+        if (threadCountH) h += threadCountH;
+        return h;
+    }
+};
+
+static BubbleLayout computeLayout(const QModelIndex& idx,
+                                   const QString& myUserId, int bubbleW) {
+    BubbleLayout L;
+    QString senderId = idx.data(TimelineModel::SenderRole).toString();
+    QString senderName = idx.data(TimelineModel::SenderNameRole).toString();
+    QString body = idx.data(TimelineModel::BodyRole).toString();
+    QString msgtype = idx.data(TimelineModel::MsgTypeRole).toString();
+    QString mxcUrl = idx.data(TimelineModel::MxcUrlRole).toString();
+    bool imageLoaded = idx.data(TimelineModel::ImageLoadedRole).toBool();
+    int threadCount = idx.data(TimelineModel::ThreadCountRole).toInt();
+    bool isThreadReply = idx.data(TimelineModel::IsThreadReplyRole).toBool();
+    bool pinned = idx.data(TimelineModel::IsPinnedRole).toBool();
+    bool isOutgoing = !myUserId.isEmpty() && senderId == myUserId;
+    bool isEmote = (msgtype == "m.emote");
+    bool hasImage = (msgtype == "m.image" || msgtype == "m.video") && !mxcUrl.isEmpty();
+
+    int prevRow = idx.row() - 1;
+    bool sameSender = false;
+    if (prevRow >= 0) {
+        auto prevIdx = idx.model()->index(prevRow, 0);
+        if (prevIdx.isValid())
+            sameSender = (prevIdx.data(TimelineModel::SenderRole).toString() == senderId);
+    }
+
+    if (!isOutgoing && !isEmote && !sameSender && !senderName.isEmpty())
+        L.nameH = 18;
+
+    int textW = bubbleW - PAD * 2;
+    if (!body.isEmpty() || isEmote) {
+        QString text = isEmote ? ("* " + senderName + " " + body) : body;
+        L.textH = calcTextHeight(text, isEmote ? "m.text" : msgtype, textW);
+    }
+
+    if (hasImage)
+        L.imageH = imageLoaded ? 200 : 100;
+
+    if (pinned)           L.pinnedH     = 14;
+    if (isThreadReply)     L.threadReplyH = 14;
+    if (threadCount > 0)  L.threadCountH = 16;
+
+    L.bubbleH = L.totalBubbleH();
+    return L;
+}
+
 void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
                                            const QModelIndex& idx) const {
     QString senderId = idx.data(TimelineModel::SenderRole).toString();
@@ -211,165 +282,131 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
     QString body = idx.data(TimelineModel::BodyRole).toString();
     QString msgtype = idx.data(TimelineModel::MsgTypeRole).toString();
     QString mxcUrl = idx.data(TimelineModel::MxcUrlRole).toString();
-    QString mimetype = idx.data(TimelineModel::MimetypeRole).toString();
     bool imageLoaded = idx.data(TimelineModel::ImageLoadedRole).toBool();
     bool isThreadReply = idx.data(TimelineModel::IsThreadReplyRole).toBool();
     int threadCount = idx.data(TimelineModel::ThreadCountRole).toInt();
     int64_t ts = idx.data(TimelineModel::TimeRole).toLongLong();
     bool pinned = idx.data(TimelineModel::IsPinnedRole).toBool();
-
     bool isOutgoing = !myUserId_.isEmpty() && senderId == myUserId_;
     bool isEmote = (msgtype == "m.emote");
     bool hasImage = (msgtype == "m.image" || msgtype == "m.video") && !mxcUrl.isEmpty();
 
-    // Bubble width
     int avail = rowRect.width() - AVATAR - GAP - MARGIN * 2;
     int bubbleW = qMin(MAX_BUBBLE_W, avail);
 
-    // Calculate bubble height
-    int nameH = 0;
-    if (!isOutgoing && !isEmote && !senderName.isEmpty()) {
-        nameH = 18;
-    }
-    int contentH = 8; // padding top
-    if (hasImage) {
-        contentH += imageLoaded ? 200 : 120;
-        contentH += 4;
-    }
-    if (pinned) contentH += 14;
-    if (isThreadReply) contentH += 14;
-    if (threadCount > 0) contentH += 16;
-    if (!body.isEmpty() || isEmote) {
-        if (isEmote) {
-            contentH += textHeight("* " + senderName + " " + body, "m.text", bubbleW - PAD * 2);
-        } else {
-            contentH += textHeight(body, msgtype, bubbleW - PAD * 2);
-        }
-        contentH += 4;
-    }
-    contentH += 6; // padding bottom for time
+    BubbleLayout L = computeLayout(idx, myUserId_, bubbleW);
 
-    int bubbleH = nameH + contentH;
-
-    // Align: outgoing = right, incoming = left
+    // Outgoing: avatar far right, then gap, then bubble
+    // Incoming: avatar left, then gap, then bubble
     int bubbleX, avatarX;
-
     if (isOutgoing) {
-        bubbleX = rowRect.right() - MARGIN - bubbleW;
         avatarX = rowRect.right() - MARGIN - AVATAR;
+        bubbleX = avatarX - GAP - bubbleW;
     } else {
-        bubbleX = rowRect.x() + MARGIN + AVATAR + GAP;
         avatarX = rowRect.x() + MARGIN;
+        bubbleX = avatarX + AVATAR + GAP;
     }
 
-    // Consecutive message gap check
     int prevRow = idx.row() - 1;
     bool sameSender = false;
     if (prevRow >= 0) {
         auto prevIdx = idx.model()->index(prevRow, 0);
-        if (prevIdx.isValid()) {
+        if (prevIdx.isValid())
             sameSender = (prevIdx.data(TimelineModel::SenderRole).toString() == senderId);
-        }
     }
 
     int topY = rowRect.y() + (sameSender ? SAME_SENDER_GAP : 4);
 
-    // Draw avatar (incoming on left, outgoing on right)
+    // Avatar
     if (!isEmote && !sameSender) {
         drawBubbleAvatar(p, avatarX, topY, idx, senderId, senderName, avatarUrl);
     }
 
-    // Sender name above bubble (incoming only, first in group)
+    // Sender name
     if (!isOutgoing && !isEmote && !sameSender && !senderName.isEmpty()) {
         QFont nameFont = p->font();
         nameFont.setPointSize(10);
         nameFont.setBold(true);
         p->setFont(nameFont);
         p->setPen(colorFromId(senderId));
-        p->drawText(bubbleX + PAD, topY + 1, bubbleW - PAD, 16, Qt::AlignLeft, senderName);
+        p->drawText(bubbleX + PAD, topY, bubbleW - PAD, 16, Qt::AlignLeft | Qt::AlignBottom, senderName);
     }
 
-    int bubbleY = topY + nameH;
+    int bubbleY = topY + L.nameH;
 
     // Bubble background
     QColor bubbleColor = isOutgoing ? QColor("#0f3460") : QColor("#2a2a3e");
-    if (isEmote) bubbleColor = QColor(0, 0, 0, 0); // no bubble for emotes
+    if (isEmote) bubbleColor = QColor(0, 0, 0, 0);
     if (bubbleColor.alpha() > 0) {
-        drawBubble(p, bubbleX, bubbleY, bubbleW, bubbleH, bubbleColor);
+        drawBubble(p, bubbleX, bubbleY, bubbleW, L.bubbleH, bubbleColor);
     }
 
     int textX = bubbleX + PAD;
-    int textY = bubbleY + 6;
     int textW = bubbleW - PAD * 2;
+    int curY = bubbleY + PAD_TOP;
 
-    // Pinned indicator
+    // Pinned
     if (pinned) {
         p->setPen(QColor("#ffaa00"));
-        QFont pinFont = p->font();
-        pinFont.setPointSize(9);
-        p->setFont(pinFont);
-        p->drawText(textX, textY, textW, 14, Qt::AlignLeft, "📌 Pinned");
-        textY += 14;
+        QFont f = p->font(); f.setPointSize(9); p->setFont(f);
+        p->drawText(textX, curY, textW, 14, Qt::AlignLeft, "📌 Pinned");
+        curY += 14;
     }
 
-    // Thread reply indicator
+    // Thread reply
     if (isThreadReply) {
         p->setPen(QColor("#6699cc"));
-        QFont threadFont = p->font();
-        threadFont.setPointSize(9);
-        p->setFont(threadFont);
-        p->drawText(textX, textY, textW, 14, Qt::AlignLeft, "🧵 thread reply");
-        textY += 14;
+        QFont f = p->font(); f.setPointSize(9); p->setFont(f);
+        p->drawText(textX, curY, textW, 14, Qt::AlignLeft, "🧵 thread reply");
+        curY += 14;
     }
 
-    // Message body
+    // Body text — fills available space from curY to 18px above bubble bottom
     if (isEmote) {
         QString emoteText = "* " + senderName + " " + body;
         p->setPen(QColor("#c0c0c0"));
-        QFont emoteFont = p->font();
-        emoteFont.setItalic(true);
-        emoteFont.setPointSize(10);
-        p->setFont(emoteFont);
-        p->drawText(bubbleX + PAD, bubbleY + 4, textW, bubbleH - 8,
-                    Qt::AlignLeft | Qt::TextWordWrap, emoteText);
+        QFont f = p->font(); f.setItalic(true); f.setPointSize(10); p->setFont(f);
+        QRect emoteRect(bubbleX + PAD, bubbleY + 6, textW, L.bubbleH - 10);
+        p->drawText(emoteRect, Qt::AlignLeft | Qt::TextWordWrap, emoteText);
     } else if (!body.isEmpty()) {
-        drawRichText(p, QRect(textX, textY, textW, bubbleH - (textY - bubbleY) - 20),
-                     body, msgtype);
+        int textBottom = bubbleY + L.bubbleH - 18; // room for timestamp row
+        int textH = textBottom - curY;
+        if (textH < 20) textH = 20;
+        drawRichText(p, QRect(textX, curY, textW, textH), body, msgtype);
+        curY += textH;
     }
 
-    // Image thumbnail
+    // Image
     if (hasImage) {
-        int imgY = bubbleY + (isEmote ? 4 : (textY - bubbleY)) + (body.isEmpty() ? 4 : textHeight(body, msgtype, bubbleW - PAD * 2) + 8);
+        curY += 2;
         int maxW = qMin(bubbleW - PAD * 2, 300);
         if (imageLoaded) {
             QImage img = idx.data(TimelineModel::ImageRole).value<QImage>();
             if (!img.isNull()) {
                 QImage scaled = img.scaled(maxW, 200, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-                QRect imgRect(bubbleX + PAD, imgY, scaled.width(), scaled.height());
+                QRect imgRect(bubbleX + PAD, curY, scaled.width(), scaled.height());
                 p->drawImage(imgRect, scaled);
+                curY += scaled.height() + 2;
                 if (msgtype == "m.video") {
                     p->setPen(Qt::NoPen);
                     p->setBrush(QColor(0, 0, 0, 100));
                     QRect playBtn(imgRect.center().x() - 15, imgRect.center().y() - 15, 30, 30);
                     p->drawEllipse(playBtn);
                     p->setPen(Qt::white);
-                    QFont playFont = p->font();
-                    playFont.setPointSize(12);
-                    p->setFont(playFont);
+                    QFont pf = p->font(); pf.setPointSize(12); p->setFont(pf);
                     p->drawText(playBtn, Qt::AlignCenter, "▶");
                 }
             }
         } else {
-            QRect placeholderRect(bubbleX + PAD, imgY, maxW, 100);
+            QRect placeholderRect(bubbleX + PAD, curY, maxW, 100);
             p->setPen(QPen(QColor("#3a3a3a"), 1));
             p->setBrush(QColor("#1a1a1a"));
             p->drawRoundedRect(placeholderRect, 6, 6);
             p->setPen(QColor("#888"));
-            QFont placeholderFont = p->font();
-            placeholderFont.setPointSize(10);
-            p->setFont(placeholderFont);
+            QFont pf = p->font(); pf.setPointSize(10); p->setFont(pf);
             p->drawText(placeholderRect, Qt::AlignCenter,
                         msgtype == "m.video" ? "🎬 loading..." : "🖼 loading...");
+            curY += 102;
             QString eventId = idx.data(TimelineModel::EventIdRole).toString();
             const_cast<TimelineDelegate*>(this)->loader_->fetchThumbnail(
                 mxcUrl.toStdString(), 300, 200,
@@ -383,14 +420,12 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
         }
     }
 
-    // Thread reply count
+    // Thread reply count — right above timestamp, at the bottom of bubble
     if (threadCount > 0) {
-        int tY = bubbleY + bubbleH - 34;
         p->setPen(QColor("#6699cc"));
-        QFont tcFont = p->font();
-        tcFont.setPointSize(9);
-        p->setFont(tcFont);
-        p->drawText(textX, tY, textW, 14, Qt::AlignLeft,
+        QFont f = p->font(); f.setPointSize(9); p->setFont(f);
+        int tcY = bubbleY + L.bubbleH - PAD_BOTTOM - TIME_ROW_H - L.threadCountH - 2;
+        p->drawText(textX, tcY, textW, 14, Qt::AlignLeft,
                     QString("💬 %1 %2").arg(threadCount)
                         .arg(threadCount == 1 ? "reply" : "replies"));
     }
@@ -399,34 +434,57 @@ void TimelineDelegate::drawMessageBubble(QPainter* p, const QRect& rowRect,
     QString timeStr = formatTime(ts);
     if (!timeStr.isEmpty()) {
         p->setPen(QColor("#888"));
-        QFont timeFont = p->font();
-        timeFont.setPointSize(9);
-        p->setFont(timeFont);
-        QFontMetrics fm(timeFont);
+        QFont f = p->font(); f.setPointSize(9); p->setFont(f);
+        QFontMetrics fm(f);
         int tw = fm.horizontalAdvance(timeStr);
-        p->drawText(bubbleX + bubbleW - tw - 6, bubbleY + bubbleH - 6 - fm.height() + fm.ascent(), timeStr);
+        int ty = bubbleY + L.bubbleH - PAD_BOTTOM - TIME_ROW_H;
+        p->drawText(bubbleX + bubbleW - tw - PAD, ty, tw, TIME_ROW_H,
+                    Qt::AlignRight | Qt::AlignVCenter, timeStr);
     }
 
-    // Reactions pills below bubble
+    // Reactions pills below bubble, with wrapping and +N counter
     auto reactionsVar = idx.data(TimelineModel::ReactionsRole);
     QStringList reactions = reactionsVar.value<QStringList>();
     if (!reactions.isEmpty()) {
         int rx = bubbleX;
-        int ry = bubbleY + bubbleH + 2;
-        QFont pillFont = p->font();
-        pillFont.setPointSize(9);
-        p->setFont(pillFont);
+        int ry = bubbleY + L.bubbleH + 2;
+        QFont pillFont = p->font(); pillFont.setPointSize(9); p->setFont(pillFont);
         QFontMetrics fm(pillFont);
-        for (const QString& pill : reactions) {
-            int textWidth = fm.horizontalAdvance(pill) + 6;
-            QRect pillRect(rx, ry, textWidth + 10, 18);
+        int maxX = bubbleX + bubbleW;
+        int rowNum = 0;
+        int shown = 0;
+        for (int i = 0; i < reactions.size(); ++i) {
+            const QString& pill = reactions[i];
+            int pw = fm.horizontalAdvance(pill) + 16;
+            if (rx + pw > maxX && shown > 0) {
+                rx = bubbleX;
+                ry += 20;
+                rowNum++;
+                if (rowNum >= 2) {
+                    // Show how many more
+                    int left = static_cast<int>(reactions.size()) - shown;
+                    if (left > 0) {
+                        QString more = "+" + QString::number(left);
+                        int mw = fm.horizontalAdvance(more) + 16;
+                        QRect pr(rx, ry, mw, 18);
+                        p->setPen(QColor("#3a3a3a"));
+                        p->setBrush(QColor("#2a2a2a"));
+                        p->drawRoundedRect(pr, 8, 8);
+                        p->setPen(QColor("#e8e8e8"));
+                        p->drawText(pr, Qt::AlignCenter, more);
+                    }
+                    break;
+                }
+            }
+            if (rx + pw > maxX && shown == 0) pw = maxX - rx;
+            QRect pr(rx, ry, pw, 18);
             p->setPen(QColor("#3a3a3a"));
             p->setBrush(QColor("#2a2a2a"));
-            p->drawRoundedRect(pillRect, 8, 8);
+            p->drawRoundedRect(pr, 8, 8);
             p->setPen(QColor("#e8e8e8"));
-            p->drawText(pillRect, Qt::AlignCenter, pill);
-            rx += pillRect.width() + 3;
-            if (rx > bubbleX + bubbleW - 60) break;
+            p->drawText(pr, Qt::AlignCenter, pill);
+            rx += pw + 3;
+            shown++;
         }
     }
 }
@@ -436,7 +494,6 @@ void TimelineDelegate::paint(QPainter* p, const QStyleOptionViewItem& opt,
     p->save();
     p->setRenderHint(QPainter::Antialiasing);
 
-    // Row background
     if (opt.state & QStyle::State_Selected) {
         p->fillRect(opt.rect, QColor(50, 80, 130));
     } else {
@@ -444,7 +501,6 @@ void TimelineDelegate::paint(QPainter* p, const QStyleOptionViewItem& opt,
     }
 
     QString type = idx.data(TimelineModel::TypeRole).toString();
-
     if (type == "m.room.member" || type == "m.room.redaction") {
         drawSystemRow(p, opt.rect, idx, type);
     } else {
@@ -457,59 +513,31 @@ void TimelineDelegate::paint(QPainter* p, const QStyleOptionViewItem& opt,
 QSize TimelineDelegate::sizeHint(const QStyleOptionViewItem& opt,
                                    const QModelIndex& idx) const {
     QString type = idx.data(TimelineModel::TypeRole).toString();
-    QString msgtype = idx.data(TimelineModel::MsgTypeRole).toString();
-    QString body = idx.data(TimelineModel::BodyRole).toString();
-    QString senderId = idx.data(TimelineModel::SenderRole).toString();
-    QString mxcUrl = idx.data(TimelineModel::MxcUrlRole).toString();
-    bool imageLoaded = idx.data(TimelineModel::ImageLoadedRole).toBool();
+    if (type == "m.room.member" || type == "m.room.redaction") {
+        return QSize(opt.rect.width() > 40 ? opt.rect.width() : 600, 28);
+    }
 
     int width = opt.rect.width();
     if (width <= 40) width = 600;
-
-    if (type == "m.room.member" || type == "m.room.redaction") {
-        return QSize(width, 28);
-    }
-
     int bubbleW = qMin(MAX_BUBBLE_W, width - AVATAR - GAP - MARGIN * 2);
 
-    // Same sender gap?
+    BubbleLayout L = computeLayout(idx, myUserId_, bubbleW);
+
+    // Same-sender gap
+    QString senderId = idx.data(TimelineModel::SenderRole).toString();
     int prevRow = idx.row() - 1;
     bool sameSender = false;
     if (prevRow >= 0) {
         auto prevIdx = idx.model()->index(prevRow, 0);
-        if (prevIdx.isValid()) {
+        if (prevIdx.isValid())
             sameSender = (prevIdx.data(TimelineModel::SenderRole).toString() == senderId);
-        }
     }
-
-    bool isOutgoing = !myUserId_.isEmpty() && senderId == myUserId_;
-    bool isEmote = (msgtype == "m.emote");
-    bool hasImage = (msgtype == "m.image" || msgtype == "m.video") && !mxcUrl.isEmpty();
-
-    int nameH = (!isOutgoing && !isEmote && !sameSender) ? 18 : 0;
-    int contentH = 8;
-
-    if (hasImage) contentH += (imageLoaded ? 200 : 120) + 4;
-    if (!body.isEmpty() || isEmote) {
-        contentH += textHeight(isEmote ? ("* " + senderId + " " + body) : body,
-                               isEmote ? "m.text" : msgtype,
-                               bubbleW - PAD * 2);
-        contentH += 4;
-    }
-    contentH += 10; // time + padding
-
-    // Thread indicators
-    if (idx.data(TimelineModel::IsThreadReplyRole).toBool()) contentH += 14;
-    if (idx.data(TimelineModel::ThreadCountRole).toInt() > 0) contentH += 16;
-    if (idx.data(TimelineModel::IsPinnedRole).toBool()) contentH += 14;
-
-    int bubbleH = nameH + contentH;
 
     // Reactions
     auto rxns = idx.data(TimelineModel::ReactionsRole).value<QStringList>();
     int reactionH = rxns.isEmpty() ? 0 : 22;
 
-    int totalH = (sameSender ? SAME_SENDER_GAP : 4) + bubbleH + reactionH + 2;
+    int totalH = (sameSender ? SAME_SENDER_GAP : 4) + L.bubbleH + reactionH + 2;
     return QSize(width, qMax(totalH, AVATAR + 8));
 }
 

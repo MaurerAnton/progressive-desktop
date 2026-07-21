@@ -13,6 +13,7 @@
 #include <QTimer>
 #include <QString>
 #include <QCheckBox>
+#include <QUuid>
 
 #include <progressive/well_known.hpp>
 
@@ -188,7 +189,13 @@ void LoginDialog::onLoginClicked() {
         QString::fromStdString(discovered.data)));
     QApplication::processEvents();
 
-    auto result = client_->loginWithPassword(userStr, pass.toStdString());
+    // Generate a unique device_id for this installation if not already set.
+    // This prevents M_UNKNOWN_TOKEN when multiple devices share the same ID.
+    std::string deviceId = client_->account().deviceId;
+    if (deviceId.empty() || deviceId == "PROGRESSIVE_DESKTOP") {
+        deviceId = "pd-" + QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+    }
+    auto result = client_->loginWithPassword(userStr, pass.toStdString(), deviceId);
     if (!result.ok) {
         QString hint;
         if (result.error.code == "M_FORBIDDEN") {

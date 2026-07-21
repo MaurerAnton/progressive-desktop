@@ -59,8 +59,13 @@ public:
     // POST /_matrix/client/v3/login with m.login.password.
     // Uses parseCredentials() (we do it here, response is small JSON).
     ApiResult<AccountInfo> loginWithPassword(const std::string& username,
-                                              const std::string& password,
-                                              const std::string& deviceId = "");
+                                               const std::string& password,
+                                               const std::string& deviceId = "");
+
+    // POST /_matrix/client/v3/refresh — refresh an expired access token.
+    // Requires a valid refresh_token from the initial login response.
+    // Returns new AccountInfo with fresh access_token and refresh_token.
+    ApiResult<AccountInfo> refreshAccessToken(const std::string& refreshToken);
 
     // POST /_matrix/client/v3/logout — invalidate the current access token.
     ApiResult<bool> logout();

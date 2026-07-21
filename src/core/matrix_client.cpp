@@ -222,6 +222,31 @@ ApiResult<bool> MatrixClient::logout() {
     return r;
 }
 
+ApiResult<AccountInfo> MatrixClient::refreshAccessToken(const std::string& refreshToken) {
+    ApiResult<AccountInfo> r;
+    if (account_.homeserverUrl.empty() || refreshToken.empty()) {
+        r.error.message = "no homeserver URL or refresh token";
+        return r;
+    }
+    std::string body = R"({"refresh_token":")" + refreshToken + R"("})";
+    // Refresh endpoint: authenticate with the refresh token, not the
+    // (possibly expired) access token. Use minimal headers.
+    std::unordered_map<std::string, std::string> hdrs;
+    hdrs["Content-Type"] = "application/json";
+    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/refresh",
+                         body, hdrs, 15000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) {
+        r.data = parseLoginResponse(resp.body, account_.homeserverUrl);
+        r.ok = r.data.isValid();
+        if (!r.ok) r.error.message = "refresh response missing access_token";
+    } else {
+        if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+        r.error.message = resp.errorMessage.empty() ? r.error.message : resp.errorMessage;
+    }
+    return r;
+}
+
 ApiResult<std::string> MatrixClient::sendMessage(const std::string& roomId,
                                                   const std::string& body,
                                                   const std::string& msgtype) {

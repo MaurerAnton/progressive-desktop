@@ -101,7 +101,7 @@ void SyncEngine::run() {
                          sinceToken_.substr(0, 20).c_str(),
                          client_ ? client_->account().userId.c_str() : "(null)");
 
-            // Detect invalid access token — notify UI (soft logout).
+            // Detect invalid access token.
             if (result.error.code == "M_UNKNOWN_TOKEN") {
                 std::fprintf(stderr, "[session] M_UNKNOWN_TOKEN — access token is invalid.\n"
                                      "  Possible causes:\n"
@@ -110,6 +110,43 @@ void SyncEngine::run() {
                                      "    3. Logged out from another client with this device_id\n"
                                      "    4. Server-side token cleanup\n"
                                      "    5. SQLite session.db was corrupted and token is garbage\n");
+
+                const auto& acct = client_->account();
+                std::fprintf(stderr, "[session]   user=%s device=%s refresh=%s\n",
+                             acct.userId.c_str(),
+                             acct.deviceId.c_str(),
+                             acct.refreshToken.empty() ? "(none)"
+                                 : (acct.refreshToken.substr(0, 8) + "...").c_str());
+
+                // Retry once — may be a transient network error
+                std::fprintf(stderr, "[session]   retrying sync once (transient check)...\n");
+                auto retry = client_->syncFast(since, timeout, false);
+                if (retry.ok) {
+                    std::fprintf(stderr, "[session]   retry OK — false alarm, continuing\n");
+                    sinceToken_ = std::string(retry.data.nextBatch);
+                    stats_.errors = 0;
+                    stats_.syncs++;
+                    if (syncCb_) syncCb_(retry.data);
+                    continue;
+                }
+
+                // Try refresh token if available
+                if (client_ && !client_->account().refreshToken.empty()) {
+                    std::fprintf(stderr, "[session]   trying /refresh with refresh token...\n");
+                    auto refresh = client_->refreshAccessToken(client_->account().refreshToken);
+                    if (refresh.ok && !refresh.data.accessToken.empty()) {
+                        std::fprintf(stderr, "[session]   /refresh OK — new access token obtained\n");
+                        AccountInfo newAcct = client_->account();
+                        newAcct.accessToken = refresh.data.accessToken;
+                        newAcct.refreshToken = refresh.data.refreshToken;
+                        client_->setAccount(newAcct);
+                    client_->persistSession();
+                    continue;  // retry sync with new token
+                    }
+                    std::fprintf(stderr, "[session]   /refresh FAILED: %s\n",
+                                 refresh.error.message.c_str());
+                }
+
                 setState(SyncEngineState::Stopped);
                 if (authErrCb_) authErrCb_();
                 running_ = false;

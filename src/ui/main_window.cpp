@@ -1591,45 +1591,46 @@ void MainWindow::onSync(FastSyncResponse resp) {
                    || !resp.invitedRooms.empty();
 
     if (hasData && roomStore_) {
-        QString inviteText;
-        bool hasInvites = false;
+        QPointer<MainWindow> guard(this);
         std::string myUserId = client_ ? client_->account().userId : "";
-        roomStore_->rebuildFromSync(resp, roomModel_, timelineModel_,
-            currentRoomId_.toStdString(), myUserId,
-            inviteText, hasInvites);
-        if (hasInvites) {
-            inviteHeader_->setText(inviteText);
-            inviteHeader_->show();
-        } else {
-            inviteHeader_->hide();
-        }
-        updateRoomListHeader();
-        if (!resp.joinedRooms.empty()) logMemorySnapshot("after-rebuildRoomList");
+        std::string curRoomId = currentRoomId_.toStdString();
+
+        // Heavy work on worker thread — no model/widget access
+        std::thread([guard, resp = std::move(resp), myUserId, curRoomId]() mutable {
+            auto syncUpdate = RoomStore::prepareRoomSyncUpdate(resp, curRoomId, myUserId);
+
+            // Light work on UI thread — only model operations
+            QMetaObject::invokeMethod(guard, [guard, syncUpdate = std::move(syncUpdate)]() mutable {
+                if (guard.isNull()) return;
+                guard->roomStore_->applyRoomSyncUpdate(syncUpdate,
+                    guard->roomModel_, guard->timelineModel_);
+
+                // Widget updates (MainWindow-owned)
+                if (syncUpdate.inviteCount > 0) {
+                    guard->inviteHeader_->setText(syncUpdate.inviteText);
+                    guard->inviteHeader_->show();
+                } else {
+                    guard->inviteHeader_->hide();
+                }
+                guard->updateRoomListHeader();
+                logMemorySnapshot("after-rebuildRoomList");
+
+                // Desktop notification (first sync excluded by static)
+                static bool firstNotify = true;
+                if (!firstNotify) {
+                    for (auto& rd : syncUpdate.roomsToUpsert) {
+                        if (rd.highlightCount > 0) {
+                            guard->notifier_.notify(QString::fromStdString(rd.name), "Highlight!");
+                            break;
+                        }
+                    }
+                }
+                firstNotify = false;
+            }, Qt::QueuedConnection);
+        }).detach();
     }
 
-    // Desktop notification: if any room has highlight_count > 0, notify the user.
-    // We do this only after the first sync (so initial sync doesn't spam).
     static bool firstSync = true;
-    if (!firstSync) {
-        for (const auto& [roomIdView, room] : resp.joinedRooms) {
-            if (room.highlightCount > 0) {
-                std::string roomId(roomIdView);
-                QString roomName = QString::fromStdString(roomId);
-                int row = roomModel_->findRowByRoomId(roomId);
-                if (row >= 0) {
-                    const RoomData* rd = roomModel_->at(row);
-                    if (rd) roomName = QString::fromStdString(rd->name);
-                }
-                QString body = "You have " + QString::number(room.highlightCount) + " highlight(s)";
-                if (!room.timeline.events.empty()) {
-                    auto lastBody = extractLastMessageBody(room.timeline.events);
-                    if (!lastBody.empty()) body = QString::fromUtf8(jsonUnescape(lastBody).data(), (int)jsonUnescape(lastBody).size());
-                }
-                notifier_.notify(roomName, body);
-                break;
-            }
-        }
-    }
     if (firstSync) {
         logMemorySnapshot("after-first-sync");
     }

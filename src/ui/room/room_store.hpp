@@ -2,10 +2,12 @@
 #pragma once
 #include <string>
 #include <vector>
+#include <unordered_map>
 #include <functional>
 #include <QPointer>
 #include <QString>
 #include <QWidget>
+#include "../room_list_model.hpp"
 
 namespace progressive::desktop {
 
@@ -27,17 +29,32 @@ struct RoomMeta {
     bool isEncrypted = false;
 };
 
+// Prepared update — computed on worker thread, applied on UI thread
+struct RoomSyncUpdate {
+    std::vector<RoomData> roomsToUpsert;
+    std::vector<std::string> roomsToRemove;
+    std::vector<RoomData> invitedRooms;
+    QString inviteText;
+    int inviteCount = 0;
+    bool currentRoomUpdated = false;
+    std::string currentRoomId;
+    std::vector<FastEvent> currentRoomEvents;
+    std::unordered_map<std::string,std::string> currentRoomAvatars;
+};
+
 class RoomStore {
 public:
     RoomStore(MatrixClient* client, SessionStore* store);
 
-    void rebuildFromSync(const FastSyncResponse& resp,
-                         RoomListModel* roomList,
-                         TimelineModel* currentTimeline,
-                         const std::string& currentRoomId,
-                         const std::string& myUserId,
-                         QString& inviteText_out,
-                         bool& hasInvites_out);
+    // Heavy part — runs on worker thread, no model access
+    static RoomSyncUpdate prepareRoomSyncUpdate(const FastSyncResponse& resp,
+                                                 const std::string& currentRoomId,
+                                                 const std::string& myUserId);
+
+    // Light part — runs on UI thread, only model operations
+    void applyRoomSyncUpdate(RoomSyncUpdate& syncUpdate,
+                              RoomListModel* roomList,
+                              TimelineModel* currentTimeline);
 
     void loadHistory(const std::string& roomId,
                      TimelineModel* model,

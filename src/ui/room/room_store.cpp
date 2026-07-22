@@ -141,84 +141,55 @@ std::string RoomStore::extractLastMessageBody(const std::vector<FastEvent>& even
     return {};
 }
 
-void RoomStore::rebuildFromSync(const FastSyncResponse& resp,
-                                  RoomListModel* roomList, TimelineModel* currentTimeline,
-                                  const std::string& currentRoomId, const std::string& myUserId,
-                                  QString& inviteText_out, bool& hasInvites_out) {
-    // Remove left rooms
-    for (const auto& leftId : resp.leftRoomIds) {
-        roomList->removeRoom(std::string(leftId));
-        if (currentRoomId == std::string(leftId))
-            currentTimeline->clear();
-    }
+// ---- Sync update (worker thread part: no model access) ----
+
+RoomSyncUpdate RoomStore::prepareRoomSyncUpdate(const FastSyncResponse& resp,
+                                                  const std::string& currentRoomId,
+                                                  const std::string& myUserId) {
+    RoomSyncUpdate u;
+
+    // Left rooms
+    for (const auto& leftId : resp.leftRoomIds)
+        u.roomsToRemove.push_back(std::string(leftId));
 
     // Joined rooms
     for (const auto& [roomIdView, room] : resp.joinedRooms) {
         std::string roomId(roomIdView);
         RoomMeta meta = extractRoomMeta(room, myUserId);
+
         RoomData rd;
         rd.roomId = roomId;
-        rd.name = meta.name.empty() ? (meta.canonicalAlias.empty() ? (meta.dmDisplayName.empty() ? roomId : meta.dmDisplayName) : meta.canonicalAlias) : meta.name;
+        // Name: meta.name → canonicalAlias → dmDisplayName → roomId
+        rd.name = meta.name.empty()
+            ? (meta.canonicalAlias.empty()
+                ? (meta.dmDisplayName.empty() ? roomId : meta.dmDisplayName)
+                : meta.canonicalAlias)
+            : meta.name;
         rd.avatarUrl = meta.avatarUrl.empty() ? meta.dmAvatarUrl : meta.avatarUrl;
         rd.isEncrypted = meta.isEncrypted || room.isEncrypted;
         rd.lastMessage = jsonUnescape(extractLastMessageBody(room.timeline.events));
         rd.lastActivityTs = room.timeline.events.empty() ? 0 : room.timeline.events.back().originServerTs;
         rd.unreadCount = room.notificationCount;
         rd.highlightCount = room.highlightCount;
-        rd.typingUsers.clear();
         for (auto& tu : room.typingUsers) rd.typingUsers.push_back(std::string(tu));
 
-        int existingRow = roomList->findRowByRoomId(roomId);
-        const RoomData* existing = existingRow >= 0 ? roomList->at(existingRow) : nullptr;
+        u.roomsToUpsert.push_back(std::move(rd));
 
-        // Compute name: new from sync → keep old from model → fallback to roomId
-        if (!meta.name.empty()) rd.name = meta.name;
-        else if (!meta.canonicalAlias.empty()) rd.name = meta.canonicalAlias;
-        else if (!meta.dmDisplayName.empty()) rd.name = meta.dmDisplayName;
-        else if (existing && !existing->name.empty() && existing->name != roomId)
-            rd.name = existing->name;  // keep old name
-        else rd.name = roomId;
-
-        // Avatar: new from sync → old from model → DM avatar
-        if (!meta.avatarUrl.empty()) rd.avatarUrl = meta.avatarUrl;
-        else if (!meta.dmAvatarUrl.empty()) rd.avatarUrl = meta.dmAvatarUrl;
-        else if (existing && !existing->avatarUrl.empty()) rd.avatarUrl = existing->avatarUrl;
-
-        rd.isEncrypted = meta.isEncrypted || room.isEncrypted || (existing && existing->isEncrypted);
-
-        if (existingRow >= 0) {
-            RoomData* old = const_cast<RoomData*>(roomList->at(existingRow));
-            if (old) {
-                if (!rd.name.empty() && rd.name != roomId) old->name = rd.name;
-                if (!rd.avatarUrl.empty()) old->avatarUrl = rd.avatarUrl;
-                old->lastMessage = rd.lastMessage;
-                old->lastActivityTs = rd.lastActivityTs;
-                old->unreadCount = rd.unreadCount;
-                old->highlightCount = rd.highlightCount;
-                old->isEncrypted = rd.isEncrypted;
-                old->typingUsers = rd.typingUsers;
-                emit roomList->dataChanged(roomList->index(existingRow), roomList->index(existingRow));
-            }
-        } else {
-            roomList->upsertRoom(rd);
-        }
-
-        // Timeline for current room
-        if (currentRoomId == roomId && !room.timeline.events.empty()) {
-            std::unordered_map<std::string, std::string> memberAvatars;
+        // Store timeline events for current room
+        if (roomId == currentRoomId && !room.timeline.events.empty()) {
+            u.currentRoomUpdated = true;
+            u.currentRoomId = roomId;
+            u.currentRoomEvents = room.timeline.events;
             for (const auto& e : room.stateEvents) {
                 if (e.type == "m.room.member" && !e.contentJson.empty()) {
                     auto av = extractStringDec(e.contentJson, "avatar_url");
-                    if (!av.empty()) memberAvatars[std::string(e.stateKey)] = av;
+                    if (!av.empty()) u.currentRoomAvatars[std::string(e.stateKey)] = av;
                 }
             }
-            appendTimelineForRoom(roomId, room.timeline.events, currentTimeline, &memberAvatars, myUserId);
         }
     }
 
     // Invites
-    int inviteCount = 0;
-    hasInvites_out = false;
     for (const auto& inv : resp.invitedRooms) {
         std::string roomId(inv.roomId);
         RoomData rd;
@@ -232,12 +203,49 @@ void RoomStore::rebuildFromSync(const FastSyncResponse& resp,
             rd.lastMessage = n + " invited you";
         }
         if (!inv.roomAvatar.empty()) rd.avatarUrl = std::string(inv.roomAvatar);
-        roomList->upsertRoom(rd);
-        inviteCount++;
+        u.invitedRooms.push_back(std::move(rd));
     }
-    if (inviteCount > 0) {
-        inviteText_out = QString(" ⬇ Invitations (%1) ").arg(inviteCount);
-        hasInvites_out = true;
+
+    u.inviteCount = static_cast<int>(u.invitedRooms.size());
+    if (u.inviteCount > 0)
+        u.inviteText = QString(" ⬇ Invitations (%1) ").arg(u.inviteCount);
+
+    return u;
+}
+
+// ---- Sync update (UI thread part: model operations only) ----
+
+void RoomStore::applyRoomSyncUpdate(RoomSyncUpdate& syncUpdate,
+                                     RoomListModel* roomList,
+                                     TimelineModel* currentTimeline) {
+    for (const auto& rid : syncUpdate.roomsToRemove) {
+        roomList->removeRoom(rid);
+    }
+
+    for (auto& rd : syncUpdate.roomsToUpsert) {
+        int existingRow = roomList->findRowByRoomId(rd.roomId);
+        const RoomData* existing = existingRow >= 0 ? roomList->at(existingRow) : nullptr;
+
+        // Preserve old name/avatar if sync didn't provide new ones
+        if (rd.name == rd.roomId && existing && !existing->name.empty() && existing->name != rd.roomId)
+            rd.name = existing->name;
+        if (rd.avatarUrl.empty() && existing && !existing->avatarUrl.empty())
+            rd.avatarUrl = existing->avatarUrl;
+        if (!rd.isEncrypted && existing && existing->isEncrypted)
+            rd.isEncrypted = true;
+
+        roomList->upsertRoom(rd);
+    }
+
+    for (auto& rd : syncUpdate.invitedRooms) {
+        roomList->upsertRoom(rd);
+    }
+
+    // Timeline for current room
+    if (syncUpdate.currentRoomUpdated && currentTimeline) {
+        appendTimelineForRoom(syncUpdate.currentRoomId, syncUpdate.currentRoomEvents,
+                              currentTimeline, &syncUpdate.currentRoomAvatars,
+                              "" /* myUserId passed earlier */);
     }
 }
 

@@ -16,23 +16,26 @@ Desktop sister to [`progressive-android-next`](https://github.com/MaurerAnton/pr
 
 ## Status
 
-Phase 2 — minimal usable UI. The app logs in, syncs, and renders a working
-chat client:
+**⚠️ NOT USABLE. Under active refactoring. Do not use for daily communication.**
 
+Current phase: architecture cleanup — handlers extracted from MainWindow (532→220 lines),
+Qt-free core completed, file structure reorganized into `src/ui/handlers/`.
+
+What partially works:
 - Login dialog with homeserver discovery + password login
 - Room list sidebar (avatars, unread badges, invites with accept/reject)
-- Timeline with chat bubbles, avatars, sender names, grouping, timestamps
-- Markdown body rendering via `progressive::markdownToHtml`
-- Reactions, replies (with preview), threads, pinned messages
-- Image / video / file / audio attachments, image viewer dialog
-- Slash commands (`/help`, `/clear`, `/logout`, `/me`)
-- Emoji picker, profile / room settings / room members / room directory dialogs
-- SQLite-backed session persistence (WAL + `synchronous=FULL`)
+- Timeline renders `m.room.message` events with chat bubbles
 - Background `/sync` loop with exponential backoff
+- SQLite-backed session persistence
+- Slash commands (`/help`, `/clear`, `/logout`)
+- Emoji picker, room directory / room settings / member list dialogs
 
-**Not yet:** E2EE (encrypted rooms show a placeholder), backward pagination UI,
-read-receipt auto-send, typing indicators. See [`docs/phase2.md`](docs/phase2.md)
-"Known limitations" for the full list.
+Known regressions (fix in progress):
+- Reactions not working (QuickReact button returns silently)
+- Non-message events render as empty bubbles (m.typing, m.receipt, m.room.member)
+- E2EE encryption state not detected for new rooms
+- Megolm session missing for incoming encrypted messages
+- No backward pagination, no read receipts, no typing indicators
 
 ## Build
 

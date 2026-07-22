@@ -169,6 +169,23 @@ void RoomStore::rebuildFromSync(const FastSyncResponse& resp,
         for (auto& tu : room.typingUsers) rd.typingUsers.push_back(std::string(tu));
 
         int existingRow = roomList->findRowByRoomId(roomId);
+        const RoomData* existing = existingRow >= 0 ? roomList->at(existingRow) : nullptr;
+
+        // Compute name: new from sync → keep old from model → fallback to roomId
+        if (!meta.name.empty()) rd.name = meta.name;
+        else if (!meta.canonicalAlias.empty()) rd.name = meta.canonicalAlias;
+        else if (!meta.dmDisplayName.empty()) rd.name = meta.dmDisplayName;
+        else if (existing && !existing->name.empty() && existing->name != roomId)
+            rd.name = existing->name;  // keep old name
+        else rd.name = roomId;
+
+        // Avatar: new from sync → old from model → DM avatar
+        if (!meta.avatarUrl.empty()) rd.avatarUrl = meta.avatarUrl;
+        else if (!meta.dmAvatarUrl.empty()) rd.avatarUrl = meta.dmAvatarUrl;
+        else if (existing && !existing->avatarUrl.empty()) rd.avatarUrl = existing->avatarUrl;
+
+        rd.isEncrypted = meta.isEncrypted || room.isEncrypted || (existing && existing->isEncrypted);
+
         if (existingRow >= 0) {
             RoomData* old = const_cast<RoomData*>(roomList->at(existingRow));
             if (old) {
@@ -225,19 +242,20 @@ void RoomStore::rebuildFromSync(const FastSyncResponse& resp,
 }
 
 void RoomStore::loadHistory(const std::string& roomId, TimelineModel* model,
-                              QPointer<QWidget> guard, std::function<void(bool)> callback) {
-    if (!client_ || !client_->isLoggedIn()) { if (callback) callback(false); return; }
+                              QPointer<QWidget> guard,
+                              std::function<void(int, const std::string&)> callback) {
+    if (!client_ || !client_->isLoggedIn()) { if (callback) callback(0, ""); return; }
     MatrixClient* c = client_;
     std::thread([guard, c, roomId, model, callback]() {
         auto result = c->getMessages(roomId, "", 30);
         QMetaObject::invokeMethod(guard, [guard, result, model, callback]() {
             if (guard.isNull()) return;
-            if (!result.ok) { if (callback) callback(false); return; }
+            if (!result.ok) { if (callback) callback(0, ""); return; }
             simdjson::dom::parser parser;
             auto root = parser.parse(result.data);
-            if (root.error() != simdjson::SUCCESS) { if (callback) callback(false); return; }
+            if (root.error() != simdjson::SUCCESS) { if (callback) callback(0, ""); return; }
             auto chunk = root.value()["chunk"].get_array();
-            if (chunk.error() != simdjson::SUCCESS) { if (callback) callback(false); return; }
+            if (chunk.error() != simdjson::SUCCESS) { if (callback) callback(0, ""); return; }
             std::vector<DisplayedEvent> events;
             for (auto evt : chunk.value()) {
                 DisplayedEvent de;
@@ -263,18 +281,27 @@ void RoomStore::loadHistory(const std::string& roomId, TimelineModel* model,
             }
             std::reverse(events.begin(), events.end());
             for (const auto& de : events) model->appendBack(de);
-            if (callback) callback(true);
+            int count = (int)events.size();
+            std::string pBatch;
+            auto et = root.value()["end"].get_string();
+            if (et.error() == simdjson::SUCCESS && et.value().size() > 0)
+                pBatch = std::string(et.value());
+            else { auto st = root.value()["start"].get_string();
+                if (st.error() == simdjson::SUCCESS) pBatch = std::string(st.value()); }
+            if (callback) callback(count, pBatch);
         }, Qt::QueuedConnection);
     }).detach();
 }
 
 void RoomStore::loadMembers(const std::string& roomId, QPointer<QWidget> guard,
+                              const std::vector<std::string>& relevantIds,
                               std::function<void(std::vector<MemberInfo>)> callback) {
     if (!client_ || !client_->isLoggedIn()) return;
     MatrixClient* c = client_;
-    std::thread([guard, c, roomId, callback]() {
+    std::thread([guard, c, roomId, relevantIds, callback]() {
         auto r = c->getRoomMembers(roomId);
         std::vector<MemberInfo> members;
+        bool gotMembers = false;
         if (r.ok) {
             simdjson::dom::parser parser;
             auto root = parser.parse(r.data);
@@ -296,6 +323,27 @@ void RoomStore::loadMembers(const std::string& roomId, QPointer<QWidget> guard,
                         if (av.error() == simdjson::SUCCESS) m.avatarUrl = std::string(av.value());
                         members.push_back(std::move(m));
                     }
+                    gotMembers = true;
+                }
+            }
+        }
+        // Fallback: getUserProfile if /members returned nothing
+        if (!gotMembers && !relevantIds.empty()) {
+            for (const auto& uid : relevantIds) {
+                auto pr = c->getUserProfile(uid);
+                if (pr.ok && !pr.data.empty()) {
+                    MemberInfo m;
+                    m.userId = uid;
+                    m.membership = "join";
+                    simdjson::dom::parser pp;
+                    auto doc = pp.parse(pr.data);
+                    if (doc.error() == simdjson::SUCCESS) {
+                        auto av = doc.value()["avatar_url"].get_string();
+                        if (av.error() == simdjson::SUCCESS) m.avatarUrl = std::string(av.value());
+                        auto dn = doc.value()["displayname"].get_string();
+                        if (dn.error() == simdjson::SUCCESS) m.displayName = std::string(dn.value());
+                    }
+                    members.push_back(m);
                 }
             }
         }

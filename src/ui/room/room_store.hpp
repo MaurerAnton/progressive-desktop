@@ -42,10 +42,12 @@ public:
     void loadHistory(const std::string& roomId,
                      TimelineModel* model,
                      QPointer<QWidget> guard,
-                     std::function<void(bool ok)> callback);
+                     std::function<void(int eventCount,
+                                        const std::string& prevBatch)> callback);
 
     void loadMembers(const std::string& roomId,
                      QPointer<QWidget> guard,
+                     const std::vector<std::string>& relevantIds,
                      std::function<void(std::vector<MemberInfo>)> callback);
 
     void batchLoadRoomStates(RoomListModel* model,

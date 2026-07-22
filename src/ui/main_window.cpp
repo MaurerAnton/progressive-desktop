@@ -783,7 +783,13 @@ void MainWindow::onRoomClicked(const QModelIndex& idx) {
     }
 
     // Pre-load member avatars from room state for better timeline display
-    roomStore_->loadMembers(r->roomId, QPointer<QWidget>(this),
+    std::vector<std::string> senderIds;
+    for (int i = 0; i < timelineModel_->rowCount(QModelIndex()); ++i) {
+        auto* evt = timelineModel_->at(i);
+        if (evt && !evt->senderId.empty())
+            senderIds.push_back(evt->senderId);
+    }
+    roomStore_->loadMembers(r->roomId, QPointer<QWidget>(this), senderIds,
         [this](std::vector<MemberInfo> members) {
             for (const auto& m : members) {
                 if (!m.avatarUrl.empty()) memberAvatarCache_[m.userId] = m.avatarUrl;
@@ -802,9 +808,12 @@ void MainWindow::onRoomClicked(const QModelIndex& idx) {
 
     // Load room history
     roomStore_->loadHistory(r->roomId, timelineModel_,
-        QPointer<QWidget>(this), [this, roomId = r->roomId](bool ok) {
-            if (ok && currentRoomId_.toStdString() == roomId) {
+        QPointer<QWidget>(this), [this](int count, const std::string& prevBatch) {
+            if (count > 0) {
+                currentPrevBatch_ = prevBatch;
+                if (loadMoreBtn_ && !prevBatch.empty()) loadMoreBtn_->show();
                 timelineView_->scrollToBottom();
+                statusLabel_->setText(QString("Loaded %1 messages.").arg(count));
             }
         });
 }
@@ -1413,8 +1422,8 @@ void MainWindow::closeThreadView() {
     timelineModel_->clear();
     if (!currentRoomId_.isEmpty()) {
         roomStore_->loadHistory(currentRoomId_.toStdString(), timelineModel_,
-            QPointer<QWidget>(this), [this](bool ok) {
-                if (ok) timelineView_->scrollToBottom();
+            QPointer<QWidget>(this), [this](int count, const std::string& pb) {
+                if (count > 0) { currentPrevBatch_ = pb; if (!pb.empty() && loadMoreBtn_) loadMoreBtn_->show(); timelineView_->scrollToBottom(); }
             });
     }
 }

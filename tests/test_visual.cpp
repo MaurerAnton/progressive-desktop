@@ -21,6 +21,8 @@
 #include "../src/ui/timeline/timeline_delegate.hpp"
 #include "../src/ui/chat/message_edit.hpp"
 #include "../src/ui/shared/image_loader.hpp"
+#include "core/debug_log.hpp"
+#include "fake_client.hpp"
 
 using namespace progressive::desktop;
 
@@ -264,6 +266,33 @@ static void test_bubbleRendering() {
     std::cout << "--- test_bubbleRendering passed ---\n";
 }
 
+static void test_quickReact_fake() {
+    auto* model = new TimelineModel(nullptr);
+    DisplayedEvent msg;
+    msg.type = "m.room.message";
+    msg.eventId = "$testevent";
+    msg.body = "Hello world";
+    model->appendBack(msg);
+    PROGRESSIVE_ASSERT(model->rowCount() == 1, "should have 1 event after appendBack");
+
+    FakeClient fake;
+    auto r = fake.sendReaction("!testroom", "$testevent", "❤");
+    PROGRESSIVE_ASSERT(r.ok, "fake reaction should succeed");
+    PROGRESSIVE_ASSERT(r.httpStatus == 200, "http status should be 200");
+    PROGRESSIVE_ASSERT(fake.lastReaction_ == "❤", "fake should store emoji");
+
+    model->addReaction("$testevent", "❤", "@mock:localhost", r.data);
+    auto* evt = model->at(0);
+    PROGRESSIVE_ASSERT(evt != nullptr, "event 0 should exist");
+    PROGRESSIVE_ASSERT(!evt->reactions.empty(), "should have reactions");
+    PROGRESSIVE_ASSERT(evt->reactions[0].emoji == "❤", "reaction emoji should be ❤");
+    PROGRESSIVE_ASSERT(evt->reactions[0].count == 1, "reaction count should be 1");
+
+    std::fprintf(stderr, "ok: test_quickReact_fake passed — %s count=%d\n",
+                 evt->reactions[0].emoji.c_str(), evt->reactions[0].count);
+    delete model;
+}
+
 int main(int argc, char** argv) {
     QApplication app(argc, argv);
     std::cout << "=== Progressive Visual Tests ===\n\n";
@@ -274,6 +303,7 @@ int main(int argc, char** argv) {
     test_modelViewBinding();
     test_interaction();
     test_bubbleRendering();
+    test_quickReact_fake();
 
     std::cout << "\n";
     if (failures == 0) {

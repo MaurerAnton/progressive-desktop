@@ -68,49 +68,81 @@ target_link_libraries(progressive_core PUBLIC
     simdjson::simdjson
 )
 
-# --- Desktop app ---
-add_executable(progressive-desktop
-    src/main.cpp
-    src/ui/dialogs/login_dialog.cpp
-    src/ui/main_window.cpp
-    src/ui/room_list_model.cpp
-    src/ui/room_list_delegate.cpp
+# --- UI widget layer (no deps on other UI libs) ---
+add_library(progressive_ui_widgets STATIC
+    src/ui/shared/image_loader.cpp
+    src/ui/shared/theme.cpp
     src/ui/timeline/timeline_model.cpp
     src/ui/timeline/timeline_delegate.cpp
-    src/ui/shared/image_loader.cpp
+    src/ui/timeline/timeline_handlers.cpp
+    src/ui/room/room_store.cpp
+    src/ui/room_list_model.cpp
+    src/ui/room_list_delegate.cpp
+    src/ui/chat/chat_view.cpp
+    src/ui/chat/message_edit.cpp
+    src/ui/chat/emoji_picker.cpp
+)
+target_include_directories(progressive_ui_widgets PUBLIC src)
+target_link_libraries(progressive_ui_widgets PUBLIC progressive_core Qt6::Widgets)
+
+# --- UI dialogs layer (no deps on other UI libs) ---
+add_library(progressive_ui_dialogs STATIC
+    src/ui/dialogs/login_dialog.cpp
     src/ui/dialogs/image_viewer_dialog.cpp
     src/ui/dialogs/room_directory_dialog.cpp
     src/ui/dialogs/threads_dialog.cpp
-    src/ui/chat/emoji_picker.cpp
     src/ui/dialogs/room_settings_dialog.cpp
-    src/ui/profile_dialog.cpp
     src/ui/dialogs/prefs_dialog.cpp
+    src/ui/dialogs/network_log_dialog.cpp
+    src/ui/profile_dialog.cpp
     src/ui/profile/room_members_dialog.cpp
     src/ui/profile/user_profile_dialog.cpp
-    src/ui/dialogs/network_log_dialog.cpp
-    src/ui/chat/chat_view.cpp
-    src/ui/timeline/timeline_handlers.cpp
-    src/ui/room/room_store.cpp
-    src/ui/handlers/auth_handler.cpp
-    src/ui/handlers/toolbar_handler.cpp
-    src/ui/handlers/room_handler.cpp
-    src/ui/handlers/e2ee_init_handler.cpp
-    src/ui/ui_layout_builder.cpp
-    src/ui/chat/message_edit.cpp
-    src/ui/shared/theme.cpp
     src/ui/notifications.cpp
+)
+target_include_directories(progressive_ui_dialogs PUBLIC src)
+target_link_libraries(progressive_ui_dialogs PUBLIC progressive_core Qt6::Widgets)
+
+# --- UI layout layer (depends on widgets) ---
+add_library(progressive_ui_layout STATIC
+    src/ui/ui_layout_builder.cpp
+)
+target_include_directories(progressive_ui_layout PUBLIC src)
+target_link_libraries(progressive_ui_layout PUBLIC progressive_ui_widgets Qt6::Widgets)
+
+# --- UI handlers layer (depends on widgets + dialogs) ---
+add_library(progressive_ui_handlers STATIC
+    src/ui/handlers/auth_handler.cpp
+    src/ui/handlers/room_handler.cpp
+    src/ui/handlers/toolbar_handler.cpp
+    src/ui/handlers/e2ee_init_handler.cpp
     src/ui/handlers/sync_response_handler.cpp
     src/ui/handlers/attachment_handler.cpp
     src/ui/handlers/account_switcher.cpp
     src/ui/handlers/session_bootstrap.cpp
     src/ui/handlers/slash_command_handler.cpp
+)
+target_include_directories(progressive_ui_handlers PUBLIC src)
+target_link_libraries(progressive_ui_handlers PUBLIC
+    progressive_ui_widgets
+    progressive_ui_dialogs
+    Qt6::Widgets
+)
+
+# --- Desktop app ---
+add_executable(progressive-desktop
+    src/main.cpp
+    src/ui/main_window.cpp
     resources/resources.qrc
 )
 qt_add_resources(progressive-desktop "resources/resources.qrc")
 target_link_libraries(progressive-desktop PRIVATE
-    progressive_core
+    progressive_ui_handlers
+    progressive_ui_layout
+    progressive_ui_dialogs
+    progressive_ui_widgets
     Qt6::Widgets
 )
+target_link_options(progressive-desktop PRIVATE -rdynamic)
 
 target_compile_definitions(progressive-desktop PRIVATE
     PROGRESSIVE_DESKTOP=1
@@ -147,15 +179,13 @@ if(PROGRESSIVE_BUILD_TESTS)
     set_tests_properties(gui_phase4 PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     find_package(Qt6 REQUIRED COMPONENTS Test)
-    add_executable(test_visual tests/test_visual.cpp
-        src/ui/room_list_model.cpp
-        src/ui/room_list_delegate.cpp
-        src/ui/timeline/timeline_model.cpp
-        src/ui/timeline/timeline_delegate.cpp
-        src/ui/chat/message_edit.cpp
-        src/ui/shared/image_loader.cpp
+    add_executable(test_visual tests/test_visual.cpp)
+    target_link_libraries(test_visual PRIVATE
+        progressive_ui_widgets
+        progressive_core
+        Qt6::Widgets
+        Qt6::Test
     )
-    target_link_libraries(test_visual PRIVATE progressive_core Qt6::Widgets Qt6::Test)
     target_compile_options(test_visual PRIVATE
         -include "${CMAKE_CURRENT_SOURCE_DIR}/third_party/android_shim/progressive_compat.h")
     target_include_directories(test_visual PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

@@ -16,9 +16,9 @@
 #include <string>
 #include <filesystem>
 #include <chrono>
-#include <csignal>
 #include <cstdlib>
 
+#include "core/crash_handler.hpp"
 #include "core/http_client.hpp"
 #include "core/matrix_client.hpp"
 #include "core/session_store.hpp"
@@ -33,16 +33,6 @@
 #include <progressive/markdown.hpp>
 
 using namespace progressive::desktop;
-
-// ---- SIGSEGV handler — prints backtrace on crash ----
-static void crashHandler(int sig) {
-    const char* msg = "\n*** FATAL: progressive-desktop crashed (signal ";
-    std::fwrite(msg, 1, std::strlen(msg), stderr);
-    std::fprintf(stderr, "%d) ***\n", sig);
-    std::fprintf(stderr, "Please report this with the steps to reproduce.\n");
-    std::fflush(stderr);
-    std::_Exit(128 + sig);
-}
 
 // ---- CLI test subcommands (kept for Phase 1 compat) ----
 
@@ -276,10 +266,7 @@ static void runGui(int argc, char** argv) {
 }
 
 int main(int argc, char** argv) {
-    // Install crash handler so we get a message instead of silent segfault
-    std::signal(SIGSEGV, crashHandler);
-    std::signal(SIGABRT, crashHandler);
-    std::signal(SIGBUS, crashHandler);
+    progressive::crash::installCrashHandler();
 
     // Initialize libcurl once for the whole process
     progressive::desktop::httpInit();

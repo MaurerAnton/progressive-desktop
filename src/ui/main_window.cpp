@@ -32,6 +32,7 @@
 
 #include "core/version.h"
 #include "core/memory_stats.hpp"
+#include "core/debug_log.hpp"
 
 #include "handlers/sync_response_handler.hpp"
 #include "handlers/attachment_handler.hpp"
@@ -195,6 +196,25 @@ void MainWindow::closeEvent(QCloseEvent* e) {
 
 void MainWindow::keyPressEvent(QKeyEvent* e) {
     if (e->key() == Qt::Key_F11) { toolbarHandler_->doFullscreen(); e->accept(); return; }
+    if (e->key() == Qt::Key_F12) {
+        std::fprintf(stderr, "\n=== F12 DEBUG DUMP ===\n");
+        std::fprintf(stderr, "roomModel rows: %d\n",
+            roomModel_ ? roomModel_->rowCount() : -1);
+        std::fprintf(stderr, "timelineModel rows: %d\n",
+            timelineModel_ ? timelineModel_->rowCount() : -1);
+        std::fprintf(stderr, "roomHandler currentRoom: %s\n",
+            roomHandler_ && !roomHandler_->currentRoomId().empty()
+                ? roomHandler_->currentRoomId().c_str() : "(none)");
+        std::fprintf(stderr, "messageEdit visible: %d\n",
+            messageEdit_ ? (int)messageEdit_->isVisible() : -1);
+        std::fprintf(stderr, "timelineView visible: %d\n",
+            timelineView_ ? (int)timelineView_->isVisible() : -1);
+        std::fprintf(stderr, "placeholder visible: %d\n",
+            timelinePlaceholder_ ? (int)timelinePlaceholder_->isVisible() : -1);
+        std::fprintf(stderr, "========================\n\n");
+        e->accept();
+        return;
+    }
     QMainWindow::keyPressEvent(e);
 }
 

@@ -173,6 +173,11 @@ RoomSyncUpdate RoomStore::prepareRoomSyncUpdate(const FastSyncResponse& resp,
         rd.highlightCount = room.highlightCount;
         for (auto& tu : room.typingUsers) rd.typingUsers.push_back(std::string(tu));
 
+        // Store last notification body for highlights
+        if (room.highlightCount > 0 && !room.timeline.events.empty()) {
+            u.lastNotificationBody = extractLastMessageBody(room.timeline.events);
+        }
+
         u.roomsToUpsert.push_back(std::move(rd));
 
         // Store timeline events for current room

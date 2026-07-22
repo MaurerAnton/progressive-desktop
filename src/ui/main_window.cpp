@@ -1591,21 +1591,33 @@ void MainWindow::onSync(FastSyncResponse resp) {
                    || !resp.invitedRooms.empty();
 
     if (hasData && roomStore_) {
+        statusLabel_->setText("Syncing...");
         QPointer<MainWindow> guard(this);
         std::string myUserId = client_ ? client_->account().userId : "";
         std::string curRoomId = currentRoomId_.toStdString();
 
-        // Heavy work on worker thread — no model/widget access
         std::thread([guard, resp = std::move(resp), myUserId, curRoomId]() mutable {
             auto syncUpdate = RoomStore::prepareRoomSyncUpdate(resp, curRoomId, myUserId);
 
-            // Light work on UI thread — only model operations
             QMetaObject::invokeMethod(guard, [guard, syncUpdate = std::move(syncUpdate)]() mutable {
                 if (guard.isNull()) return;
                 guard->roomStore_->applyRoomSyncUpdate(syncUpdate,
                     guard->roomModel_, guard->timelineModel_);
 
-                // Widget updates (MainWindow-owned)
+                // Bug D: clear timeline if current room was left/kicked
+                for (const auto& rid : syncUpdate.roomsToRemove) {
+                    if (rid == guard->currentRoomId_.toStdString()) {
+                        guard->timelineModel_->clear();
+                        guard->currentRoomId_.clear();
+                        guard->timelineView_->hide();
+                        guard->timelinePlaceholder_->show();
+                        guard->messageEdit_->hide();
+                        if (guard->loadMoreBtn_) guard->loadMoreBtn_->hide();
+                        break;
+                    }
+                }
+
+                // Widget updates
                 if (syncUpdate.inviteCount > 0) {
                     guard->inviteHeader_->setText(syncUpdate.inviteText);
                     guard->inviteHeader_->show();
@@ -1615,44 +1627,36 @@ void MainWindow::onSync(FastSyncResponse resp) {
                 guard->updateRoomListHeader();
                 logMemorySnapshot("after-rebuildRoomList");
 
-                // Desktop notification (first sync excluded by static)
+                // Bug C: show last message body in notification
                 static bool firstNotify = true;
                 if (!firstNotify) {
                     for (auto& rd : syncUpdate.roomsToUpsert) {
                         if (rd.highlightCount > 0) {
-                            guard->notifier_.notify(QString::fromStdString(rd.name), "Highlight!");
+                            QString body = syncUpdate.lastNotificationBody.empty()
+                                ? QString("Highlight!") : QString::fromStdString(syncUpdate.lastNotificationBody);
+                            guard->notifier_.notify(QString::fromStdString(rd.name), body);
                             break;
                         }
                     }
                 }
                 firstNotify = false;
                 guard->roomStore_->batchLoadRoomStates(guard->roomModel_, QPointer<QWidget>(guard));
+
+                // Bug A: update status with real count
+                guard->statusLabel_->setText(QString("Synced: %1 rooms | %2 messages")
+                    .arg(guard->roomModel_->rowCount()).arg(guard->timelineModel_->rowCount()));
+
+                // Bug B: trim + log after buffer released (worker thread finished)
+                logMemorySnapshot("after-sync-cleanup");
+                trimMemory();
             }, Qt::QueuedConnection);
         }).detach();
     }
 
+    // Memory snapshot after receiving sync (before processing)
     static bool firstSync = true;
-    if (firstSync) {
-        logMemorySnapshot("after-first-sync");
-    }
-    // Release unused heap pages back to OS after every sync.
-    // Each sync allocates HTTP response buffer + parser (5-20 MB),
-    // which fragments the heap without this call.
-    int trimmed = trimMemory();
-    if (trimmed) {
-        static int trimCount = 0;
-        if (trimCount++ % 10 == 0) {
-            std::fprintf(stderr, "[mem] malloc_trim returned %d (call #%d)\n", trimmed, trimCount);
-            logMemorySnapshot("after-trim");
-        }
-    }
+    if (firstSync) logMemorySnapshot("after-first-sync");
     firstSync = false;
-
-    // Sync buffer released by worker thread lambda destruction
-    logMemorySnapshot("after-sync-cleanup");
-
-    statusLabel_->setText(QString("Synced: %1 rooms | %2 messages")
-        .arg(roomModel_->rowCount()).arg(timelineModel_->rowCount()));
 }
 
 void MainWindow::onSyncState(SyncEngineState state, const SyncEngineStats& stats) {

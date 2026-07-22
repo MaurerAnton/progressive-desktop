@@ -40,6 +40,7 @@ struct RoomSyncUpdate {
     std::string currentRoomId;
     std::vector<FastEvent> currentRoomEvents;
     std::unordered_map<std::string,std::string> currentRoomAvatars;
+    std::string lastNotificationBody;  // last highlight message body for notifications
 };
 
 class RoomStore {

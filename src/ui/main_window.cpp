@@ -886,7 +886,13 @@ void MainWindow::onRoomClicked(const QModelIndex& idx) {
     }
 
     // Pre-load member avatars from room state for better timeline display
-    loadMemberAvatarsForRoom(r->roomId);
+    roomStore_->loadMembers(r->roomId, QPointer<QWidget>(this),
+        [this](std::vector<MemberInfo> members) {
+            for (const auto& m : members) {
+                if (!m.avatarUrl.empty()) memberAvatarCache_[m.userId] = m.avatarUrl;
+                if (!m.displayName.empty()) memberAvatarCache_[m.userId + "/name"] = m.displayName;
+            }
+        });
 
     // Set mention autocomplete names
     QStringList memberNames;
@@ -897,71 +903,13 @@ void MainWindow::onRoomClicked(const QModelIndex& idx) {
     }
     messageEdit_->setMembers(memberNames);
 
-    // Load room history via /messages endpoint
-    loadRoomHistory(r->roomId);
-}
-
-void MainWindow::loadMemberAvatarsForRoom(const std::string& roomId) {
-    if (!client_ || !client_->isLoggedIn()) return;
-    MatrixClient* client = client_;
-    QPointer<MainWindow> guard(this);
-    std::unordered_set<std::string> relevantIds;
-    for (int i = 0; i < timelineModel_->rowCount(QModelIndex()); ++i) {
-        auto* evt = timelineModel_->at(i);
-        if (evt && !evt->senderId.empty()) relevantIds.insert(evt->senderId);
-    }
-    if (relevantIds.empty()) return;
-
-    std::thread([guard, client, roomId, relevantIds = std::move(relevantIds)]() {
-        auto membersResp = client->getRoomMembers(roomId);
-        auto usedMembers = std::make_shared<bool>(false);
-        QMetaObject::invokeMethod(guard, [guard, roomId, membersResp, relevantIds, usedMembers, client]() {
-            if (guard.isNull()) return;
-            if (membersResp.ok) {
-                simdjson::dom::parser parser;
-                auto root = parser.parse(membersResp.data);
-                if (root.error() == simdjson::SUCCESS) {
-                    auto chunk = root.value()["chunk"].get_array();
-                    if (chunk.error() == simdjson::SUCCESS) {
-                        for (auto evt : chunk.value()) {
-                            auto membership = evt["content"]["membership"].get_string();
-                            if (membership.error() != simdjson::SUCCESS ||
-                                std::string(membership.value()) != "join") continue;
-                            auto sk = evt["state_key"].get_string();
-                            if (sk.error() != simdjson::SUCCESS) continue;
-                            std::string userId(sk.value());
-                            if (!relevantIds.count(userId)) continue;
-                            auto content = evt["content"];
-                            if (content.error() != simdjson::SUCCESS) continue;
-                            std::string contentStr = simdjson::to_string(content.value());
-                            auto avatarUrl = extractJsonStringDecoded(contentStr, "avatar_url");
-                            if (!avatarUrl.empty()) guard->memberAvatarCache_[userId] = avatarUrl;
-                            auto displayname = extractJsonString(contentStr, "displayname");
-                            if (!displayname.empty()) guard->memberAvatarCache_[userId + "/name"] = displayname;
-                        }
-                        *usedMembers = true;
-                    }
-                }
+    // Load room history
+    roomStore_->loadHistory(r->roomId, timelineModel_,
+        QPointer<QWidget>(this), [this, roomId = r->roomId](bool ok) {
+            if (ok && currentRoomId_.toStdString() == roomId) {
+                timelineView_->scrollToBottom();
             }
-            if (!*usedMembers && !relevantIds.empty()) {
-                for (const auto& uid : relevantIds) {
-                    auto profileResp = client->getUserProfile(uid);
-                    if (profileResp.ok && !profileResp.data.empty()) {
-                        simdjson::dom::parser pp;
-                        auto pr = pp.parse(profileResp.data);
-                        if (pr.error() == simdjson::SUCCESS) {
-                            auto av = pr.value()["avatar_url"].get_string();
-                            if (av.error() == simdjson::SUCCESS)
-                                guard->memberAvatarCache_[uid] = std::string(av.value());
-                            auto dn = pr.value()["displayname"].get_string();
-                            if (dn.error() == simdjson::SUCCESS)
-                                guard->memberAvatarCache_[uid + "/name"] = std::string(dn.value());
-                        }
-                    }
-                }
-            }
-        }, Qt::QueuedConnection);
-    }).detach();
+        });
 }
 
 void MainWindow::loadRoomHistory(const std::string& roomId) {
@@ -1725,9 +1673,11 @@ void MainWindow::closeThreadView() {
     currentThreadRoot_.clear();
     threadBanner_->hide();
     timelineModel_->clear();
-    // Reload normal room history
     if (!currentRoomId_.isEmpty()) {
-        loadRoomHistory(currentRoomId_.toStdString());
+        roomStore_->loadHistory(currentRoomId_.toStdString(), timelineModel_,
+            QPointer<QWidget>(this), [this](bool ok) {
+                if (ok) timelineView_->scrollToBottom();
+            });
     }
 }
 
@@ -1938,7 +1888,7 @@ void MainWindow::onSync(FastSyncResponse resp) {
     }
     // Call batch loader after every sync — catches rooms that appeared
     // after initial sync (invites accepted, rooms created after start).
-    batchLoadRoomStates();
+    roomStore_->batchLoadRoomStates(roomModel_, QPointer<QWidget>(this));
     // Release unused heap pages back to OS after every sync.
     // Each sync allocates HTTP response buffer + parser (5-20 MB),
     // which fragments the heap without this call.

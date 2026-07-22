@@ -1626,6 +1626,7 @@ void MainWindow::onSync(FastSyncResponse resp) {
                     }
                 }
                 firstNotify = false;
+                guard->roomStore_->batchLoadRoomStates(guard->roomModel_, QPointer<QWidget>(guard));
             }, Qt::QueuedConnection);
         }).detach();
     }
@@ -1634,9 +1635,6 @@ void MainWindow::onSync(FastSyncResponse resp) {
     if (firstSync) {
         logMemorySnapshot("after-first-sync");
     }
-    // Call batch loader after every sync — catches rooms that appeared
-    // after initial sync (invites accepted, rooms created after start).
-    roomStore_->batchLoadRoomStates(roomModel_, QPointer<QWidget>(this));
     // Release unused heap pages back to OS after every sync.
     // Each sync allocates HTTP response buffer + parser (5-20 MB),
     // which fragments the heap without this call.
@@ -1650,13 +1648,7 @@ void MainWindow::onSync(FastSyncResponse resp) {
     }
     firstSync = false;
 
-    // Release the sync response buffer IMMEDIATELY after processing.
-    // The FastSyncResponse holds simdjson parser + raw JSON buffer + owned
-    // strings — can be 20-40 MB. All data has been extracted into the model
-    // (room names, avatars, timeline events as DisplayedEvent with owned strings).
-    resp.buffer.reset();
-    resp.parser.reset();
-    resp.ownedContentStrings.reset();
+    // Sync buffer released by worker thread lambda destruction
     logMemorySnapshot("after-sync-cleanup");
 
     statusLabel_->setText(QString("Synced: %1 rooms | %2 messages")

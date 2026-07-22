@@ -301,7 +301,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     logoutAction_ = toolbar_->addAction("Logout");
 
-    connect(logoutAction_, &QAction::triggered, this, &MainWindow::onLogoutClicked);
+    connect(logoutAction_, &QAction::triggered, auth_, &AuthHandler::logout);
     connect(newChatAction_, &QAction::triggered, this, &MainWindow::onNewChatClicked);
     connect(joinRoomAction_, &QAction::triggered, this, &MainWindow::onJoinRoomClicked);
     connect(browseRoomsAction_, &QAction::triggered, this, &MainWindow::onBrowseRoomsClicked);
@@ -469,6 +469,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // ChatView handles message sending, file attach, slash commands, quick react
     chatView_ = new ChatView(client_, timelineModel_, messageEdit_, &sync_, this);
     roomStore_ = new RoomStore(client_, store_);
+    auth_ = new AuthHandler(client_, store_, &sync_, userLabel_, statusLabel_, this);
+    connect(auth_, &AuthHandler::loggedOut, this, [this]() {
+        roomModel_->clear(); timelineModel_->clear();
+        timelineView_->hide(); timelinePlaceholder_->show();
+        messageEdit_->hide(); currentRoomId_.clear();
+        setWindowTitle("Progressive Chat — Desktop");
+        auth_->showLoginDialog();
+    });
     connect(chatView_, &ChatView::slashCommandForward, this, [this](const std::string& cmd, const std::string& args) {
         onSlashCommand(cmd, args);
     });
@@ -502,7 +510,7 @@ void MainWindow::wireSyncCallbacks() {
         QMetaObject::invokeMethod(this, [this, st, stats]() { onSyncState(st, stats); }, Qt::QueuedConnection);
     });
     sync_.onAuthError([this]() {
-        QMetaObject::invokeMethod(this, [this]() { forceReLogin(); }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(auth_, "forceReLogin", Qt::QueuedConnection);
     });
 }
 

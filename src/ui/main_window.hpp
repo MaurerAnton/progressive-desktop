@@ -14,6 +14,7 @@
 #include "chat/message_edit.hpp"
 #include "chat/chat_view.hpp"
 #include "room/room_store.hpp"
+#include "auth_handler.hpp"
 
 #include <QMainWindow>
 #include <QListView>
@@ -132,6 +133,7 @@ private:
     QPushButton* threadBtn_ = nullptr;     // "Threads" sidebar toggle
     ChatView* chatView_ = nullptr;
     RoomStore* roomStore_ = nullptr;
+    AuthHandler* auth_ = nullptr;
 
     QString currentRoomId_;
     QString currentThreadRoot_;  // if non-empty, we're viewing a thread (not main chat)

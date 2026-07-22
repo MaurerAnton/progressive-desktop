@@ -95,6 +95,7 @@ add_executable(progressive-desktop
     src/ui/chat/chat_view.cpp
     src/ui/timeline/timeline_handlers.cpp
     src/ui/room/room_store.cpp
+    src/ui/auth_handler.cpp
     src/ui/chat/message_edit.cpp
     src/ui/shared/theme.cpp
     resources/resources.qrc

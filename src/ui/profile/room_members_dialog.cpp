@@ -8,7 +8,7 @@
 #include <QPointer>
 #include <QMessageBox>
 #include <QThread>
-#include <thread>
+#include "core/thread_pool.hpp"
 
 #include <simdjson.h>
 
@@ -60,7 +60,7 @@ void RoomMembersDialog::loadMembers() {
 
     QPointer<RoomMembersDialog> guard(this);
 
-    std::thread([guard, this]() {
+    ThreadPool::instance().enqueue([guard, this]() {
         auto r = client_->getRoomMembers(roomId_);
         std::vector<MemberInfo> members;
 
@@ -110,7 +110,7 @@ void RoomMembersDialog::loadMembers() {
                     : QString("%1 members").arg(guard->allMembers_.size()));
             guard->applyFilter();
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void RoomMembersDialog::applyFilter() {

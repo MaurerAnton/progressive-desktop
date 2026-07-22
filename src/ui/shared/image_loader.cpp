@@ -5,6 +5,7 @@
 #include <QBuffer>
 #include <QMetaObject>
 #include <QThread>
+#include "core/thread_pool.hpp"
 
 namespace progressive::desktop {
 
@@ -20,7 +21,7 @@ void ImageLoader::fetchThumbnail(const std::string& mxcUrl, int w, int h,
     }
     if (!client_) { cb(QImage()); return; }
 
-    std::thread([this, mxcUrl, key, w, h, cb]() {
+    ThreadPool::instance().enqueue([this, mxcUrl, key, w, h, cb]() {
         auto result = client_->downloadMedia(mxcUrl, w, h);
         QImage img;
         if (result.ok && !result.data.empty()) {
@@ -32,7 +33,7 @@ void ImageLoader::fetchThumbnail(const std::string& mxcUrl, int w, int h,
             }
             cb(img);
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void ImageLoader::fetchMovie(const std::string& mxcUrl,
@@ -44,7 +45,7 @@ void ImageLoader::fetchMovie(const std::string& mxcUrl,
     }
     if (!client_) { cb(nullptr); return; }
 
-    std::thread([this, mxcUrl, key, cb]() {
+    ThreadPool::instance().enqueue([this, mxcUrl, key, cb]() {
         auto result = client_->downloadMedia(mxcUrl, 0, 0);
         QByteArray bytes;
         if (result.ok) {
@@ -63,7 +64,7 @@ void ImageLoader::fetchMovie(const std::string& mxcUrl,
             moviePool_[key] = movie;
             cb(movie);
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 bool ImageLoader::hasImage(const std::string& mxcUrl) const {

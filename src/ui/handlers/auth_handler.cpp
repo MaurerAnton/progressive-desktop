@@ -1,6 +1,6 @@
 // src/ui/auth_handler.cpp — login/logout/forceReLogin extracted from MainWindow.
 #include "auth_handler.hpp"
-#include "dialogs/login_dialog.hpp"
+#include "../dialogs/login_dialog.hpp"
 #include "core/matrix_client.hpp"
 #include "core/session_store.hpp"
 #include "core/sync_engine.hpp"

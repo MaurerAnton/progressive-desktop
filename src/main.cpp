@@ -6,8 +6,6 @@
 //   3. Saved session → MainWindow with sync already running
 
 #include <QApplication>
-#include <QStandardPaths>
-#include <QDir>
 #include <QTimer>
 #include <QFontDatabase>
 #include <QFont>
@@ -16,7 +14,7 @@
 
 #include <iostream>
 #include <string>
-#include <thread>
+#include <filesystem>
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
@@ -236,10 +234,17 @@ static void runGui(int argc, char** argv) {
 
     // Open session store first
     SessionStore store;
-    QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    QDir().mkpath(dataDir);
-    QString dbPath = dataDir + "/session.db";
-    std::fprintf(stderr, "[session] data dir: %s\n", dataDir.toUtf8().data());
+    const char* xdg = getenv("XDG_DATA_HOME");
+    std::string dataPath;
+    if (xdg && xdg[0]) {
+        dataPath = std::string(xdg) + "/progressive-desktop";
+    } else {
+        const char* home = getenv("HOME");
+        dataPath = std::string(home ? home : "/tmp") + "/.local/share/progressive-desktop";
+    }
+    std::filesystem::create_directories(dataPath);
+    QString dbPath = QString::fromStdString(dataPath + "/session.db");
+    std::fprintf(stderr, "[session] data dir: %s\n", dataPath.c_str());
     store.open(dbPath.toStdString());
 
     // Create client + load saved session if present

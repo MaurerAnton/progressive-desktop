@@ -2,9 +2,13 @@
 #pragma once
 #include <QObject>
 #include <QAction>
+#include <string>
+#include <fstream>
+#include <memory>
 
 class QLabel;
 class QWidget;
+class QPushButton;
 
 namespace progressive::desktop {
 
@@ -12,6 +16,7 @@ class MatrixClient;
 class RoomListModel;
 class RoomStore;
 class TimelineModel;
+class RoomHandler;
 
 class ToolbarHandler : public QObject {
     Q_OBJECT
@@ -30,8 +35,18 @@ public:
     QAction* createFullscreenAction();
     QAction* fullscreenAction() const { return fullscreenAction_; }
 
+    void setRoomHandler(RoomHandler* rh) { roomHandler_ = rh; }
+    void setInterfaceElements(QPushButton* chatLog, QPushButton* threadBtn) {
+        chatLogBtn_ = chatLog; threadBtn_ = threadBtn;
+    }
+
 signals:
     void fullscreenToggled();
+
+public slots:
+    void doFullscreen();
+    void onToggleChatLog();
+    void toggleThreadPanel();
 
 private slots:
     void onNewChat();
@@ -49,6 +64,12 @@ private:
     TimelineModel* timelineModel_;
     QLabel* statusLabel_;
     QWidget* parentWidget_;
+    RoomHandler* roomHandler_ = nullptr;
+    QPushButton* chatLogBtn_ = nullptr;
+    QPushButton* threadBtn_ = nullptr;
+    bool chatLogging_ = false;
+    bool isFullscreen_ = false;
+    std::unique_ptr<std::ofstream> chatLogFile_;
 
     QAction* fullscreenAction_ = nullptr;
 };

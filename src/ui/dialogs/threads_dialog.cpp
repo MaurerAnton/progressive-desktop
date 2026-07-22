@@ -7,7 +7,7 @@
 #include <QMetaObject>
 #include <QThread>
 #include <QMessageBox>
-#include <thread>
+#include "core/thread_pool.hpp"
 
 #include <progressive/json_parser.hpp>
 #include <simdjson.h>
@@ -47,7 +47,7 @@ void ThreadsDialog::loadThreads() {
     statusLabel_->setText("Loading threads...");
     list_->clear();
 
-    std::thread([this]() {
+    ThreadPool::instance().enqueue([this]() {
         auto r = client_->getThreads(roomId_);
 
         QMetaObject::invokeMethod(this, [this, r]() {
@@ -92,7 +92,7 @@ void ThreadsDialog::loadThreads() {
             }
             statusLabel_->setText(QString("Found %1 thread(s). Double-click to view replies.").arg(count));
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void ThreadsDialog::onRefreshClicked() {
@@ -105,7 +105,7 @@ void ThreadsDialog::onThreadDoubleClicked(QListWidgetItem* item) {
     statusLabel_->setText("Loading replies for " + eventId.left(20) + "...");
     QApplication::processEvents();
 
-    std::thread([this, eventId]() {
+    ThreadPool::instance().enqueue([this, eventId]() {
         auto r = client_->getThreadReplies(roomId_, eventId.toStdString());
 
         QMetaObject::invokeMethod(this, [this, r, eventId]() {
@@ -120,7 +120,7 @@ void ThreadsDialog::onThreadDoubleClicked(QListWidgetItem* item) {
                     .arg(eventId.left(20))
                     .arg(r.data.size()));
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 } // namespace progressive::desktop

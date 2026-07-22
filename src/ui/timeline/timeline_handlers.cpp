@@ -13,7 +13,7 @@
 #include <QGuiApplication>
 #include <QLabel>
 #include <QPointer>
-#include <thread>
+#include "core/thread_pool.hpp"
 #include <cstdio>
 
 namespace progressive::desktop {
@@ -26,7 +26,7 @@ void handleReaction(QPointer<QWidget> parent, MatrixClient* client,
     QObject::connect(&picker, &EmojiPicker::emojiSelected, parent,
         [guard, client, roomId, eventId, model, statusLabel](const QString& emoji) {
             std::string em = emoji.toStdString();
-            std::thread([guard, client, roomId, eventId = eventId, em, model, statusLabel]() {
+            ThreadPool::instance().enqueue([guard, client, roomId, eventId = eventId, em, model, statusLabel]() {
                 auto r = client->sendReaction(roomId, eventId, em);
                 QMetaObject::invokeMethod(guard, [guard, r, eventId, em, model, statusLabel, client]() {
                     if (guard.isNull()) return;
@@ -35,7 +35,7 @@ void handleReaction(QPointer<QWidget> parent, MatrixClient* client,
                         if (statusLabel) statusLabel->setText("Reaction sent.");
                     }
                 }, Qt::QueuedConnection);
-            }).detach();
+            });
         });
     picker.exec();
 }
@@ -53,7 +53,7 @@ void handleEdit(QPointer<QWidget> parent, MatrixClient* client,
     if (!ok || newText.trimmed().isEmpty()) return;
     std::string newBody = newText.toStdString();
     QPointer<QWidget> guard(parent);
-    std::thread([guard, client, roomId, eventId, newBody, model, statusLabel]() {
+    ThreadPool::instance().enqueue([guard, client, roomId, eventId, newBody, model, statusLabel]() {
         auto r = client->editMessage(roomId, eventId, newBody);
         QMetaObject::invokeMethod(guard, [guard, r, eventId, newBody, model, statusLabel]() {
             if (guard.isNull()) return;
@@ -62,7 +62,7 @@ void handleEdit(QPointer<QWidget> parent, MatrixClient* client,
                 if (statusLabel) statusLabel->setText("Message edited.");
             }
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void handleDelete(QPointer<QWidget> parent, MatrixClient* client,
@@ -73,7 +73,7 @@ void handleDelete(QPointer<QWidget> parent, MatrixClient* client,
         QMessageBox::Yes | QMessageBox::No);
     if (reply != QMessageBox::Yes) return;
     QPointer<QWidget> guard(parent);
-    std::thread([guard, client, roomId, eventId, model, statusLabel]() {
+    ThreadPool::instance().enqueue([guard, client, roomId, eventId, model, statusLabel]() {
         auto r = client->redactEvent(roomId, eventId);
         QMetaObject::invokeMethod(guard, [guard, r, eventId, model, statusLabel]() {
             if (guard.isNull()) return;
@@ -82,14 +82,14 @@ void handleDelete(QPointer<QWidget> parent, MatrixClient* client,
                 if (statusLabel) statusLabel->setText("Message deleted.");
             }
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void handlePin(QPointer<QWidget> parent, MatrixClient* client,
                 const std::string& roomId, const std::string& eventId,
                 TimelineModel* model, QLabel* statusLabel) {
     QPointer<QWidget> guard(parent);
-    std::thread([guard, client, roomId, eventId, model, statusLabel]() {
+    ThreadPool::instance().enqueue([guard, client, roomId, eventId, model, statusLabel]() {
         auto r = client->pinMessage(roomId, eventId);
         QMetaObject::invokeMethod(guard, [guard, r, eventId, model, statusLabel]() {
             if (guard.isNull()) return;
@@ -98,7 +98,7 @@ void handlePin(QPointer<QWidget> parent, MatrixClient* client,
                 if (statusLabel) statusLabel->setText("Message pinned.");
             }
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void handleCopyLink(QPointer<QWidget> parent, const std::string& roomId,

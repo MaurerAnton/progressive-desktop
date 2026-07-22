@@ -7,6 +7,7 @@
 
 #include <QAbstractListModel>
 #include <QIcon>
+#include <QLabel>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -49,6 +50,7 @@ public:
 
     const RoomData* at(int row) const;
     int findRowByRoomId(const std::string& roomId) const;
+    void updateHeader(QLabel* header, QLabel* inviteHeader) const;
 
     enum Roles {
         NameRole = Qt::DisplayRole,

@@ -4,8 +4,7 @@
 #include "core/session_store.hpp"
 #include "core/sync_engine.hpp"
 #include "core/fast_sync.hpp"
-#include "core/notifications.hpp"
-#include "core/thread_pool.hpp"
+#include "notifications.hpp"
 #include "room_list_model.hpp"
 #include "room_list_delegate.hpp"
 #include "timeline/timeline_model.hpp"
@@ -14,7 +13,7 @@
 #include "chat/message_edit.hpp"
 #include "chat/chat_view.hpp"
 #include "room/room_store.hpp"
-#include "auth_handler.hpp"
+#include "handlers/auth_handler.hpp"
 
 #include <QMainWindow>
 #include <QListView>
@@ -23,10 +22,6 @@
 #include <QPushButton>
 #include <QComboBox>
 #include <QPointer>
-#include <unordered_map>
-#include <unordered_set>
-#include <fstream>
-#include <memory>
 
 class QToolBar;
 class QAction;
@@ -36,6 +31,10 @@ namespace progressive::desktop {
 
 class ToolbarHandler;
 class RoomHandler;
+class AttachmentHandler;
+class SlashCommandHandler;
+class SyncResponseHandler;
+class AccountSwitcher;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -46,11 +45,8 @@ public:
 
     void setClient(MatrixClient* client) { client_ = client; }
     void setSessionStore(SessionStore* store) { store_ = store; }
-
     void startWithSavedSession();
-    void forceReLogin();
 
-    void onSync(FastSyncResponse resp);
     void onSyncState(SyncEngineState state, const SyncEngineStats& stats);
 
     QLabel* threadBanner() const { return threadBanner_; }
@@ -73,26 +69,16 @@ protected:
     void closeEvent(QCloseEvent* e) override;
 
 private slots:
-    void onSlashCommand(const std::string& cmd, const std::string& args);
-    void onLoginDialogAccepted();
-    void onToggleFullscreen();
-    void onSwitchAccount(int index);
-    void onImageClicked(const QString& eventId, const QString& mxcUrl);
     void onMessageClicked(const QString& eventId);
-    void onToggleChatLog();
-    void toggleThreadPanel();
 
 private:
     void wireSyncCallbacks();
-    void showLoginDialog();
-    void updateRoomListHeader();
 
     MatrixClient* client_ = nullptr;
     SessionStore* store_ = nullptr;
     SyncEngine sync_;
     ImageLoader* imageLoader_ = nullptr;
     DesktopNotifier notifier_;
-    ThreadPool pool_{4};
 
     QToolBar* toolbar_ = nullptr;
     QLabel* userLabel_ = nullptr;
@@ -122,11 +108,10 @@ private:
     AuthHandler* auth_ = nullptr;
     ToolbarHandler* toolbarHandler_ = nullptr;
     RoomHandler* roomHandler_ = nullptr;
-
-    bool isFullscreen_ = false;
-    bool chatLogging_ = false;
-    std::unique_ptr<std::ofstream> chatLogFile_;
-    std::unordered_set<std::string> pendingBatch_;
+    SyncResponseHandler* syncHandler_ = nullptr;
+    AttachmentHandler* attachmentHandler_ = nullptr;
+    SlashCommandHandler* slashHandler_ = nullptr;
+    AccountSwitcher* accountSwitcher_ = nullptr;
 };
 
 } // namespace progressive::desktop

@@ -145,4 +145,20 @@ int RoomListModel::findRowByRoomId(const std::string& roomId) const {
     return it->second;
 }
 
+void RoomListModel::updateHeader(QLabel* header, QLabel* inviteHeader) const {
+    int inviteCount = 0;
+    int joinedCount = 0;
+    for (const auto& r : rooms_) {
+        if (r.isInvite) inviteCount++;
+        else joinedCount++;
+    }
+    header->setText(QString(" Chats (%1) ").arg(joinedCount));
+    if (inviteCount > 0) {
+        inviteHeader->setText(QString("  Invitations (%1) ").arg(inviteCount));
+        inviteHeader->show();
+    } else {
+        inviteHeader->hide();
+    }
+}
+
 } // namespace progressive::desktop

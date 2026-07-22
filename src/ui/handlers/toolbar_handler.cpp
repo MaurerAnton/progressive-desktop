@@ -1,26 +1,31 @@
 // src/ui/toolbar_handler.cpp — toolbar actions extracted from MainWindow.
 #include "toolbar_handler.hpp"
-#include "room/room_store.hpp"
-#include "room_list_model.hpp"
+#include "../room/room_store.hpp"
+#include "../room_list_model.hpp"
+#include "room_handler.hpp"
 #include "core/matrix_client.hpp"
-#include "profile/room_members_dialog.hpp"
-#include "profile/user_profile_dialog.hpp"
+#include "../profile/room_members_dialog.hpp"
+#include "../profile/user_profile_dialog.hpp"
 #include "core/version.h"
-#include "profile_dialog.hpp"
-#include "dialogs/room_settings_dialog.hpp"
-#include "dialogs/room_directory_dialog.hpp"
-#include "dialogs/threads_dialog.hpp"
-#include "dialogs/prefs_dialog.hpp"
-#include "dialogs/network_log_dialog.hpp"
-#include "shared/image_loader.hpp"
+#include "../profile_dialog.hpp"
+#include "../dialogs/room_settings_dialog.hpp"
+#include "../dialogs/room_directory_dialog.hpp"
+#include "../dialogs/threads_dialog.hpp"
+#include "../dialogs/prefs_dialog.hpp"
+#include "../dialogs/network_log_dialog.hpp"
+#include "../shared/image_loader.hpp"
 
+#include <chrono>
 #include <QInputDialog>
 #include <QMessageBox>
 #include <QMenu>
 #include <QCursor>
 #include <QPointer>
-#include <thread>
 #include <QDateTime>
+#include <QMainWindow>
+#include <filesystem>
+#include <cstdlib>
+#include "core/thread_pool.hpp"
 
 namespace progressive::desktop {
 
@@ -75,7 +80,7 @@ QAction* ToolbarHandler::createSettingsAction() {
 
 QAction* ToolbarHandler::createFullscreenAction() {
     fullscreenAction_ = new QAction("Fullscreen", parentWidget_);
-    connect(fullscreenAction_, &QAction::triggered, this, &ToolbarHandler::fullscreenToggled);
+    connect(fullscreenAction_, &QAction::triggered, this, &ToolbarHandler::doFullscreen);
     return fullscreenAction_;
 }
 
@@ -92,7 +97,7 @@ void ToolbarHandler::onNewChat() {
     std::string uid = userId.toStdString();
     MatrixClient* client = client_;
     QPointer<QWidget> guard(parentWidget_);
-    std::thread([guard, client, uid]() {
+    ThreadPool::instance().enqueue([guard, client, uid]() {
         auto r = client->startDirectMessage(uid);
         QMetaObject::invokeMethod(guard, [guard, r]() {
             if (guard.isNull()) return;
@@ -107,7 +112,7 @@ void ToolbarHandler::onNewChat() {
                     QString("Failed: %1").arg(QString::fromStdString(r.error.message)));
             }
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void ToolbarHandler::onJoinRoom() {
@@ -125,13 +130,13 @@ void ToolbarHandler::onJoinRoom() {
     std::string id = input.trimmed().toStdString();
     MatrixClient* client = client_;
     QPointer<QWidget> guard(parentWidget_);
-    std::thread([guard, client, id]() {
+    ThreadPool::instance().enqueue([guard, client, id]() {
         auto r = client->joinRoom(id);
         QMetaObject::invokeMethod(guard, [guard, r]() {
             if (guard.isNull()) return;
             if (r.ok) QMessageBox::information(qobject_cast<QWidget*>(guard.data()), "Joined", "Successfully joined room.");
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void ToolbarHandler::onBrowseRooms() {
@@ -143,7 +148,7 @@ void ToolbarHandler::onBrowseRooms() {
         rd.roomId = dlg.joinedRoomId().toStdString();
         rd.name = dlg.joinedRoomName().toStdString();
         rd.lastMessage = "Joined";
-        rd.lastActivityTs = static_cast<int64_t>(QDateTime::currentMSecsSinceEpoch());
+        rd.lastActivityTs = static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
         roomModel_->upsertRoom(rd);
         statusLabel_->setText("Joined room: " + dlg.joinedRoomName());
     }
@@ -191,6 +196,67 @@ void ToolbarHandler::onSettings() {
         NetworkLogDialog dlg(parentWidget_);
         dlg.exec();
     }
+}
+
+void ToolbarHandler::doFullscreen() {
+    auto* mw = qobject_cast<QMainWindow*>(parentWidget_);
+    if (!mw) return;
+    if (!isFullscreen_) {
+        mw->showFullScreen();
+        isFullscreen_ = true;
+        fullscreenAction_->setText("Exit fullscreen");
+    } else {
+        mw->showNormal();
+        isFullscreen_ = false;
+        fullscreenAction_->setText("Fullscreen");
+    }
+}
+
+void ToolbarHandler::onToggleChatLog() {
+    if (!roomHandler_ || roomHandler_->currentRoomId().empty()) return;
+    chatLogging_ = !chatLogging_;
+
+    if (chatLogging_) {
+        chatLogBtn_->setChecked(true);
+        chatLogBtn_->setText(" Saving");
+        const char* xdg = getenv("XDG_DATA_HOME");
+        std::string dataPath;
+        if (xdg && xdg[0]) { dataPath = std::string(xdg) + "/progressive-desktop"; }
+        else { const char* home = getenv("HOME"); dataPath = std::string(home ? home : "/tmp") + "/.local/share/progressive-desktop"; }
+        std::string dir = dataPath + "/chatlogs";
+        std::filesystem::create_directories(dir);
+        QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd_HHmm");
+        std::string roomName = roomHandler_->currentRoomId();
+        for (auto& c : roomName) {
+            if (c == '/' || c == '\\' || c == ':' || c == '<' || c == '>' || c == '|' || c == '?') c = '_';
+        }
+        QString filePath = QString::fromStdString(dir + "/" + roomName + "_") + timestamp + ".txt";
+        chatLogFile_ = std::make_unique<std::ofstream>(filePath.toStdString(), std::ios::app);
+        if (chatLogFile_->is_open()) {
+            *chatLogFile_ << "=== Chat log: " << roomName << " ===\n"
+                         << "Started: " << QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss").toStdString() << "\n\n";
+            statusLabel_->setText("Chat log started: " + filePath);
+        } else {
+            chatLogging_ = false;
+            chatLogBtn_->setChecked(false);
+            chatLogBtn_->setText(" Save");
+            statusLabel_->setText("Failed to create log file.");
+        }
+    } else {
+        chatLogBtn_->setChecked(false);
+        chatLogBtn_->setText(" Save");
+        chatLogFile_.reset();
+        statusLabel_->setText("Chat log stopped.");
+    }
+}
+
+void ToolbarHandler::toggleThreadPanel() {
+    if (!roomHandler_ || roomHandler_->currentRoomId().empty() || !client_) {
+        QMessageBox::information(parentWidget_, "Threads", "Select a room first.");
+        return;
+    }
+    ThreadsDialog dlg(client_, roomHandler_->currentRoomId(), parentWidget_);
+    dlg.exec();
 }
 
 } // namespace progressive::desktop

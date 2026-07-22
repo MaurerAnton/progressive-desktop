@@ -11,7 +11,7 @@
 
 #include <QMetaObject>
 #include <QWidget>
-#include <thread>
+#include "core/thread_pool.hpp"
 #include <sstream>
 #include <cstdio>
 #include <simdjson.h>
@@ -259,7 +259,7 @@ void RoomStore::loadHistory(const std::string& roomId, TimelineModel* model,
                               std::function<void(int, const std::string&)> callback) {
     if (!client_ || !client_->isLoggedIn()) { if (callback) callback(0, ""); return; }
     MatrixClient* c = client_;
-    std::thread([guard, c, roomId, model, callback]() {
+    ThreadPool::instance().enqueue([guard, c, roomId, model, callback]() {
         auto result = c->getMessages(roomId, "", 30);
         QMetaObject::invokeMethod(guard, [guard, result, model, callback]() {
             if (guard.isNull()) return;
@@ -303,7 +303,7 @@ void RoomStore::loadHistory(const std::string& roomId, TimelineModel* model,
                 if (st.error() == simdjson::SUCCESS) pBatch = std::string(st.value()); }
             if (callback) callback(count, pBatch);
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void RoomStore::loadMembers(const std::string& roomId, QPointer<QWidget> guard,
@@ -311,7 +311,7 @@ void RoomStore::loadMembers(const std::string& roomId, QPointer<QWidget> guard,
                               std::function<void(std::vector<MemberInfo>)> callback) {
     if (!client_ || !client_->isLoggedIn()) return;
     MatrixClient* c = client_;
-    std::thread([guard, c, roomId, relevantIds, callback]() {
+    ThreadPool::instance().enqueue([guard, c, roomId, relevantIds, callback]() {
         auto r = c->getRoomMembers(roomId);
         std::vector<MemberInfo> members;
         bool gotMembers = false;
@@ -364,7 +364,7 @@ void RoomStore::loadMembers(const std::string& roomId, QPointer<QWidget> guard,
             if (guard.isNull()) return;
             if (callback) callback(members);
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void RoomStore::batchLoadRoomStates(RoomListModel* model, QPointer<QWidget> guard) {
@@ -378,7 +378,7 @@ void RoomStore::batchLoadRoomStates(RoomListModel* model, QPointer<QWidget> guar
     }
     if (roomIds.empty()) { batchInProgress_ = false; return; }
     MatrixClient* c = client_;
-    std::thread([guard, c, roomIds, model]() {
+    ThreadPool::instance().enqueue([guard, c, roomIds, model]() {
         for (const auto& roomId : roomIds) {
             auto nameResp = c->getRoomStateEvent(roomId, "m.room.name");
             auto avatarResp = c->getRoomStateEvent(roomId, "m.room.avatar");
@@ -400,7 +400,7 @@ void RoomStore::batchLoadRoomStates(RoomListModel* model, QPointer<QWidget> guar
                 if (changed) emit model->dataChanged(model->index(row), model->index(row));
             }, Qt::QueuedConnection);
         }
-    }).detach();
+    });
 }
 
 static void fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,

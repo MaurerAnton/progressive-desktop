@@ -11,7 +11,8 @@
 #include <QFileInfo>
 #include <QTimer>
 
-#include <thread>
+#include "core/thread_pool.hpp"
+#include <chrono>
 #include <ctime>
 #include <sstream>
 #include <simdjson.h>
@@ -36,11 +37,11 @@ ChatView::ChatView(MatrixClient* client, TimelineModel* model, MessageEdit* edit
             echo.type = "m.room.message";
             echo.msgtype = "m.emote";
             echo.body = args;
-            echo.originServerTs = static_cast<int64_t>(QDateTime::currentMSecsSinceEpoch());
+            echo.originServerTs = static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
             model_->appendBack(echo);
-            std::thread([client = client_, roomId = roomId_, body = args]() {
+            ThreadPool::instance().enqueue([client = client_, roomId = roomId_, body = args]() {
                 client->sendMessage(roomId, body, "m.emote");
-            }).detach();
+            });
         } else {
             emit slashCommandForward(cmd, args);
         }
@@ -83,13 +84,15 @@ void ChatView::doSend(const std::string& body) {
     }
     std::fprintf(stderr, "[send] message: room=%s body=\"%s\"\n", roomId_.c_str(), body.c_str());
     DisplayedEvent echo;
-    echo.eventId = "pending-" + std::to_string(QDateTime::currentMSecsSinceEpoch());
+    echo.eventId = "pending-" + std::to_string(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count());
     echo.senderId = client_->account().userId;
     echo.senderName = "you";
     echo.type = "m.room.message";
     echo.msgtype = "m.text";
     echo.body = body;
-    echo.originServerTs = static_cast<int64_t>(QDateTime::currentMSecsSinceEpoch());
+    echo.originServerTs = static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
     if (!threadRoot_.empty()) { echo.isThreadReply = true; echo.threadRootId = threadRoot_; }
     std::string tempId = echo.eventId;
     model_->appendBack(echo);
@@ -100,7 +103,7 @@ void ChatView::doSend(const std::string& body) {
     QString myUserId = QString::fromStdString(client->account().userId);
     QPointer<ChatView> guard(this);
 
-    std::thread([guard, client, roomId, body, tempId, myUserId, threadRoot, encrypted = encrypted_]() {
+    ThreadPool::instance().enqueue([guard, client, roomId, body, tempId, myUserId, threadRoot, encrypted = encrypted_]() {
         // Thread reply (unencrypted)
         if (!threadRoot.empty() && !encrypted) {
             auto r = client->sendThreadReply(roomId, body, threadRoot);
@@ -113,7 +116,7 @@ void ChatView::doSend(const std::string& body) {
                 real.senderName = "you"; real.type = "m.room.message";
                 real.msgtype = "m.text"; real.body = body;
                 real.isThreadReply = true; real.threadRootId = threadRoot;
-                real.originServerTs = static_cast<int64_t>(QDateTime::currentMSecsSinceEpoch());
+                real.originServerTs = static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
                 guard->model_->replaceEcho(tempId, real);
             }, Qt::QueuedConnection);
             return;
@@ -140,7 +143,7 @@ void ChatView::doSend(const std::string& body) {
                 real.eventId = r.data; real.senderId = myUserId.toStdString();
                 real.senderName = "you"; real.type = "m.room.message";
                 real.msgtype = "m.text"; real.body = body;
-                real.originServerTs = static_cast<int64_t>(QDateTime::currentMSecsSinceEpoch());
+                real.originServerTs = static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
                 guard->model_->replaceEcho(tempId, real);
             }, Qt::QueuedConnection);
             // Share room key ONCE per session
@@ -183,11 +186,11 @@ void ChatView::doSend(const std::string& body) {
                 real.eventId = r.data; real.senderId = myUserId.toStdString();
                 real.senderName = "you"; real.type = "m.room.message";
                 real.msgtype = "m.text"; real.body = body;
-                real.originServerTs = static_cast<int64_t>(QDateTime::currentMSecsSinceEpoch());
+                real.originServerTs = static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
                 guard->model_->replaceEcho(tempId, real);
-            }, Qt::QueuedConnection);
+            });
         }
-    }).detach();
+    });
 }
 
 void ChatView::doAttachFile(const QString& filePath) {
@@ -208,7 +211,7 @@ void ChatView::doAttachFile(const QString& filePath) {
     MatrixClient* client = client_;
     QPointer<ChatView> guard(this);
 
-    std::thread([guard, client, roomId, fn, ct, filePath, isImage, isVideo, isAudio]() {
+    ThreadPool::instance().enqueue([guard, client, roomId, fn, ct, filePath, isImage, isVideo, isAudio]() {
         QFile f(filePath);
         if (!f.open(QIODevice::ReadOnly)) return;
         QByteArray data = f.readAll(); f.close();
@@ -232,10 +235,10 @@ void ChatView::doAttachFile(const QString& filePath) {
             else if (isAudio) { echo.msgtype = "m.audio"; echo.mxcUrl = mxc; }
             else { echo.msgtype = "m.file"; echo.mxcUrl = mxc; }
             echo.body = fn;
-            echo.originServerTs = static_cast<int64_t>(QDateTime::currentMSecsSinceEpoch());
+            echo.originServerTs = static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
             guard->model_->appendBack(echo);
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void ChatView::doQuickReact(const QString& emoji) {
@@ -251,13 +254,13 @@ void ChatView::doQuickReact(const QString& emoji) {
     MatrixClient* client = client_;
     std::string roomId = roomId_;
     QPointer<ChatView> guard(this);
-    std::thread([guard, client, roomId, eid, em]() {
+    ThreadPool::instance().enqueue([guard, client, roomId, eid, em]() {
         auto r = client->sendReaction(roomId, eid, em);
         QMetaObject::invokeMethod(guard, [guard, r, eid, em]() {
             if (guard.isNull() || !r.ok) return;
             guard->model_->addReaction(eid, em, guard->client_->account().userId, r.data);
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 } // namespace progressive::desktop

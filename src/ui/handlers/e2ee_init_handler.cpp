@@ -3,9 +3,10 @@
 #include "core/matrix_client.hpp"
 #include "core/session_store.hpp"
 #include "core/sync_engine.hpp"
+#include "core/crypto/decryptor.hpp"
 
 #include <iostream>
-#include <thread>
+#include "core/thread_pool.hpp"
 
 namespace progressive::desktop {
 
@@ -72,9 +73,9 @@ void E2eeInitHandler::init(MatrixClient* client, SessionStore* store,
             bool published = store ? store->loadE2eeFlag("keys_published").value_or(false) : false;
             keysPublished = published;
             if (!published) {
-                std::thread([sync]() {
+                ThreadPool::instance().enqueue([sync]() {
                     sync->uploadDeviceKeys();
-                }).detach();
+                });
             } else {
                 std::cerr << "[e2ee] device keys already published — skipping upload\n";
             }
@@ -84,6 +85,18 @@ void E2eeInitHandler::init(MatrixClient* client, SessionStore* store,
     }
 
     if (callback) callback(e2eeOk, keysPublished);
+}
+
+void E2eeInitHandler::persistCrypto(MatrixClient* client, SessionStore* store,
+                                     SyncEngine* sync) {
+    if (!client || !store || !sync) return;
+    if (!sync->decryptor() || !sync->decryptor()->isInitialized()) return;
+
+    std::string pickleKey = client->account().userId + "/" + client->account().deviceId;
+    auto megolmPickle = sync->decryptor()->megolm()->pickleAll(pickleKey);
+    if (!megolmPickle.empty()) store->saveMegolmSessions(megolmPickle);
+    auto olmSessionsPickle = sync->decryptor()->pickleOlmSessions(pickleKey);
+    if (!olmSessionsPickle.empty()) store->saveOlmSessions(olmSessionsPickle);
 }
 
 } // namespace progressive::desktop

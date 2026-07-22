@@ -14,6 +14,9 @@ public:
     static void init(MatrixClient* client, SessionStore* store,
                      SyncEngine* sync,
                      std::function<void(bool ok, bool keysPublished)> callback);
+
+    static void persistCrypto(MatrixClient* client, SessionStore* store,
+                              SyncEngine* sync);
 };
 
 } // namespace progressive::desktop

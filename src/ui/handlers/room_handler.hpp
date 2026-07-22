@@ -57,6 +57,8 @@ public slots:
     void onLoadMoreClicked();
     void onTimelineContextMenu(const QPoint& pos);
     void closeThreadView();
+    void acceptInvite(const QString& roomId);
+    void rejectInvite(const QString& roomId);
 
 private:
     void openThreadView(const QString& rootEventId);

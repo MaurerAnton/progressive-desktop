@@ -14,7 +14,7 @@
 #include <QMetaObject>
 #include <QPointer>
 #include <QMessageBox>
-#include <thread>
+#include "core/thread_pool.hpp"
 
 #include <simdjson.h>
 
@@ -64,7 +64,7 @@ ProfileDialog::ProfileDialog(MatrixClient* client, QWidget* parent)
     // Load current profile
     QPointer<ProfileDialog> guard(this);
     std::string userId = client_->account().userId;
-    std::thread([guard, this, userId]() {
+    ThreadPool::instance().enqueue([guard, this, userId]() {
         auto r = client_->getProfile(userId);
         QMetaObject::invokeMethod(guard, [guard, r]() {
             if (guard.isNull()) return;
@@ -88,7 +88,7 @@ ProfileDialog::ProfileDialog(MatrixClient* client, QWidget* parent)
             }
             guard->statusLabel_->setText("Ready.");
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 
     // Pre-fill name from account
     nameEdit_->setText(QString::fromStdString(client_->account().userId));
@@ -98,14 +98,14 @@ void ProfileDialog::onSaveNameClicked() {
     auto name = nameEdit_->text().toStdString();
     statusLabel_->setText("Saving...");
     QPointer<ProfileDialog> guard(this);
-    std::thread([guard, this, name]() {
+    ThreadPool::instance().enqueue([guard, this, name]() {
         auto r = client_->setDisplayName(name);
         QMetaObject::invokeMethod(guard, [guard, r]() {
             if (guard.isNull()) return;
             if (r.ok) guard->statusLabel_->setText("Display name saved.");
             else guard->statusLabel_->setText("Failed: " + QString::fromStdString(r.error.message));
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void ProfileDialog::onSetAvatarClicked() {
@@ -130,7 +130,7 @@ void ProfileDialog::onSetAvatarClicked() {
 
     statusLabel_->setText("Uploading avatar...");
     QPointer<ProfileDialog> guard(this);
-    std::thread([guard, this, bytes, filename, contentType]() {
+    ThreadPool::instance().enqueue([guard, this, bytes, filename, contentType]() {
         auto upload = client_->uploadMedia(bytes, filename, contentType);
         QMetaObject::invokeMethod(guard, [guard, upload]() {
             if (guard.isNull()) return;
@@ -141,16 +141,16 @@ void ProfileDialog::onSetAvatarClicked() {
             std::string mxc = upload.data;
             guard->currentAvatarMxc_ = mxc;
             // Now set avatar URL on profile
-            std::thread([guard, client = guard->client_, mxc]() {
+            ThreadPool::instance().enqueue([guard, client = guard->client_, mxc]() {
                 auto r = client->setAvatarUrl(mxc);
                 QMetaObject::invokeMethod(guard, [guard, r]() {
                     if (guard.isNull()) return;
                     if (r.ok) guard->statusLabel_->setText("Avatar updated.");
                     else guard->statusLabel_->setText("Set avatar failed: " + QString::fromStdString(r.error.message));
                 }, Qt::QueuedConnection);
-            }).detach();
+            });
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 } // namespace progressive::desktop

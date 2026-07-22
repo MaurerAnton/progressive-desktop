@@ -11,7 +11,7 @@
 #include <QJsonObject>
 #include <QJsonDocument>
 #include <QJsonArray>
-#include <thread>
+#include "core/thread_pool.hpp"
 
 #include <progressive/json_parser.hpp>
 
@@ -65,7 +65,7 @@ void RoomDirectoryDialog::doSearch(const std::string& query, const std::string& 
     QApplication::processEvents();
 
     // Run in worker thread
-    std::thread([this, query, server, from]() {
+    ThreadPool::instance().enqueue([this, query, server, from]() {
         auto r = client_->searchPublicRooms(server, query, 20, from);
 
         QMetaObject::invokeMethod(this, [this, r, from]() {
@@ -154,7 +154,7 @@ void RoomDirectoryDialog::doSearch(const std::string& query, const std::string& 
 
             statusLabel_->setText(QString("Found %1 room(s). Double-click to join.").arg(added));
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void RoomDirectoryDialog::onSearchClicked() {
@@ -180,7 +180,7 @@ void RoomDirectoryDialog::onJoinClicked(QListWidgetItem* item) {
     statusLabel_->setText("Joining " + roomAlias + "...");
     QApplication::processEvents();
 
-    std::thread([this, roomId, roomAlias, roomName]() {
+    ThreadPool::instance().enqueue([this, roomId, roomAlias, roomName]() {
         auto r = client_->joinRoom(roomId.toStdString());
 
         QMetaObject::invokeMethod(this, [this, r, roomAlias, roomName]() {
@@ -199,7 +199,7 @@ void RoomDirectoryDialog::onJoinClicked(QListWidgetItem* item) {
                         .arg(QString::fromStdString(r.error.message)));
             }
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 } // namespace progressive::desktop

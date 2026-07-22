@@ -1,14 +1,14 @@
 // src/ui/room_handler.cpp — room interaction extracted from MainWindow.
 #include "room_handler.hpp"
-#include "main_window.hpp"
-#include "room/room_store.hpp"
-#include "room_list_model.hpp"
-#include "timeline/timeline_model.hpp"
-#include "timeline/timeline_handlers.hpp"
+#include "../main_window.hpp"
+#include "../room/room_store.hpp"
+#include "../room_list_model.hpp"
+#include "../timeline/timeline_model.hpp"
+#include "../timeline/timeline_handlers.hpp"
 #include "core/matrix_client.hpp"
-#include "chat/chat_view.hpp"
-#include "dialogs/room_settings_dialog.hpp"
-#include "profile/room_members_dialog.hpp"
+#include "../chat/chat_view.hpp"
+#include "../dialogs/room_settings_dialog.hpp"
+#include "../profile/room_members_dialog.hpp"
 
 #include <QInputDialog>
 #include <QMessageBox>
@@ -19,7 +19,7 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QApplication>
-#include <thread>
+#include "core/thread_pool.hpp"
 
 #include <simdjson.h>
 
@@ -224,9 +224,9 @@ void RoomHandler::onRoomClicked(const QModelIndex& idx) {
                 std::string roomIdStr = r->roomId;
                 std::string eventIdStr = evt->eventId;
                 MatrixClient* client = client_;
-                std::thread([client, roomIdStr, eventIdStr]() {
+                ThreadPool::instance().enqueue([client, roomIdStr, eventIdStr]() {
                     client->setReadMarker(roomIdStr, eventIdStr);
-                }).detach();
+                });
             }
         }
     }
@@ -297,7 +297,7 @@ void RoomHandler::onRoomListContextMenu(const QPoint& pos) {
         QPointer<MainWindow> guard(mainWindow_);
         QPointer<RoomHandler> self(this);
         statusLabel_->setText("Leaving room...");
-        std::thread([guard, self, client, roomId]() {
+        ThreadPool::instance().enqueue([guard, self, client, roomId]() {
             auto res = client->leaveRoom(roomId);
             QMetaObject::invokeMethod(guard, [guard, self, res, roomId]() {
                 if (guard.isNull() || self.isNull()) return;
@@ -320,14 +320,14 @@ void RoomHandler::onRoomListContextMenu(const QPoint& pos) {
                     self->statusLabel_->setText("Failed to leave: " + QString::fromStdString(res.error.message));
                 }
             }, Qt::QueuedConnection);
-        }).detach();
+        });
     } else if (selected == acceptAction) {
         std::string roomId = r->roomId;
         MatrixClient* client = client_;
         QPointer<MainWindow> guard(mainWindow_);
         QPointer<RoomHandler> self(this);
         statusLabel_->setText("Joining room...");
-        std::thread([guard, self, client, roomId]() {
+        ThreadPool::instance().enqueue([guard, self, client, roomId]() {
             auto res = client->joinRoom(roomId);
             QMetaObject::invokeMethod(guard, [guard, self, res, roomId]() {
                 if (guard.isNull() || self.isNull()) return;
@@ -347,14 +347,14 @@ void RoomHandler::onRoomListContextMenu(const QPoint& pos) {
                     self->statusLabel_->setText("Failed to join: " + QString::fromStdString(res.error.message));
                 }
             }, Qt::QueuedConnection);
-        }).detach();
+        });
     } else if (selected == rejectAction) {
         std::string roomId = r->roomId;
         MatrixClient* client = client_;
         QPointer<MainWindow> guard(mainWindow_);
         QPointer<RoomHandler> self(this);
         statusLabel_->setText("Rejecting invite...");
-        std::thread([guard, self, client, roomId]() {
+        ThreadPool::instance().enqueue([guard, self, client, roomId]() {
             auto res = client->leaveRoom(roomId);
             QMetaObject::invokeMethod(guard, [guard, self, res, roomId]() {
                 if (guard.isNull() || self.isNull()) return;
@@ -365,7 +365,7 @@ void RoomHandler::onRoomListContextMenu(const QPoint& pos) {
                     self->statusLabel_->setText("Failed to reject: " + QString::fromStdString(res.error.message));
                 }
             }, Qt::QueuedConnection);
-        }).detach();
+        });
     }
 }
 
@@ -382,7 +382,7 @@ void RoomHandler::onLoadMoreClicked() {
     QPointer<MainWindow> guard(mainWindow_);
     QPointer<RoomHandler> self(this);
 
-    std::thread([guard, self, client, roomId, from]() {
+    ThreadPool::instance().enqueue([guard, self, client, roomId, from]() {
         auto result = client->getMessages(roomId, from, 30);
         QMetaObject::invokeMethod(guard, [guard, self, result]() {
             if (guard.isNull() || self.isNull()) return;
@@ -474,7 +474,7 @@ void RoomHandler::onLoadMoreClicked() {
             self->loadMoreBtn_->setEnabled(true);
             self->statusLabel_->setText(QString("Loaded %1 older message(s).").arg(events.size()));
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void RoomHandler::onTimelineContextMenu(const QPoint& pos) {
@@ -506,7 +506,7 @@ void RoomHandler::showTimelineContextMenu(const QString& eventId, const QPoint& 
                         auto* action = removeReactMenu->addAction(QString::fromStdString(r.emoji));
                         connect(action, &QAction::triggered, this, [this, eventId, eidStr, r]() {
                             if (currentRoomIdStr_.empty() || !client_) return;
-                            std::thread([this, roomId = currentRoomIdStr_, reid = r.reactionEventId, eidStr, emoji = r.emoji]() {
+                            ThreadPool::instance().enqueue([this, roomId = currentRoomIdStr_, reid = r.reactionEventId, eidStr, emoji = r.emoji]() {
                                 auto res = client_->redactEvent(roomId, reid);
                                 QMetaObject::invokeMethod(this, [this, res, eidStr, emoji]() {
                                     if (res.ok) {
@@ -514,7 +514,7 @@ void RoomHandler::showTimelineContextMenu(const QString& eventId, const QPoint& 
                                         statusLabel_->setText("Reaction removed.");
                                     }
                                 }, Qt::QueuedConnection);
-                            }).detach();
+                            });
                         });
                         hasReactions = true;
                     }
@@ -560,12 +560,12 @@ void RoomHandler::showTimelineContextMenu(const QString& eventId, const QPoint& 
     } else if (selected == pinAction) {
         handlePin(mainWindow_.data(), client_, roomIdStr, eidStrVal, timelineModel_, statusLabel_);
     } else if (selected == unpinAction) {
-        std::thread([this, roomIdStr, eidStrVal]() {
+        ThreadPool::instance().enqueue([this, roomIdStr, eidStrVal]() {
             auto r = client_->unpinMessage(roomIdStr, eidStrVal);
             QMetaObject::invokeMethod(this, [this, r, eidStrVal]() {
                 if (r.ok) { timelineModel_->setPinned(eidStrVal, false); statusLabel_->setText("Message unpinned."); }
             }, Qt::QueuedConnection);
-        }).detach();
+        });
     } else if (selected == replyThreadAction) {
         if (currentRoomIdStr_.empty() || !client_) return;
         QString rootText;
@@ -575,7 +575,7 @@ void RoomHandler::showTimelineContextMenu(const QString& eventId, const QPoint& 
         QString reply = QInputDialog::getText(mainWindow_.data(), "Reply in thread",
             QString("Replying to:\n\"%1\"\n\nYour reply:").arg(rootText.left(100)), QLineEdit::Normal, "", &ok);
         if (!ok || reply.trimmed().isEmpty()) return;
-        std::thread([this, roomIdStr, eidStrVal, body = reply.toStdString()]() {
+        ThreadPool::instance().enqueue([this, roomIdStr, eidStrVal, body = reply.toStdString()]() {
             auto r = client_->sendThreadReply(roomIdStr, body, eidStrVal);
             QMetaObject::invokeMethod(this, [this, r, eidStrVal]() {
                 if (r.ok) {
@@ -586,7 +586,7 @@ void RoomHandler::showTimelineContextMenu(const QString& eventId, const QPoint& 
                     }
                 }
             }, Qt::QueuedConnection);
-        }).detach();
+        });
     } else if (selected == viewThreadAction) {
         openThreadView(threadRootForView.isEmpty() ? eventId : threadRootForView);
     } else if (selected == copyLinkAction) {
@@ -613,7 +613,7 @@ void RoomHandler::openThreadView(const QString& rootEventId) {
     QPointer<MainWindow> guard(mainWindow_);
     QPointer<RoomHandler> self(this);
 
-    std::thread([guard, self, client, roomId, rootEid]() {
+    ThreadPool::instance().enqueue([guard, self, client, roomId, rootEid]() {
         auto r = client->getThreadReplies(roomId, rootEid);
         QMetaObject::invokeMethod(guard, [guard, self, r, rootEid]() {
             if (guard.isNull() || self.isNull()) return;
@@ -701,7 +701,7 @@ void RoomHandler::openThreadView(const QString& rootEventId) {
             }
             self->statusLabel_->setText(QString("Loaded %1 thread reply(s).").arg(events.size()));
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void RoomHandler::closeThreadView() {
@@ -720,6 +720,46 @@ void RoomHandler::closeThreadView() {
                 }
             });
     }
+}
+
+void RoomHandler::acceptInvite(const QString& roomId) {
+    if (!client_) return;
+    statusLabel_->setText("Accepting invite...");
+    MatrixClient* client = client_;
+    QPointer<RoomHandler> self(this);
+    ThreadPool::instance().enqueue([self, client, roomId]() {
+        auto r = client->joinRoom(roomId.toStdString());
+        QMetaObject::invokeMethod(self, [self, r, roomId]() {
+            if (self.isNull()) return;
+            if (r.ok) {
+                RoomData* rd = const_cast<RoomData*>(self->roomModel_->at(
+                    self->roomModel_->findRowByRoomId(roomId.toStdString())));
+                if (rd) { rd->isInvite = false;
+                    int row = self->roomModel_->findRowByRoomId(roomId.toStdString());
+                    if (row >= 0) emit self->roomModel_->dataChanged(
+                        self->roomModel_->index(row), self->roomModel_->index(row)); }
+                self->statusLabel_->setText("Joined room.");
+            } else {
+                self->statusLabel_->setText("Failed: " + QString::fromStdString(r.error.message));
+            }
+        }, Qt::QueuedConnection);
+    });
+}
+
+void RoomHandler::rejectInvite(const QString& roomId) {
+    if (!client_) return;
+    statusLabel_->setText("Rejecting invite...");
+    MatrixClient* client = client_;
+    QPointer<RoomHandler> self(this);
+    ThreadPool::instance().enqueue([self, client, roomId]() {
+        auto r = client->leaveRoom(roomId.toStdString());
+        QMetaObject::invokeMethod(self, [self, r, roomId]() {
+            if (self.isNull()) return;
+            if (r.ok) { self->roomModel_->removeRoom(roomId.toStdString());
+                self->statusLabel_->setText("Invite rejected."); }
+            else self->statusLabel_->setText("Failed: " + QString::fromStdString(r.error.message));
+        }, Qt::QueuedConnection);
+    });
 }
 
 } // namespace progressive::desktop

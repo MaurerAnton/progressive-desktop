@@ -8,12 +8,14 @@
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
-#include <QStandardPaths>
-#include <QDir>
 #include <QTimer>
 #include <QString>
 #include <QCheckBox>
-#include <QUuid>
+
+#include "core/utils.hpp"
+
+#include <filesystem>
+#include <cstdlib>
 
 #include <progressive/well_known.hpp>
 
@@ -114,9 +116,12 @@ void LoginDialog::onRegisterClicked() {
         // Registration succeeded — we're logged in!
         client_->setAccount(result.data);
         if (store_) {
-            QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-            QDir().mkpath(dataDir);
-            QString dbPath = dataDir + "/session.db";
+            const char* xdg = getenv("XDG_DATA_HOME");
+            std::string dataPath;
+            if (xdg && xdg[0]) { dataPath = std::string(xdg) + "/progressive-desktop"; }
+            else { const char* home = getenv("HOME"); dataPath = std::string(home ? home : "/tmp") + "/.local/share/progressive-desktop"; }
+            std::filesystem::create_directories(dataPath);
+            QString dbPath = QString::fromStdString(dataPath + "/session.db");
             store_->open(dbPath.toStdString());
         }
         client_->setSessionStore(store_);
@@ -193,7 +198,7 @@ void LoginDialog::onLoginClicked() {
     // This prevents M_UNKNOWN_TOKEN when multiple devices share the same ID.
     std::string deviceId = client_->account().deviceId;
     if (deviceId.empty() || deviceId == "PROGRESSIVE_DESKTOP") {
-        deviceId = "pd-" + QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+        deviceId = generateUUID();
     }
     auto result = client_->loginWithPassword(userStr, pass.toStdString(), deviceId);
     if (!result.ok) {
@@ -214,9 +219,12 @@ void LoginDialog::onLoginClicked() {
 
     // Persist session
     if (store_) {
-        QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-        QDir().mkpath(dataDir);
-        QString dbPath = dataDir + "/session.db";
+        const char* xdg = getenv("XDG_DATA_HOME");
+        std::string dataPath;
+        if (xdg && xdg[0]) { dataPath = std::string(xdg) + "/progressive-desktop"; }
+        else { const char* home = getenv("HOME"); dataPath = std::string(home ? home : "/tmp") + "/.local/share/progressive-desktop"; }
+        std::filesystem::create_directories(dataPath);
+        QString dbPath = QString::fromStdString(dataPath + "/session.db");
         store_->open(dbPath.toStdString());
     }
     client_->setSessionStore(store_);

@@ -15,8 +15,6 @@
 
 // forward-declare key structs for sizeof() logging
 #include "../core/fast_sync.hpp"
-#include "../ui/room_list_model.hpp"
-#include "../ui/timeline/timeline_model.hpp"
 #include "../core/crypto/olm_account.hpp"
 #include "../core/crypto/megolm_store.hpp"
 #include "../core/crypto/decryptor.hpp"
@@ -73,8 +71,6 @@ void logStructSizes() {
     std::fprintf(stderr, "  FastRoomTimeline       = %zu\n", sizeof(FastRoomTimeline));
     std::fprintf(stderr, "  FastRoom               = %zu\n", sizeof(FastRoom));
     std::fprintf(stderr, "  FastSyncResponse       = %zu\n", sizeof(FastSyncResponse));
-    std::fprintf(stderr, "  RoomData               = %zu\n", sizeof(RoomData));
-    std::fprintf(stderr, "  DisplayedEvent         = %zu\n", sizeof(DisplayedEvent));
     std::fprintf(stderr, "  OlmAccountStore        = %zu\n", sizeof(OlmAccountStore));
     std::fprintf(stderr, "  MegolmStore            = %zu\n", sizeof(MegolmStore));
     std::fprintf(stderr, "  Decryptor              = %zu\n", sizeof(Decryptor));

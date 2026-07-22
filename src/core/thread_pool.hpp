@@ -14,6 +14,11 @@ public:
     explicit ThreadPool(size_t numThreads = std::thread::hardware_concurrency());
     ~ThreadPool();
 
+    static ThreadPool& instance() {
+        static ThreadPool pool{4};
+        return pool;
+    }
+
     void enqueue(std::function<void()> task);
     size_t pending() const;
 

@@ -56,7 +56,6 @@ add_library(progressive_core STATIC
     src/core/crypto/olm_account.cpp
     src/core/crypto/megolm_store.cpp
     src/core/crypto/decryptor.cpp
-    src/core/notifications.cpp
 )
 target_include_directories(progressive_core PUBLIC
     src
@@ -64,9 +63,6 @@ target_include_directories(progressive_core PUBLIC
 )
 target_link_libraries(progressive_core PUBLIC
     progressive_native
-    Qt6::Core
-    Qt6::Network
-    Qt6::Widgets
     CURL::libcurl
     SQLite3::SQLite3
     simdjson::simdjson
@@ -95,13 +91,19 @@ add_executable(progressive-desktop
     src/ui/chat/chat_view.cpp
     src/ui/timeline/timeline_handlers.cpp
     src/ui/room/room_store.cpp
-    src/ui/auth_handler.cpp
-    src/ui/toolbar_handler.cpp
-    src/ui/room_handler.cpp
-    src/ui/e2ee_init_handler.cpp
+    src/ui/handlers/auth_handler.cpp
+    src/ui/handlers/toolbar_handler.cpp
+    src/ui/handlers/room_handler.cpp
+    src/ui/handlers/e2ee_init_handler.cpp
     src/ui/ui_layout_builder.cpp
     src/ui/chat/message_edit.cpp
     src/ui/shared/theme.cpp
+    src/ui/notifications.cpp
+    src/ui/handlers/sync_response_handler.cpp
+    src/ui/handlers/attachment_handler.cpp
+    src/ui/handlers/account_switcher.cpp
+    src/ui/handlers/session_bootstrap.cpp
+    src/ui/handlers/slash_command_handler.cpp
     resources/resources.qrc
 )
 qt_add_resources(progressive-desktop "resources/resources.qrc")
@@ -142,6 +144,7 @@ if(PROGRESSIVE_BUILD_TESTS)
     target_link_libraries(test_gui_phase4 PRIVATE Qt6::Widgets)
     set_target_properties(test_gui_phase4 PROPERTIES AUTOMOC ON)
     add_test(NAME gui_phase4 COMMAND test_gui_phase4)
+    set_tests_properties(gui_phase4 PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     find_package(Qt6 REQUIRED COMPONENTS Test)
     add_executable(test_visual tests/test_visual.cpp

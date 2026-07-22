@@ -12,7 +12,7 @@
 #include <QMetaObject>
 #include <QPointer>
 #include <QThread>
-#include <thread>
+#include "core/thread_pool.hpp"
 
 #include <progressive/json_parser.hpp>
 #include <simdjson.h>
@@ -111,7 +111,7 @@ RoomSettingsDialog::RoomSettingsDialog(MatrixClient* client, const std::string& 
 
     // Load topic from current state using simdjson
     QPointer<RoomSettingsDialog> guard(this);
-    std::thread([guard, this]() {
+    ThreadPool::instance().enqueue([guard, this]() {
         auto state = client_->getRoomState(roomId_);
         QMetaObject::invokeMethod(guard, [guard, state]() {
             if (guard.isNull()) return;
@@ -139,7 +139,7 @@ RoomSettingsDialog::RoomSettingsDialog(MatrixClient* client, const std::string& 
             }
             guard->statusLabel_->setText("Ready.");
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 
     loadMembers();
 }
@@ -150,14 +150,14 @@ void RoomSettingsDialog::onSaveTopicClicked() {
     QApplication::processEvents();
 
     QPointer<RoomSettingsDialog> guard(this);
-    std::thread([guard, this, topic]() {
+    ThreadPool::instance().enqueue([guard, this, topic]() {
         auto r = client_->setRoomTopic(roomId_, topic);
         QMetaObject::invokeMethod(guard, [guard, r]() {
             if (guard.isNull()) return;
             if (r.ok) guard->statusLabel_->setText("Topic saved.");
             else guard->statusLabel_->setText("Failed: " + QString::fromStdString(r.error.message));
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void RoomSettingsDialog::onSaveNameClicked() {
@@ -166,14 +166,14 @@ void RoomSettingsDialog::onSaveNameClicked() {
     QApplication::processEvents();
 
     QPointer<RoomSettingsDialog> guard(this);
-    std::thread([guard, this, name]() {
+    ThreadPool::instance().enqueue([guard, this, name]() {
         auto r = client_->setRoomName(roomId_, name);
         QMetaObject::invokeMethod(guard, [guard, r]() {
             if (guard.isNull()) return;
             if (r.ok) guard->statusLabel_->setText("Name saved.");
             else guard->statusLabel_->setText("Failed: " + QString::fromStdString(r.error.message));
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void RoomSettingsDialog::loadMembers() {
@@ -181,7 +181,7 @@ void RoomSettingsDialog::loadMembers() {
     membersList_->clear();
 
     QPointer<RoomSettingsDialog> guard(this);
-    std::thread([guard, this]() {
+    ThreadPool::instance().enqueue([guard, this]() {
         auto r = client_->getRoomMembers(roomId_);
         QMetaObject::invokeMethod(guard, [guard, r]() {
             if (guard.isNull()) return;
@@ -208,7 +208,7 @@ void RoomSettingsDialog::loadMembers() {
             }
             guard->statusLabel_->setText(QString("%1 members.").arg(count));
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void RoomSettingsDialog::onRefreshMembersClicked() {
@@ -243,33 +243,33 @@ void RoomSettingsDialog::showMemberMenu(const QString& userId, const QPoint& glo
         bool ok;
         auto reason = QInputDialog::getText(this, "Kick user", "Reason:", QLineEdit::Normal, "", &ok);
         if (!ok) return;
-        std::thread([this, uid, reason = reason.toStdString()]() {
+        ThreadPool::instance().enqueue([this, uid, reason = reason.toStdString()]() {
             client_->kickUser(roomId_, uid, reason);
             QMetaObject::invokeMethod(this, [this]() { loadMembers(); }, Qt::QueuedConnection);
-        }).detach();
+        });
     } else if (selected == banAction) {
         bool ok;
         auto reason = QInputDialog::getText(this, "Ban user", "Reason:", QLineEdit::Normal, "", &ok);
         if (!ok) return;
-        std::thread([this, uid, reason = reason.toStdString()]() {
+        ThreadPool::instance().enqueue([this, uid, reason = reason.toStdString()]() {
             client_->banUser(roomId_, uid, reason);
             QMetaObject::invokeMethod(this, [this]() { loadMembers(); }, Qt::QueuedConnection);
-        }).detach();
+        });
     } else if (selected == makeModAction) {
-        std::thread([this, uid]() {
+        ThreadPool::instance().enqueue([this, uid]() {
             client_->setUserPowerLevel(roomId_, uid, 50);
             QMetaObject::invokeMethod(this, [this]() { loadMembers(); }, Qt::QueuedConnection);
-        }).detach();
+        });
     } else if (selected == makeAdminAction) {
-        std::thread([this, uid]() {
+        ThreadPool::instance().enqueue([this, uid]() {
             client_->setUserPowerLevel(roomId_, uid, 100);
             QMetaObject::invokeMethod(this, [this]() { loadMembers(); }, Qt::QueuedConnection);
-        }).detach();
+        });
     } else if (selected == resetLevelAction) {
-        std::thread([this, uid]() {
+        ThreadPool::instance().enqueue([this, uid]() {
             client_->setUserPowerLevel(roomId_, uid, 0);
             QMetaObject::invokeMethod(this, [this]() { loadMembers(); }, Qt::QueuedConnection);
-        }).detach();
+        });
     }
 }
 

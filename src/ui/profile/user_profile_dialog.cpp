@@ -10,7 +10,7 @@
 #include <QGuiApplication>
 #include <QInputDialog>
 #include <QPixmap>
-#include <thread>
+#include "core/thread_pool.hpp"
 
 #include <simdjson.h>
 
@@ -108,7 +108,7 @@ void UserProfileDialog::loadProfile() {
 
     statusLabel_->setText("Loading...");
 
-    std::thread([guard, userId, roomId, myUserId]() {
+    ThreadPool::instance().enqueue([guard, userId, roomId, myUserId]() {
         auto profileResp = guard->client_->getUserProfile(userId);
         auto stateResp = guard->client_->getRoomState(roomId);
 
@@ -180,7 +180,7 @@ void UserProfileDialog::loadProfile() {
                     auto av = root.value()["avatar_url"].get_string();
                     if (av.error() == simdjson::SUCCESS) {
                         std::string avUrl(av.value());
-                        std::thread([guard, avUrl]() {
+                        ThreadPool::instance().enqueue([guard, avUrl]() {
                             auto r = guard->client_->downloadMedia(avUrl, 72, 72);
                             QMetaObject::invokeMethod(guard, [guard, r]() {
                                 if (guard.isNull() || !r.ok || r.data.empty()) return;
@@ -190,28 +190,28 @@ void UserProfileDialog::loadProfile() {
                                     guard->avatarLabel_->setPixmap(pix.scaled(72, 72, Qt::KeepAspectRatio, Qt::SmoothTransformation));
                                 }
                             });
-                        }).detach();
+                        });
                     }
                 }
             }
 
             guard->statusLabel_->setText("");
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void UserProfileDialog::onSendDM() {
     QPointer<UserProfileDialog> guard(this);
     statusLabel_->setText("Creating DM...");
 
-    std::thread([guard, this]() {
+    ThreadPool::instance().enqueue([guard, this]() {
         auto r = client_->startDirectMessage(userId_);
         QMetaObject::invokeMethod(guard, [guard, r]() {
             if (guard.isNull()) return;
             if (r.ok) guard->statusLabel_->setText("DM created: " + QString::fromStdString(r.data));
             else guard->statusLabel_->setText("Failed: " + QString::fromStdString(r.error.message));
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void UserProfileDialog::onKick() {
@@ -223,14 +223,14 @@ void UserProfileDialog::onKick() {
     statusLabel_->setText("Kicking...");
     QPointer<UserProfileDialog> guard(this);
 
-    std::thread([guard, this]() {
+    ThreadPool::instance().enqueue([guard, this]() {
         auto r = client_->kickUser(roomId_, userId_);
         QMetaObject::invokeMethod(guard, [guard, r]() {
             if (guard.isNull()) return;
             if (r.ok) guard->statusLabel_->setText("User kicked.");
             else guard->statusLabel_->setText("Failed: " + QString::fromStdString(r.error.message));
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void UserProfileDialog::onBan() {
@@ -242,42 +242,42 @@ void UserProfileDialog::onBan() {
     statusLabel_->setText("Banning...");
     QPointer<UserProfileDialog> guard(this);
 
-    std::thread([guard, this, reason]() {
+    ThreadPool::instance().enqueue([guard, this, reason]() {
         auto r = client_->banUser(roomId_, userId_, reason.toStdString());
         QMetaObject::invokeMethod(guard, [guard, r]() {
             if (guard.isNull()) return;
             if (r.ok) guard->statusLabel_->setText("User banned.");
             else guard->statusLabel_->setText("Failed: " + QString::fromStdString(r.error.message));
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void UserProfileDialog::onPromote() {
     statusLabel_->setText("Promoting...");
     QPointer<UserProfileDialog> guard(this);
 
-    std::thread([guard, this]() {
+    ThreadPool::instance().enqueue([guard, this]() {
         auto r = client_->setUserPowerLevel(roomId_, userId_, 50);
         QMetaObject::invokeMethod(guard, [guard, r]() {
             if (guard.isNull()) return;
             if (r.ok) guard->statusLabel_->setText("User promoted to moderator.");
             else guard->statusLabel_->setText("Failed: " + QString::fromStdString(r.error.message));
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void UserProfileDialog::onDemote() {
     statusLabel_->setText("Demoting...");
     QPointer<UserProfileDialog> guard(this);
 
-    std::thread([guard, this]() {
+    ThreadPool::instance().enqueue([guard, this]() {
         auto r = client_->setUserPowerLevel(roomId_, userId_, 0);
         QMetaObject::invokeMethod(guard, [guard, r]() {
             if (guard.isNull()) return;
             if (r.ok) guard->statusLabel_->setText("User demoted.");
             else guard->statusLabel_->setText("Failed: " + QString::fromStdString(r.error.message));
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void UserProfileDialog::onCopyMXID() {

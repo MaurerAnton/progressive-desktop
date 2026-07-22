@@ -86,6 +86,7 @@ public:
     // Add events (from sync or pagination). Deduplicates by event_id.
     void appendBack(const DisplayedEvent& evt);
     void appendFront(const std::vector<DisplayedEvent>& evts);  // for pagination
+    void appendBackBatch(const std::vector<DisplayedEvent>& events);  // single beginInsert
     void clear();
 
     // Replace a pending local echo (matched by eventId) with the real event

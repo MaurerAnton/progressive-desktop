@@ -293,7 +293,7 @@ void RoomStore::loadHistory(const std::string& roomId, TimelineModel* model,
                 events.push_back(std::move(de));
             }
             std::reverse(events.begin(), events.end());
-            for (const auto& de : events) model->appendBack(de);
+            model->appendBackBatch(events);
             int count = (int)events.size();
             std::string pBatch;
             auto et = root.value()["end"].get_string();
@@ -444,6 +444,7 @@ static void appendTimelineForRoom(const std::string& roomId,
     const std::vector<FastEvent>& events, TimelineModel* model,
     const std::unordered_map<std::string,std::string>* memberAvatars,
     const std::string& myUserId) {
+    std::vector<DisplayedEvent> batch;
     for (const auto& e : events) {
         if (e.type == "m.room.member" && !e.contentJson.empty()) {
             auto ms = extractString(e.contentJson, "membership");
@@ -467,12 +468,12 @@ static void appendTimelineForRoom(const std::string& roomId,
             continue;
         }
         DisplayedEvent de;
-        fastEventToDisplayed(e, de, roomId, nullptr);  // decryptor passed later
+        fastEventToDisplayed(e, de, roomId, nullptr);
         if (memberAvatars && !de.senderId.empty()) {
             auto it = memberAvatars->find(de.senderId);
             if (it != memberAvatars->end()) de.avatarUrl = it->second;
         }
-        model->appendBack(de);
+        batch.push_back(std::move(de));
         if (de.isThreadReply && !de.threadRootId.empty()) {
             int rootRow = model->findRow(de.threadRootId);
             if (rootRow >= 0) {
@@ -481,6 +482,7 @@ static void appendTimelineForRoom(const std::string& roomId,
             }
         }
     }
+    model->appendBackBatch(batch);
 }
 
 } // namespace progressive::desktop

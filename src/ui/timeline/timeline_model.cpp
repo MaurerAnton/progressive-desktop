@@ -174,6 +174,26 @@ void TimelineModel::appendFront(const std::vector<DisplayedEvent>& evts) {
     updateGroupMarkers(events_);
 }
 
+void TimelineModel::appendBackBatch(const std::vector<DisplayedEvent>& events) {
+    std::vector<DisplayedEvent> filtered;
+    for (const auto& evt : events) {
+        if (!evt.eventId.empty() && seenIds_.count(evt.eventId)) continue;
+        if (!evt.eventId.empty()) seenIds_.insert(evt.eventId);
+        filtered.push_back(evt);
+    }
+    if (filtered.empty()) return;
+
+    int first = static_cast<int>(events_.size());
+    int last = first + static_cast<int>(filtered.size()) - 1;
+    beginInsertRows(QModelIndex(), first, last);
+    events_.insert(events_.end(), filtered.begin(), filtered.end());
+    endInsertRows();
+
+    for (int i = 0; i < static_cast<int>(events_.size()); ++i)
+        if (!events_[i].eventId.empty()) rowIndex_[events_[i].eventId] = i;
+    updateGroupMarkers(events_);
+}
+
 void TimelineModel::clear() {
     if (events_.empty()) return;
     beginResetModel();

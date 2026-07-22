@@ -5,6 +5,7 @@
 #include "core/sync_engine.hpp"
 #include "core/fast_sync.hpp"
 #include "core/notifications.hpp"
+#include "core/thread_pool.hpp"
 #include "room_list_model.hpp"
 #include "room_list_delegate.hpp"
 #include "timeline/timeline_model.hpp"
@@ -95,6 +96,7 @@ private:
     SyncEngine sync_;
     ImageLoader* imageLoader_ = nullptr;
     DesktopNotifier notifier_;
+    ThreadPool pool_{4};
 
     QToolBar* toolbar_ = nullptr;
     QLabel* userLabel_ = nullptr;

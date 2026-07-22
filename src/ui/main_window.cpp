@@ -753,7 +753,6 @@ void MainWindow::onRoomClicked(const QModelIndex& idx) {
     chatLogging_ = false;
     chatLogBtn_->setChecked(false);
     chatLogFile_.reset();
-    memberAvatarCache_.clear();
     chatView_->setCurrentRoom(r->roomId, currentThreadRoot_.toStdString(), r->isEncrypted);
     timelineModel_->clear();
     timelinePlaceholder_->hide();

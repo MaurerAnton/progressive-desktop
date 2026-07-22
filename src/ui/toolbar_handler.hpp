@@ -12,7 +12,6 @@ class MatrixClient;
 class RoomListModel;
 class RoomStore;
 class TimelineModel;
-class QListView;
 
 class ToolbarHandler : public QObject {
     Q_OBJECT
@@ -21,13 +20,14 @@ public:
                    RoomStore* roomStore, TimelineModel* timelineModel,
                    QLabel* statusLabel, QWidget* parent);
 
-    QAction* newChatAction() const { return newChatAction_; }
-    QAction* joinRoomAction() const { return joinRoomAction_; }
-    QAction* browseRoomsAction() const { return browseRoomsAction_; }
-    QAction* allThreadsAction() const { return allThreadsAction_; }
-    QAction* roomSettingsAction() const { return roomSettingsAction_; }
-    QAction* roomMembersAction() const { return roomMembersAction_; }
-    QAction* settingsAction() const { return settingsAction_; }
+    QAction* createNewChatAction();
+    QAction* createJoinRoomAction();
+    QAction* createBrowseRoomsAction();
+    QAction* createAllThreadsAction();
+    QAction* createRoomSettingsAction();
+    QAction* createRoomMembersAction();
+    QAction* createSettingsAction();
+    QAction* createFullscreenAction();
     QAction* fullscreenAction() const { return fullscreenAction_; }
 
 signals:
@@ -50,13 +50,6 @@ private:
     QLabel* statusLabel_;
     QWidget* parentWidget_;
 
-    QAction* newChatAction_ = nullptr;
-    QAction* joinRoomAction_ = nullptr;
-    QAction* browseRoomsAction_ = nullptr;
-    QAction* allThreadsAction_ = nullptr;
-    QAction* roomSettingsAction_ = nullptr;
-    QAction* roomMembersAction_ = nullptr;
-    QAction* settingsAction_ = nullptr;
     QAction* fullscreenAction_ = nullptr;
 };
 

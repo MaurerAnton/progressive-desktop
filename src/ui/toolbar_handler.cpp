@@ -20,6 +20,7 @@
 #include <QCursor>
 #include <QPointer>
 #include <thread>
+#include <QDateTime>
 
 namespace progressive::desktop {
 
@@ -29,6 +30,54 @@ ToolbarHandler::ToolbarHandler(MatrixClient* client, RoomListModel* roomModel,
     : QObject(parent), client_(client), roomModel_(roomModel),
       roomStore_(roomStore), timelineModel_(timelineModel),
       statusLabel_(statusLabel), parentWidget_(parent) {}
+
+QAction* ToolbarHandler::createNewChatAction() {
+    auto* action = new QAction("+ New chat", parentWidget_);
+    connect(action, &QAction::triggered, this, &ToolbarHandler::onNewChat);
+    return action;
+}
+
+QAction* ToolbarHandler::createJoinRoomAction() {
+    auto* action = new QAction("Join by ID", parentWidget_);
+    connect(action, &QAction::triggered, this, &ToolbarHandler::onJoinRoom);
+    return action;
+}
+
+QAction* ToolbarHandler::createBrowseRoomsAction() {
+    auto* action = new QAction("Browse rooms", parentWidget_);
+    connect(action, &QAction::triggered, this, &ToolbarHandler::onBrowseRooms);
+    return action;
+}
+
+QAction* ToolbarHandler::createAllThreadsAction() {
+    auto* action = new QAction("All threads", parentWidget_);
+    connect(action, &QAction::triggered, this, &ToolbarHandler::onAllThreads);
+    return action;
+}
+
+QAction* ToolbarHandler::createRoomSettingsAction() {
+    auto* action = new QAction("Room settings", parentWidget_);
+    connect(action, &QAction::triggered, this, &ToolbarHandler::onRoomSettings);
+    return action;
+}
+
+QAction* ToolbarHandler::createRoomMembersAction() {
+    auto* action = new QAction("Room members", parentWidget_);
+    connect(action, &QAction::triggered, this, &ToolbarHandler::onRoomMembers);
+    return action;
+}
+
+QAction* ToolbarHandler::createSettingsAction() {
+    auto* action = new QAction("Settings", parentWidget_);
+    connect(action, &QAction::triggered, this, &ToolbarHandler::onSettings);
+    return action;
+}
+
+QAction* ToolbarHandler::createFullscreenAction() {
+    fullscreenAction_ = new QAction("Fullscreen", parentWidget_);
+    connect(fullscreenAction_, &QAction::triggered, this, &ToolbarHandler::fullscreenToggled);
+    return fullscreenAction_;
+}
 
 void ToolbarHandler::onNewChat() {
     if (!client_ || !client_->isLoggedIn()) return;
@@ -48,7 +97,14 @@ void ToolbarHandler::onNewChat() {
         QMetaObject::invokeMethod(guard, [guard, r]() {
             if (guard.isNull()) return;
             if (r.ok) {
-                auto* st = qobject_cast<QLabel*>(guard->findChild<QLabel*>());
+                auto* mw = qobject_cast<QWidget*>(guard.data());
+                if (mw) {
+                    auto* st = mw->findChild<QLabel*>("statusLabel");
+                    if (st) st->setText("Created room: " + QString::fromStdString(r.data));
+                }
+            } else {
+                QMessageBox::warning(qobject_cast<QWidget*>(guard.data()), "Error",
+                    QString("Failed: %1").arg(QString::fromStdString(r.error.message)));
             }
         }, Qt::QueuedConnection);
     }).detach();
@@ -73,7 +129,7 @@ void ToolbarHandler::onJoinRoom() {
         auto r = client->joinRoom(id);
         QMetaObject::invokeMethod(guard, [guard, r]() {
             if (guard.isNull()) return;
-            if (r.ok) QMessageBox::information(qobject_cast<QWidget*>(guard), "Joined", "Successfully joined.");
+            if (r.ok) QMessageBox::information(qobject_cast<QWidget*>(guard.data()), "Joined", "Successfully joined room.");
         }, Qt::QueuedConnection);
     }).detach();
 }

@@ -97,6 +97,9 @@ add_executable(progressive-desktop
     src/ui/room/room_store.cpp
     src/ui/auth_handler.cpp
     src/ui/toolbar_handler.cpp
+    src/ui/room_handler.cpp
+    src/ui/e2ee_init_handler.cpp
+    src/ui/ui_layout_builder.cpp
     src/ui/chat/message_edit.cpp
     src/ui/shared/theme.cpp
     resources/resources.qrc

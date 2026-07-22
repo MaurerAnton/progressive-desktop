@@ -43,6 +43,9 @@ public:
     const auto& memberAvatarCache() const { return memberAvatarCache_; }
     auto& memberAvatarCache() { return memberAvatarCache_; }
 
+    void clearCurrentRoom() { currentRoomIdStr_.clear(); currentThreadRoot_.clear(); }
+    void setCurrentPrevBatch(const std::string& pb) { currentPrevBatch_ = pb; }
+
 signals:
     void roomSwitchRequested(const QString& roomId);
     void threadOpenRequested(const QString& rootEventId);
@@ -53,10 +56,10 @@ public slots:
     void onRoomListContextMenu(const QPoint& pos);
     void onLoadMoreClicked();
     void onTimelineContextMenu(const QPoint& pos);
+    void closeThreadView();
 
 private:
     void openThreadView(const QString& rootEventId);
-    void closeThreadView();
     void showTimelineContextMenu(const QString& eventId, const QPoint& globalPos);
 
     MatrixClient* client_;

@@ -34,6 +34,9 @@ class QLabel;
 
 namespace progressive::desktop {
 
+class ToolbarHandler;
+class RoomHandler;
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -50,47 +53,39 @@ public:
     void onSync(FastSyncResponse resp);
     void onSyncState(SyncEngineState state, const SyncEngineStats& stats);
 
+    QLabel* threadBanner() const { return threadBanner_; }
+    QPushButton* threadBtn() const { return threadBtn_; }
+    ChatView* chatView() const { return chatView_; }
+    RoomStore* roomStore() const { return roomStore_; }
+    RoomListModel* roomModel() const { return roomModel_; }
+    TimelineModel* timelineModel() const { return timelineModel_; }
+    QLabel* statusLabel() const { return statusLabel_; }
+    QLabel* inviteHead() const { return inviteHeader_; }
+    MessageEdit* messageEdit() const { return messageEdit_; }
+    QListView* timelineView() const { return timelineView_; }
+    QLabel* placeholder() const { return timelinePlaceholder_; }
+    QPushButton* loadMoreBtn() const { return loadMoreBtn_; }
+    QPushButton* chatLogBtn() const { return chatLogBtn_; }
+    RoomHandler* roomHandler() const { return roomHandler_; }
+
 protected:
     void keyPressEvent(QKeyEvent* e) override;
     void closeEvent(QCloseEvent* e) override;
 
 private slots:
-    void onRoomClicked(const QModelIndex& idx);
-    void onRoomListContextMenu(const QPoint& pos);
     void onSlashCommand(const std::string& cmd, const std::string& args);
-    void onLogoutClicked();
     void onLoginDialogAccepted();
-    void onNewChatClicked();
-    void onJoinRoomClicked();
-    void onBrowseRoomsClicked();
-    void onSettingsClicked();
     void onToggleFullscreen();
-    void onAllThreadsClicked();
-    void onRoomSettingsClicked();
-    void onRoomMembersClicked();
     void onSwitchAccount(int index);
     void onImageClicked(const QString& eventId, const QString& mxcUrl);
     void onMessageClicked(const QString& eventId);
-    void onTimelineContextMenu(const QPoint& pos);
-    void openThreadView(const QString& rootEventId);
-    void closeThreadView();
-    void onLoadMoreClicked();
     void onToggleChatLog();
     void toggleThreadPanel();
 
 private:
-    void rebuildRoomList(const FastSyncResponse& resp);
-    void batchLoadRoomStates();  // lazy-fetch missing room names/avatars after first sync
-    void appendTimelineForRoom(const std::string& roomId, const std::vector<FastEvent>& events,
-                                const std::unordered_map<std::string, std::string>* memberAvatars = nullptr);
-    void loadRoomHistory(const std::string& roomId);
-    void loadMemberAvatarsForRoom(const std::string& roomId);
     void wireSyncCallbacks();
     void showLoginDialog();
     void updateRoomListHeader();
-    DisplayedEvent fastEventToDisplayed(const FastEvent& fe);
-    void showTimelineContextMenu(const QString& eventId, const QPoint& globalPos);
-    void onRoomJoined(const std::string& roomId);
 
     MatrixClient* client_ = nullptr;
     SessionStore* store_ = nullptr;
@@ -101,18 +96,10 @@ private:
 
     QToolBar* toolbar_ = nullptr;
     QLabel* userLabel_ = nullptr;
-    QAction* newChatAction_ = nullptr;
-    QAction* joinRoomAction_ = nullptr;
-    QAction* browseRoomsAction_ = nullptr;
-    QAction* allThreadsAction_ = nullptr;
-    QAction* roomSettingsAction_ = nullptr;
-    QAction* roomMembersAction_ = nullptr;
-    QAction* settingsAction_ = nullptr;
     QComboBox* accountCombo_ = nullptr;
-    QAction* fullscreenAction_ = nullptr;
     QAction* logoutAction_ = nullptr;
     QLabel* roomListHeader_ = nullptr;
-    QLabel* inviteHeader_ = nullptr;  // "⬇ Invitations (N)" — visible when invites exist
+    QLabel* inviteHeader_ = nullptr;
     QLabel* timelinePlaceholder_ = nullptr;
 
     QSplitter* splitter_ = nullptr;
@@ -120,29 +107,26 @@ private:
     RoomListModel* roomModel_ = nullptr;
     RoomListDelegate* roomListDelegate_ = nullptr;
 
-    // Timeline (replaces old TimelineView)
     QListView* timelineView_ = nullptr;
     TimelineModel* timelineModel_ = nullptr;
     TimelineDelegate* timelineDelegate_ = nullptr;
 
     MessageEdit* messageEdit_ = nullptr;
     QLabel* statusLabel_ = nullptr;
-    QLabel* threadBanner_ = nullptr;  // "← Back to chat" banner (visible in thread mode)
-    QPushButton* loadMoreBtn_ = nullptr;   // "↑ Load older messages" at top of timeline
-    QPushButton* chatLogBtn_ = nullptr;    // "Save chat" toggle button
-    QPushButton* threadBtn_ = nullptr;     // "Threads" sidebar toggle
+    QLabel* threadBanner_ = nullptr;
+    QPushButton* loadMoreBtn_ = nullptr;
+    QPushButton* chatLogBtn_ = nullptr;
+    QPushButton* threadBtn_ = nullptr;
     ChatView* chatView_ = nullptr;
     RoomStore* roomStore_ = nullptr;
     AuthHandler* auth_ = nullptr;
+    ToolbarHandler* toolbarHandler_ = nullptr;
+    RoomHandler* roomHandler_ = nullptr;
 
-    QString currentRoomId_;
-    QString currentThreadRoot_;  // if non-empty, we're viewing a thread (not main chat)
     bool isFullscreen_ = false;
-    std::string currentPrevBatch_;  // token for "load older" pagination
-    bool chatLogging_ = false;      // save chat to file enabled for current room
+    bool chatLogging_ = false;
     std::unique_ptr<std::ofstream> chatLogFile_;
-    std::unordered_map<std::string, std::string> memberAvatarCache_;
-    std::unordered_set<std::string> pendingBatch_;  // rooms with in-flight state fetch  // userId → mxc URL
+    std::unordered_set<std::string> pendingBatch_;
 };
 
 } // namespace progressive::desktop

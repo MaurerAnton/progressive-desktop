@@ -16,6 +16,7 @@
 #include "core/thread_pool.hpp"
 #include <sstream>
 #include <cstdio>
+#include <regex>
 #include <simdjson.h>
 
 namespace progressive::desktop {
@@ -319,9 +320,28 @@ static void fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
         auto doc = p.parse(de.contentJson);
         if (doc.error() == simdjson::SUCCESS) {
             auto val = doc.value();
+            std::string keys;
+            for (auto [k, v] : val.get_object().value()) {
+                keys += std::string(k) + ",";
+            }
+            LOG(LogChannel::DBG, "sync-fluffy: content keys=[%s] content=[%.200s]",
+                keys.c_str(), de.contentJson.c_str());
             auto bodyStr = val["body"].get_string();
-            if (bodyStr.error() == simdjson::SUCCESS)
+            if (bodyStr.error() == simdjson::SUCCESS) {
                 de.body = jsonUnescape(std::string(bodyStr.value()));
+            } else {
+                auto fb = val["formatted_body"].get_string();
+                if (fb.error() == simdjson::SUCCESS) {
+                    std::string fbBody = jsonUnescape(std::string(fb.value()));
+                    de.body = std::regex_replace(fbBody, std::regex("<[^>]*>"), "");
+                } else {
+                    auto fbBody = val["formatted_body"]["body"].get_string();
+                    if (fbBody.error() == simdjson::SUCCESS) {
+                        std::string fbBodyStr = jsonUnescape(std::string(fbBody.value()));
+                        de.body = std::regex_replace(fbBodyStr, std::regex("<[^>]*>"), "");
+                    }
+                }
+            }
             auto msgStr = val["msgtype"].get_string();
             if (msgStr.error() == simdjson::SUCCESS)
                 de.msgtype = std::string(msgStr.value());

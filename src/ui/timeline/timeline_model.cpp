@@ -226,13 +226,13 @@ void TimelineModel::addReaction(const std::string& eventId, const std::string& e
             r.userIds.push_back(userId);
             if (!myUserId.empty() && userId == myUserId) r.addedByMe = true;
             if (!reactionEventId.empty()) r.reactionEventId = reactionEventId;
-            emit dataChanged(index(row), index(row), {ReactionsRole});
+            emit dataChanged(index(row), index(row));
             return;
         }
     }
     reactions.push_back({emoji, 1, false, {userId}, reactionEventId});
     if (!myUserId.empty() && userId == myUserId) reactions.back().addedByMe = true;
-    emit dataChanged(index(row), index(row), {ReactionsRole});
+    emit dataChanged(index(row), index(row));
 }
 
 void TimelineModel::removeReaction(const std::string& eventId, const std::string& emoji, const std::string& userId) {
@@ -245,7 +245,7 @@ void TimelineModel::removeReaction(const std::string& eventId, const std::string
             users.erase(std::remove(users.begin(), users.end(), userId), users.end());
             it->count = static_cast<int>(users.size());
             if (it->count <= 0) reactions.erase(it);
-            emit dataChanged(index(row), index(row), {ReactionsRole});
+            emit dataChanged(index(row), index(row));
             return;
         }
     }

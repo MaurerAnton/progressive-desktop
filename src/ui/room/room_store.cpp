@@ -286,7 +286,7 @@ void RoomStore::loadHistory(const std::string& roomId, TimelineModel* model,
                 auto t = evt["type"].get_string();
                 if (t.error() == simdjson::SUCCESS) de.type = std::string(t.value());
                 if (de.type == "m.reaction")
-                    LOG(LogChannel::DBG, "loadHistory: reaction event found, contentJson=%s",
+                    LOG(LogChannel::DBG, "loadHistory: reaction contentJson=[%.200s]",
                         de.contentJson.c_str());
                 auto eid = evt["event_id"].get_string();
                 if (eid.error() == simdjson::SUCCESS) de.eventId = std::string(eid.value());
@@ -332,18 +332,20 @@ void RoomStore::loadHistory(const std::string& roomId, TimelineModel* model,
                 }
                 if (de.type == "m.reaction" && !de.contentJson.empty()) {
                     std::string eid, emoji;
-                    auto rp = de.contentJson.find("\"event_id\":");
-                    if (rp == std::string::npos) rp = de.contentJson.find("\"event_id\": ");
+                    std::string pid = "\"event_id\":";
+                    auto rp = de.contentJson.find(pid);
+                    if (rp == std::string::npos) { pid = "\"event_id\": "; rp = de.contentJson.find(pid); }
                     if (rp != std::string::npos) {
-                        auto es = de.contentJson.find('"', rp + 12);
+                        auto es = de.contentJson.find('"', rp + (int)pid.size());
                         auto ee = de.contentJson.find('"', es + 1);
                         if (es != std::string::npos && ee != std::string::npos)
                             eid = de.contentJson.substr(es + 1, ee - es - 1);
                     }
-                    auto kp = de.contentJson.find("\"key\":");
-                    if (kp == std::string::npos) kp = de.contentJson.find("\"key\": ");
+                    std::string pk = "\"key\":";
+                    auto kp = de.contentJson.find(pk);
+                    if (kp == std::string::npos) { pk = "\"key\": "; kp = de.contentJson.find(pk); }
                     if (kp != std::string::npos) {
-                        auto ks = de.contentJson.find('"', kp + 6);
+                        auto ks = de.contentJson.find('"', kp + (int)pk.size());
                         auto ke = de.contentJson.find('"', ks + 1);
                         if (ks != std::string::npos && ke != std::string::npos)
                             emoji = de.contentJson.substr(ks + 1, ke - ks - 1);

@@ -43,7 +43,7 @@ int BubbleLayout::totalBubbleH() const {
 int BubbleLayout::totalHeight() const {
     int h = (isFirstInGroup ? 4 : kSameSenderGap);
     h += bubbleH;
-    if (isLastInGroup && reactionH) h += reactionH;
+    if (isLastInGroup && reactionH) h += reactionH + nameH;
     h += 2;
     return h;
 }

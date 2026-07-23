@@ -331,6 +331,10 @@ static void fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
         LOG(LogChannel::DBG, "sync-encrypted: sender=%s content=[%.300s]",
             de.senderId.c_str(), de.contentJson.c_str());
     }
+    // Catch-all: log every event that passes through sync path
+    LOG(LogChannel::DBG, "sync-event: type=%s bodyEmpty=%d contentEmpty=%d sender=%.30s body=[%.100s]",
+        de.type.c_str(), (int)de.body.empty(), (int)de.contentJson.empty(),
+        de.senderId.c_str(), de.body.c_str());
 }
 
 std::string makeSystemBody(const std::string& type, const std::string& contentJson,

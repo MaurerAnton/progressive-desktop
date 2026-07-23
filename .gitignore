@@ -37,3 +37,4 @@ compile_commands.json
 tests/fixtures/
 AGENTS.md
 DREAM.md
+prompts/

@@ -139,7 +139,6 @@ add_executable(progressive-desktop
     src/ui/main_window.cpp
     resources/resources.qrc
 )
-qt_add_resources(progressive-desktop "resources/resources.qrc")
 target_link_libraries(progressive-desktop PRIVATE
     progressive_ui_handlers
     progressive_ui_layout

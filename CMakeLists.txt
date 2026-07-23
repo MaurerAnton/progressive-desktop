@@ -64,7 +64,7 @@ target_include_directories(progressive_core PUBLIC
 target_link_libraries(progressive_core PUBLIC
     progressive_native
     CURL::libcurl
-    SQLite3::SQLite3
+    SQLite::SQLite3
     simdjson::simdjson
 )
 

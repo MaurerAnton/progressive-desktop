@@ -6,7 +6,6 @@
 #include "core/sync_engine.hpp"
 #include "core/debug_log.hpp"
 
-#include <QMessageBox>
 #include <QLabel>
 #include <QTimer>
 

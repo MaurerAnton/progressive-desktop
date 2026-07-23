@@ -11,6 +11,7 @@
 
 #include <QMetaObject>
 #include <QWidget>
+#include "core/debug_log.hpp"
 #include "core/thread_pool.hpp"
 #include <sstream>
 #include <cstdio>
@@ -284,6 +285,9 @@ void RoomStore::loadHistory(const std::string& roomId, TimelineModel* model,
                 DisplayedEvent de;
                 auto t = evt["type"].get_string();
                 if (t.error() == simdjson::SUCCESS) de.type = std::string(t.value());
+                if (de.type == "m.reaction")
+                    LOG(LogChannel::DBG, "loadHistory: reaction event found, contentJson=%s",
+                        de.contentJson.c_str());
                 auto eid = evt["event_id"].get_string();
                 if (eid.error() == simdjson::SUCCESS) de.eventId = std::string(eid.value());
                 auto sender = evt["sender"].get_string();
@@ -344,6 +348,8 @@ void RoomStore::loadHistory(const std::string& roomId, TimelineModel* model,
                         if (ks != std::string::npos && ke != std::string::npos)
                             emoji = de.contentJson.substr(ks + 1, ke - ks - 1);
                     }
+                    LOG(LogChannel::DBG, "loadHistory: parsed reaction eid=%s emoji=%s sender=%s",
+                        eid.c_str(), emoji.c_str(), de.senderId.c_str());
                     if (!eid.empty() && !emoji.empty()) {
                         pendingReactions.emplace_back(eid, emoji, de.senderId);
                     }
@@ -367,9 +373,14 @@ void RoomStore::loadHistory(const std::string& roomId, TimelineModel* model,
                     if (it != localAvatars.end()) evt.avatarUrl = it->second;
                 }
             }
+            LOG(LogChannel::DBG, "loadHistory: appended %zu events, %zu pending reactions",
+                events.size(), pendingReactions.size());
             model->appendBackBatch(events);
             for (const auto& [eid, emoji, senderId] : pendingReactions) {
                 model->addReaction(eid, emoji, senderId);
+                int row = model->findRow(eid);
+                LOG(LogChannel::DBG, "loadHistory: addReaction eid=%s emoji=%s foundRow=%d",
+                    eid.c_str(), emoji.c_str(), row);
             }
             int count = (int)events.size();
             std::string pBatch;

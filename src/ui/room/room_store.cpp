@@ -69,6 +69,8 @@ static std::string extractString(std::string_view json, const std::string& key) 
 // Forward declarations
 static void fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
                                   const std::string& currentRoomId, Decryptor* decryptor);
+static std::string makeSystemBody(const std::string& type, const std::string& contentJson,
+                                    const std::string& stateKey);
 static void appendTimelineForRoom(const std::string& roomId,
     const std::vector<FastEvent>& events, TimelineModel* model,
     const std::unordered_map<std::string,std::string>* memberAvatars,
@@ -286,6 +288,34 @@ void RoomStore::loadHistory(const std::string& roomId, TimelineModel* model,
                     auto c = de.senderId.find(':');
                     de.senderName = (c != std::string::npos) ? de.senderId.substr(1, c-1) : de.senderId.substr(1);
                 }
+                if (de.type == "m.room.redaction" && !de.contentJson.empty()) {
+                    auto rid = extractStringDec(de.contentJson, "redacts");
+                    if (!rid.empty()) model->markDeleted(rid);
+                    continue;
+                }
+                if (de.type == "m.room.member" || de.type == "m.room.topic" ||
+                    de.type == "m.room.name" || de.type == "m.room.encryption" ||
+                    de.type == "m.room.create" || de.type == "m.room.avatar") {
+                    std::string stateKey;
+                    auto sk = evt["state_key"].get_string();
+                    if (sk.error() == simdjson::SUCCESS) stateKey = std::string(sk.value());
+                    auto body = makeSystemBody(de.type, de.contentJson, stateKey);
+                    if (!body.empty()) {
+                        DisplayedEvent sys;
+                        sys.type = "progressive.system";
+                        sys.eventId = de.eventId;
+                        sys.senderName = "system";
+                        sys.originServerTs = de.originServerTs;
+                        sys.body = body;
+                        events.push_back(std::move(sys));
+                    }
+                    continue;
+                }
+                if (de.type == "m.typing" || de.type == "m.receipt" ||
+                    de.type == "m.fully_read" || de.type == "m.reaction") {
+                    continue;
+                }
+                if (de.type != "m.room.message" && de.type != "m.room.encrypted") continue;
                 if (de.type == "m.room.message") {
                     de.msgtype = msgType(de.contentJson);
                     de.body = msgBody(de.contentJson);
@@ -440,40 +470,48 @@ static void fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
     }
 }
 
+static std::string makeSystemBody(const std::string& type, const std::string& contentJson,
+                                    const std::string& stateKey) {
+    if (type == "m.room.member") {
+        std::string displayName = stateKey;
+        auto colon = displayName.find(':');
+        if (colon != std::string::npos && colon > 0 && displayName[0] == '@')
+            displayName = displayName.substr(1, colon - 1);
+        auto ms = extractString(contentJson, "membership");
+        if (ms == "join")      return displayName + " joined";
+        else if (ms == "leave") return displayName + " left";
+        else if (ms == "invite") return displayName + " was invited";
+        else if (ms == "ban")   return displayName + " was banned";
+        else return "";
+    }
+    else if (type == "m.room.topic") {
+        auto topic = extractString(contentJson, "topic");
+        return "Topic changed" + (topic.empty() ? "" : ": " + topic);
+    }
+    else if (type == "m.room.name") {
+        auto name = extractString(contentJson, "name");
+        return "Room renamed to " + (name.empty() ? "(removed)" : name);
+    }
+    else if (type == "m.room.encryption") {
+        return "Encryption enabled";
+    }
+    else if (type == "m.room.create") {
+        return "Room created";
+    }
+    else if (type == "m.room.avatar") {
+        return "Avatar changed";
+    }
+    return "";
+}
+
 static DisplayedEvent makeSystemEvent(const FastEvent& e) {
     DisplayedEvent sys;
     sys.type = "progressive.system";
     sys.eventId = std::string(e.eventId);
     sys.originServerTs = e.originServerTs;
     sys.senderName = "system";
-
-    if (e.type == "m.room.member") {
-        std::string displayName(e.stateKey.data(), e.stateKey.size());
-        auto colon = displayName.find(':');
-        if (colon != std::string::npos) displayName = displayName.substr(1, colon - 1);
-        auto ms = extractString(e.contentJson, "membership");
-        if (ms == "join")      sys.body = displayName + " joined";
-        else if (ms == "leave") sys.body = displayName + " left";
-        else if (ms == "invite") sys.body = displayName + " was invited";
-        else if (ms == "ban")   sys.body = displayName + " was banned";
-    }
-    else if (e.type == "m.room.topic") {
-        auto topic = extractString(e.contentJson, "topic");
-        sys.body = "Topic changed" + (topic.empty() ? "" : ": " + topic);
-    }
-    else if (e.type == "m.room.name") {
-        auto name = extractString(e.contentJson, "name");
-        sys.body = "Room renamed to " + (name.empty() ? "(removed)" : name);
-    }
-    else if (e.type == "m.room.encryption") {
-        sys.body = "Encryption enabled";
-    }
-    else if (e.type == "m.room.create") {
-        sys.body = "Room created";
-    }
-    else if (e.type == "m.room.avatar") {
-        sys.body = "Avatar changed";
-    }
+    std::string stateKey(e.stateKey.data(), e.stateKey.size());
+    sys.body = makeSystemBody(std::string(e.type), std::string(e.contentJson), stateKey);
     return sys;
 }
 

@@ -279,6 +279,7 @@ void RoomStore::loadHistory(const std::string& roomId, TimelineModel* model,
             if (chunk.error() != simdjson::SUCCESS) { if (callback) callback(0, ""); return; }
             std::vector<DisplayedEvent> events;
             std::unordered_map<std::string, std::string> localAvatars;
+            std::vector<std::tuple<std::string, std::string, std::string>> pendingReactions;
             for (auto evt : chunk.value()) {
                 DisplayedEvent de;
                 auto t = evt["type"].get_string();
@@ -344,7 +345,7 @@ void RoomStore::loadHistory(const std::string& roomId, TimelineModel* model,
                             emoji = de.contentJson.substr(ks + 1, ke - ks - 1);
                     }
                     if (!eid.empty() && !emoji.empty()) {
-                        model->addReaction(eid, emoji, de.senderId);
+                        pendingReactions.emplace_back(eid, emoji, de.senderId);
                     }
                     continue;
                 }
@@ -367,6 +368,9 @@ void RoomStore::loadHistory(const std::string& roomId, TimelineModel* model,
                 }
             }
             model->appendBackBatch(events);
+            for (const auto& [eid, emoji, senderId] : pendingReactions) {
+                model->addReaction(eid, emoji, senderId);
+            }
             int count = (int)events.size();
             std::string pBatch;
             auto et = root.value()["end"].get_string();

@@ -38,17 +38,6 @@ private:
     ImageLoader* loader_;
     QString myUserId_;
     mutable std::unordered_set<std::string> pendingFetches_;
-
-    void drawBubbleAvatar(QPainter* p, int x, int y, const QModelIndex& idx,
-                          const QString& senderId, const QString& senderName,
-                          const QString& avatarUrl) const;
-    void drawBubble(QPainter* p, int x, int y, int w, int h,
-                    const QColor& color, int tlRadius, int trRadius,
-                    int brRadius, int blRadius) const;
-    void drawSystemRow(QPainter* p, const QRect& rect, const QModelIndex& idx,
-                       const QString& type) const;
-    void drawMessageBubble(QPainter* p, const QRect& rowRect,
-                            const QModelIndex& idx) const;
 };
 
 } // namespace progressive::desktop

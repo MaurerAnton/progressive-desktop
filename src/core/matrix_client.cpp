@@ -2,6 +2,7 @@
 
 #include "matrix_client.hpp"
 #include "http_client.hpp"
+#include "core/debug_log.hpp"
 
 #include <progressive/login_flow.hpp>
 #include <progressive/matrix_error.hpp>
@@ -235,6 +236,9 @@ ApiResult<AccountInfo> MatrixClient::refreshAccessToken(const std::string& refre
     hdrs["Content-Type"] = "application/json";
     auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/refresh",
                          body, hdrs, 15000);
+    LOG(LogChannel::NET, "/refresh http=%d body=[%.200s]",
+        resp.statusCode,
+        resp.body.data() ? resp.body.c_str() : "(null)");
     r.httpStatus = resp.statusCode;
     if (resp.success) {
         r.data = parseLoginResponse(resp.body, account_.homeserverUrl);

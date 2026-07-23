@@ -75,7 +75,10 @@ add_library(progressive_ui_widgets STATIC
     src/ui/timeline/timeline_model.cpp
     src/ui/timeline/timeline_delegate.cpp
     src/ui/timeline/timeline_handlers.cpp
+    src/ui/timeline/timeline_layout.cpp
+    src/ui/timeline/timeline_painter.cpp
     src/ui/room/room_store.cpp
+    src/ui/room/room_data_loader.cpp
     src/ui/room_list_model.cpp
     src/ui/room_list_delegate.cpp
     src/ui/chat/chat_view.cpp
@@ -113,6 +116,8 @@ target_link_libraries(progressive_ui_layout PUBLIC progressive_ui_widgets Qt6::W
 add_library(progressive_ui_handlers STATIC
     src/ui/handlers/auth_handler.cpp
     src/ui/handlers/room_handler.cpp
+    src/ui/handlers/thread_handler.cpp
+    src/ui/handlers/room_context_menu.cpp
     src/ui/handlers/toolbar_handler.cpp
     src/ui/handlers/e2ee_init_handler.cpp
     src/ui/handlers/sync_response_handler.cpp
@@ -192,11 +197,11 @@ if(PROGRESSIVE_BUILD_TESTS)
     set_target_properties(test_visual PROPERTIES AUTOMOC ON)
     add_test(NAME visual COMMAND test_visual)
     set_tests_properties(visual PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-endif()
 
-# --- Ignore test fixtures from git ---
-set_tests_properties(phase1 PROPERTIES
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+    # --- Ignore test fixtures from git ---
+    set_tests_properties(phase1 PROPERTIES
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+endif()
 
 # --- Install (basic, for packaging later) ---
 install(TARGETS progressive-desktop RUNTIME DESTINATION bin)

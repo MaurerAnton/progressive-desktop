@@ -23,6 +23,8 @@ class ImageLoader;
 class MessageEdit;
 class MainWindow;
 class SyncEngine;
+class ThreadHandler;
+class RoomContextMenu;
 
 class RoomHandler : public QObject {
     Q_OBJECT
@@ -36,17 +38,18 @@ public:
                 MessageEdit* messageEdit,
                 QPointer<MainWindow> mainWindow,
                 QObject* parent = nullptr);
+    ~RoomHandler();
 
     void setClient(MatrixClient* c) { client_ = c; }
 
     const std::string& currentRoomId() const { return currentRoomIdStr_; }
-    const std::string& currentThreadRoot() const { return currentThreadRoot_; }
     const std::string& currentPrevBatch() const { return currentPrevBatch_; }
     const auto& memberAvatarCache() const { return memberAvatarCache_; }
     auto& memberAvatarCache() { return memberAvatarCache_; }
 
-    void clearCurrentRoom() { currentRoomIdStr_.clear(); currentThreadRoot_.clear(); }
+    void clearCurrentRoom() { currentRoomIdStr_.clear(); }
     void setCurrentPrevBatch(const std::string& pb) { currentPrevBatch_ = pb; }
+    ThreadHandler* threadHandler() const { return threadHandler_; }
 
 signals:
     void roomSwitchRequested(const QString& roomId);
@@ -64,8 +67,6 @@ public slots:
     void openThreadView(const QString& rootEventId);
 
 private:
-    void showTimelineContextMenu(const QString& eventId, const QPoint& globalPos);
-
     MatrixClient* client_;
     RoomStore* roomStore_;
     RoomListModel* roomModel_;
@@ -80,9 +81,11 @@ private:
     QPushButton* chatLogBtn_;
     MessageEdit* messageEdit_;
     QPointer<MainWindow> mainWindow_;
+    ThreadHandler* threadHandler_;
+    RoomContextMenu* contextMenu_;
+    std::shared_ptr<bool> roomLifeToken_;
 
     std::string currentRoomIdStr_;
-    std::string currentThreadRoot_;
     std::string currentPrevBatch_;
     std::unordered_map<std::string, std::string> memberAvatarCache_;
     bool chatLogging_ = false;

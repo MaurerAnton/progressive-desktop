@@ -4,6 +4,7 @@
 #include <vector>
 #include <unordered_map>
 #include <functional>
+#include <memory>
 #include <QPointer>
 #include <QString>
 #include <QWidget>
@@ -11,10 +12,13 @@
 
 namespace progressive::desktop {
 
+using LifeToken = std::shared_ptr<bool>;
+
 class MatrixClient;
 class SessionStore;
 class RoomListModel;
 class TimelineModel;
+class RoomDataLoader;
 struct FastSyncResponse;
 struct FastRoom;
 struct FastEvent;
@@ -50,6 +54,8 @@ public:
     void setClient(MatrixClient* c) { client_ = c; }
     void setSessionStore(SessionStore* s) { store_ = s; }
 
+    RoomDataLoader* dataLoader() const { return dataLoader_.get(); }
+
     // Heavy part — runs on worker thread, no model access
     static RoomSyncUpdate prepareRoomSyncUpdate(const FastSyncResponse& resp,
                                                  const std::string& currentRoomId,
@@ -62,17 +68,17 @@ public:
 
     void loadHistory(const std::string& roomId,
                      TimelineModel* model,
-                     QPointer<QWidget> guard,
+                     LifeToken token,
                      std::function<void(int eventCount,
-                                        const std::string& prevBatch)> callback);
+                                         const std::string& prevBatch)> callback);
 
     void loadMembers(const std::string& roomId,
-                     QPointer<QWidget> guard,
+                     LifeToken token,
                      const std::vector<std::string>& relevantIds,
                      std::function<void(std::vector<MemberInfo>)> callback);
 
     void batchLoadRoomStates(RoomListModel* model,
-                             QPointer<QWidget> guard);
+                              LifeToken token);
 
     static RoomMeta extractRoomMeta(const FastRoom& room,
                                      const std::string& myUserId);
@@ -82,7 +88,14 @@ public:
 private:
     MatrixClient* client_;
     SessionStore* store_;
+    std::unique_ptr<RoomDataLoader> dataLoader_;
     bool batchInProgress_ = false;
 };
+
+std::string extractStringDec(std::string_view json, const std::string& key);
+std::string makeSystemBody(const std::string& type, const std::string& contentJson,
+                            const std::string& stateKey);
+std::string msgType(std::string_view json);
+std::string msgBody(std::string_view json);
 
 } // namespace progressive::desktop

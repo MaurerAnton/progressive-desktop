@@ -164,8 +164,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     connect(logoutAction_, &QAction::triggered, auth_, &AuthHandler::logout);
 
-    syncHandler_ = new SyncResponseHandler(client_, roomStore_, &notifier_,
-        roomListHeader_, QPointer<MainWindow>(this), this);
+    syncHandler_ = new SyncResponseHandler(client_, roomStore_, roomModel_,
+        timelineModel_, &notifier_, roomListHeader_, inviteHeader_,
+        statusLabel_, timelinePlaceholder_, timelineView_,
+        messageEdit_, loadMoreBtn_, roomHandler_, this);
     attachmentHandler_ = new AttachmentHandler(client_, timelineModel_, statusLabel_, this);
     slashHandler_ = new SlashCommandHandler(timelineModel_, auth_, this);
     accountSwitcher_ = new AccountSwitcher(client_, store_, &sync_,

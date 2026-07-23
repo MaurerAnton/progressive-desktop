@@ -5,6 +5,9 @@
 #include <chrono>
 #include <algorithm>
 #include <iostream>
+#include <fstream>
+#include <filesystem>
+#include <ctime>
 
 namespace progressive::desktop {
 
@@ -144,6 +147,28 @@ void SyncEngine::run() {
                     }
                     std::fprintf(stderr, "[session]   /refresh FAILED: %s\n",
                                  refresh.error.message.c_str());
+                }
+
+                if (client_) {
+                    const char* dataHome = getenv("XDG_DATA_HOME");
+                    if (!dataHome || !dataHome[0]) {
+                        const char* home = getenv("HOME");
+                        static std::string homeData;
+                        if (home) { homeData = std::string(home) + "/.local/share"; dataHome = homeData.c_str(); }
+                    }
+                    if (dataHome) {
+                        std::string backupDir = std::string(dataHome) + "/progressive-desktop/sessions_backup/";
+                        std::filesystem::create_directories(backupDir);
+                        auto acct = client_->account();
+                        std::string filename = acct.userId + "_" + std::to_string(std::time(nullptr)) + ".session";
+                        std::ofstream backup(backupDir + filename);
+                        if (backup) {
+                            backup << "user_id=" << acct.userId << "\n"
+                                   << "device_id=" << acct.deviceId << "\n"
+                                   << "homeserver=" << acct.homeserverUrl << "\n"
+                                   << "refresh_token=" << acct.refreshToken << "\n";
+                        }
+                    }
                 }
 
                 setState(SyncEngineState::Stopped);

@@ -4,31 +4,47 @@
 #include "core/memory_stats.hpp"
 #include "../room/room_store.hpp"
 #include "../room_list_model.hpp"
-#include "../main_window.hpp"
-#include "room_handler.hpp"
 #include "../timeline/timeline_model.hpp"
+#include "room_handler.hpp"
+
 #include <QLabel>
+#include <QPushButton>
 #include <QWidget>
 
 namespace progressive::desktop {
 
 SyncResponseHandler::SyncResponseHandler(MatrixClient* client, RoomStore* roomStore,
-                        DesktopNotifier* notifier, QLabel* roomListHeader,
-                        QPointer<MainWindow> mw, QObject* parent)
+                         RoomListModel* roomModel, TimelineModel* timelineModel,
+                         DesktopNotifier* notifier, QLabel* roomListHeader,
+                         QLabel* inviteHeader, QLabel* statusLabel,
+                         QWidget* placeholder, QWidget* timelineView,
+                         QWidget* messageEdit, QPushButton* loadMoreBtn,
+                         RoomHandler* roomHandler, QObject* parent)
     : QObject(parent), client_(client), roomStore_(roomStore),
-      notifier_(notifier), roomListHeader_(roomListHeader), mw_(mw) {}
+      roomModel_(roomModel), timelineModel_(timelineModel),
+      notifier_(notifier), roomListHeader_(roomListHeader),
+      inviteHeader_(inviteHeader), statusLabel_(statusLabel),
+      placeholder_(placeholder), timelineView_(timelineView),
+      messageEdit_(messageEdit), loadMoreBtn_(loadMoreBtn),
+      roomHandler_(roomHandler) {
+    syncLifeToken_ = std::make_shared<bool>(true);
+}
+
+SyncResponseHandler::~SyncResponseHandler() {
+    if (syncLifeToken_) *syncLifeToken_ = false;
+}
 
 void SyncResponseHandler::handle(FastSyncResponse resp) {
     bool hasData = !resp.joinedRooms.empty() || !resp.leftRoomIds.empty()
                    || !resp.invitedRooms.empty();
 
-    if (!hasData || !roomStore_ || mw_.isNull()) return;
+    if (!hasData || !roomStore_) return;
 
-    mw_->statusLabel()->setText("Syncing...");
-    QPointer<MainWindow> guard(mw_);
+    statusLabel_->setText("Syncing...");
+    QPointer<SyncResponseHandler> guard(this);
     std::string myUserId = client_ ? client_->account().userId : "";
-    std::string curRoomId = mw_->roomHandler() ? mw_->roomHandler()->currentRoomId() : "";
-    QPointer<RoomHandler> rmh(mw_->roomHandler());
+    std::string curRoomId = roomHandler_ ? roomHandler_->currentRoomId() : "";
+    QPointer<RoomHandler> rmh(roomHandler_);
     DesktopNotifier* notifier = notifier_;
     QLabel* rlh = roomListHeader_;
 
@@ -37,28 +53,28 @@ void SyncResponseHandler::handle(FastSyncResponse resp) {
 
         QMetaObject::invokeMethod(guard, [guard, rmh, syncUpdate = std::move(syncUpdate), notifier, rlh]() mutable {
             if (guard.isNull()) return;
-            guard->roomStore()->applyRoomSyncUpdate(syncUpdate,
-                guard->roomModel(), guard->timelineModel());
+            guard->roomStore_->applyRoomSyncUpdate(syncUpdate,
+                guard->roomModel_, guard->timelineModel_);
 
             for (const auto& rid : syncUpdate.roomsToRemove) {
                 if (!rmh.isNull() && rid == rmh->currentRoomId()) {
-                    guard->timelineModel()->clear();
+                    guard->timelineModel_->clear();
                     rmh->clearCurrentRoom();
-                    guard->timelineView()->hide();
-                    guard->placeholder()->show();
-                    guard->messageEdit()->hide();
-                    if (guard->loadMoreBtn()) guard->loadMoreBtn()->hide();
+                    guard->timelineView_->hide();
+                    guard->placeholder_->show();
+                    guard->messageEdit_->hide();
+                    if (guard->loadMoreBtn_) guard->loadMoreBtn_->hide();
                     break;
                 }
             }
 
             if (syncUpdate.inviteCount > 0) {
-                guard->inviteHead()->setText(syncUpdate.inviteText);
-                guard->inviteHead()->show();
+                guard->inviteHeader_->setText(syncUpdate.inviteText);
+                guard->inviteHeader_->show();
             } else {
-                guard->inviteHead()->hide();
+                guard->inviteHeader_->hide();
             }
-            guard->roomModel()->updateHeader(rlh, guard->inviteHead());
+            guard->roomModel_->updateHeader(rlh, guard->inviteHeader_);
             logMemorySnapshot("after-rebuildRoomList");
 
             static bool firstNotify = true;
@@ -73,10 +89,10 @@ void SyncResponseHandler::handle(FastSyncResponse resp) {
                 }
             }
             firstNotify = false;
-            guard->roomStore()->batchLoadRoomStates(guard->roomModel(), QPointer<QWidget>(guard));
+            guard->roomStore_->batchLoadRoomStates(guard->roomModel_, guard->syncLifeToken_);
 
-            guard->statusLabel()->setText(QString("Synced: %1 rooms | %2 messages")
-                .arg(guard->roomModel()->joinedCount()).arg(guard->timelineModel()->rowCount()));
+            guard->statusLabel_->setText(QString("Synced: %1 rooms | %2 messages")
+                .arg(guard->roomModel_->joinedCount()).arg(guard->timelineModel_->rowCount()));
 
             logMemorySnapshot("after-sync-cleanup");
             trimMemory();

@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <chrono>
 #include <cstdlib>
+#include <csignal>
 
 #include "core/crash_handler.hpp"
 #include "core/http_client.hpp"
@@ -265,7 +266,12 @@ static void runGui(int argc, char** argv) {
     app.exec();
 }
 
+namespace {
+void onSigint(int) { QApplication::exit(0); }
+} // namespace
+
 int main(int argc, char** argv) {
+    signal(SIGINT, onSigint);
     progressive::crash::installCrashHandler();
 
     // Initialize libcurl once for the whole process

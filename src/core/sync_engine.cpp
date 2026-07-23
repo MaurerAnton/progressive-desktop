@@ -8,6 +8,7 @@
 #include <fstream>
 #include <filesystem>
 #include <ctime>
+#include "core/debug_log.hpp"
 
 namespace progressive::desktop {
 
@@ -18,6 +19,7 @@ SyncEngine::~SyncEngine() {
 }
 
 void SyncEngine::start() {
+    LOG(LogChannel::DBG, "sync start called");
     if (running_.exchange(true)) return;  // already running
 
     // Load saved since-token if available (for incremental sync after first run).
@@ -65,6 +67,8 @@ void SyncEngine::run() {
     setState(sinceToken_.empty() ? SyncEngineState::InitialSync
                                   : SyncEngineState::Running);
 
+    int tokenFailures = 0;
+
     while (running_) {
         // Pause gate
         {
@@ -105,6 +109,18 @@ void SyncEngine::run() {
 
             // Detect invalid access token.
             if (result.error.code == "M_UNKNOWN_TOKEN") {
+                tokenFailures++;
+                LOG(LogChannel::DBG, "M_UNKNOWN_TOKEN — attempt %d/3", tokenFailures);
+                if (tokenFailures >= 3) {
+                    LOG(LogChannel::DBG, "M_UNKNOWN_TOKEN repeated %d times — forcing auth error",
+                        tokenFailures);
+                    setState(SyncEngineState::Stopped);
+                    LOG(LogChannel::DBG, "calling authErrCb_ (token loop guard)");
+                    if (authErrCb_) authErrCb_();
+                    running_ = false;
+                    break;
+                }
+
                 std::fprintf(stderr, "[session] M_UNKNOWN_TOKEN — access token is invalid.\n"
                                      "  Possible causes:\n"
                                      "    1. Token expired (rare — Synapse doesn't expire by default)\n"
@@ -172,6 +188,7 @@ void SyncEngine::run() {
                 }
 
                 setState(SyncEngineState::Stopped);
+                LOG(LogChannel::DBG, "calling authErrCb_ (fallback after /refresh fail)");
                 if (authErrCb_) authErrCb_();
                 running_ = false;
                 break;
@@ -188,6 +205,7 @@ void SyncEngine::run() {
 
         // Success — update token + stats.
         firstRun_ = false;  // only clear on SUCCESS — retries must still use empty since
+        tokenFailures = 0;
         stats_.errors = 0;
         stats_.syncs++;
         sinceToken_ = std::string(result.data.nextBatch);

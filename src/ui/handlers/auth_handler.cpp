@@ -4,9 +4,11 @@
 #include "core/matrix_client.hpp"
 #include "core/session_store.hpp"
 #include "core/sync_engine.hpp"
+#include "core/debug_log.hpp"
 
 #include <QMessageBox>
 #include <QLabel>
+#include <QTimer>
 
 namespace progressive::desktop {
 
@@ -16,9 +18,10 @@ AuthHandler::AuthHandler(MatrixClient* client, SessionStore* store, SyncEngine* 
       userLabel_(userLabel), statusLabel_(statusLabel) {}
 
 void AuthHandler::showLoginDialog() {
-    LoginDialog dlg(client_, store_, qobject_cast<QWidget*>(parent()));
-    connect(&dlg, &QDialog::accepted, this, &AuthHandler::onLoginDialogAccepted);
-    dlg.exec();
+    auto* dlg = new LoginDialog(client_, store_, qobject_cast<QWidget*>(parent()));
+    connect(dlg, &QDialog::accepted, this, &AuthHandler::onLoginDialogAccepted);
+    connect(dlg, &QDialog::finished, dlg, &QObject::deleteLater);
+    dlg->show();
 }
 
 void AuthHandler::onLoginDialogAccepted() {
@@ -32,19 +35,15 @@ void AuthHandler::onLoginDialogAccepted() {
 }
 
 void AuthHandler::forceReLogin() {
+    LOG(LogChannel::DBG, "forceReLogin called");
     sync_->stop();
-    QMessageBox::warning(qobject_cast<QWidget*>(parent()), "Session Expired",
-        "Your session has expired. This can happen if:\n"
-        "  - The server was restarted\n"
-        "  - You changed your password\n"
-        "  - You logged out from another device\n"
-        "  - The app was force-closed during a sync\n\n"
-        "Your chats and settings are preserved. Please login again.");
-    userLabel_->setText(" [Session expired] ");
     statusLabel_->setStyleSheet("color: red; font-weight: bold;");
     statusLabel_->setText("Session expired — login required");
-    showLoginDialog();
-    statusLabel_->setStyleSheet("");
+    userLabel_->setText(" [Session expired] ");
+    QTimer::singleShot(0, this, [this]() {
+        showLoginDialog();
+        statusLabel_->setStyleSheet("");
+    });
 }
 
 void AuthHandler::logout() {

@@ -314,15 +314,29 @@ static void fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
         } else { de.body = "[encrypted]"; de.msgtype = "m.notice"; }
     }
     if (de.type == "m.room.message") {
-        de.msgtype = msgType(de.contentJson);
-        de.body = msgBody(de.contentJson);
+        // Parse content with simdjson for correct extraction (works for ALL clients)
+        simdjson::dom::parser p;
+        auto doc = p.parse(de.contentJson);
+        if (doc.error() == simdjson::SUCCESS) {
+            auto val = doc.value();
+            auto bodyStr = val["body"].get_string();
+            if (bodyStr.error() == simdjson::SUCCESS)
+                de.body = jsonUnescape(std::string(bodyStr.value()));
+            auto msgStr = val["msgtype"].get_string();
+            if (msgStr.error() == simdjson::SUCCESS)
+                de.msgtype = std::string(msgStr.value());
+            if (de.msgtype == "m.image" || de.msgtype == "m.video") {
+                auto url = val["url"].get_string();
+                if (url.error() == simdjson::SUCCESS)
+                    de.mxcUrl = jsonUnescape(std::string(url.value()));
+                auto mime = val["mimetype"].get_string();
+                if (mime.error() == simdjson::SUCCESS)
+                    de.mimetype = std::string(mime.value());
+            }
+        }
         if (de.body.empty() && !de.contentJson.empty()) {
             LOG(LogChannel::DBG, "sync-empty-body: m.room.message sender=%s content=[%.300s]",
                 de.senderId.c_str(), de.contentJson.c_str());
-        }
-        if (de.msgtype == "m.image" || de.msgtype == "m.video") {
-            de.mxcUrl = extractStringDec(de.contentJson, "url");
-            de.mimetype = extractStringDec(de.contentJson, "mimetype");
         }
         auto thRoot = threadRootId(de.contentJson);
         if (!thRoot.empty()) { de.isThreadReply = true; de.threadRootId = thRoot; }

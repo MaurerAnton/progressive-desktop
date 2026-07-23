@@ -37,6 +37,8 @@ public:
                 QPointer<MainWindow> mainWindow,
                 QObject* parent = nullptr);
 
+    void setClient(MatrixClient* c) { client_ = c; }
+
     const std::string& currentRoomId() const { return currentRoomIdStr_; }
     const std::string& currentThreadRoot() const { return currentThreadRoot_; }
     const std::string& currentPrevBatch() const { return currentPrevBatch_; }

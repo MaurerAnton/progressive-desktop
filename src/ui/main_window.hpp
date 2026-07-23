@@ -43,8 +43,8 @@ public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow();
 
-    void setClient(MatrixClient* client) { client_ = client; }
-    void setSessionStore(SessionStore* store) { store_ = store; }
+    void setClient(MatrixClient* client);
+    void setSessionStore(SessionStore* store);
     void startWithSavedSession();
 
     void onSyncState(SyncEngineState state, const SyncEngineStats& stats);

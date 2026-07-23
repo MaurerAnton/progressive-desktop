@@ -19,6 +19,8 @@ public:
     AuthHandler(MatrixClient* client, SessionStore* store, SyncEngine* sync,
                 QLabel* userLabel, QLabel* statusLabel, QObject* parent = nullptr);
 
+    void setClient(MatrixClient* c) { client_ = c; }
+
     void showLoginDialog();
     void forceReLogin();
     void logout();

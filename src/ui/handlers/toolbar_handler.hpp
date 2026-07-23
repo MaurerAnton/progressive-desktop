@@ -34,6 +34,7 @@ public:
     QAction* createSettingsAction();
     QAction* createFullscreenAction();
     QAction* fullscreenAction() const { return fullscreenAction_; }
+    void setClient(MatrixClient* c) { client_ = c; }
 
     void setRoomHandler(RoomHandler* rh) { roomHandler_ = rh; }
     void setInterfaceElements(QPushButton* chatLog, QPushButton* threadBtn) {

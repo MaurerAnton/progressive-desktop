@@ -20,6 +20,8 @@ public:
                         DesktopNotifier* notifier, QLabel* roomListHeader,
                         QPointer<MainWindow> mw, QObject* parent = nullptr);
 
+    void setClient(MatrixClient* c) { client_ = c; }
+
     void handle(FastSyncResponse resp);
 
 private:

@@ -29,6 +29,8 @@ public:
                     QWidget* placeholder, QWidget* timelineView, QWidget* messageEdit,
                     QObject* parent = nullptr);
 
+    void setClient(MatrixClient* c) { client_ = c; }
+
 public slots:
     void switchAccount(int index);
 

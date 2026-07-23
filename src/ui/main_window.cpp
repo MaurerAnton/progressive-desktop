@@ -46,6 +46,24 @@
 
 namespace progressive::desktop {
 
+void MainWindow::setClient(MatrixClient* client) {
+    client_ = client;
+    if (imageLoader_) imageLoader_->setClient(client);
+    if (chatView_) chatView_->setClient(client);
+    if (roomStore_) roomStore_->setClient(client);
+    if (toolbarHandler_) toolbarHandler_->setClient(client);
+    if (roomHandler_) roomHandler_->setClient(client);
+    if (auth_) auth_->setClient(client);
+    if (attachmentHandler_) attachmentHandler_->setClient(client);
+    if (accountSwitcher_) accountSwitcher_->setClient(client);
+    if (syncHandler_) syncHandler_->setClient(client);
+}
+
+void MainWindow::setSessionStore(SessionStore* store) {
+    store_ = store;
+    if (roomStore_) roomStore_->setSessionStore(store);
+}
+
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle("Progressive Chat — Desktop");
     resize(1100, 720);
@@ -97,9 +115,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     logoutAction_ = toolbar_->addAction("Logout");
 
-    connect(roomListDelegate_, &RoomListDelegate::inviteAccepted, roomHandler_, &RoomHandler::acceptInvite);
-    connect(roomListDelegate_, &RoomListDelegate::inviteRejected, roomHandler_, &RoomHandler::rejectInvite);
-
     connect(threadBanner_, &QLabel::linkActivated, this, [this](const QString& link) {
         if (link == "back" && roomHandler_) roomHandler_->closeThreadView();
     });
@@ -111,6 +126,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     roomHandler_ = new RoomHandler(client_, roomStore_, roomModel_, timelineModel_,
         &sync_, imageLoader_, roomList_, timelineView_, statusLabel_, timelinePlaceholder_,
         loadMoreBtn_, chatLogBtn_, messageEdit_, QPointer<MainWindow>(this), this);
+
+    connect(roomListDelegate_, &RoomListDelegate::inviteAccepted, roomHandler_, &RoomHandler::acceptInvite);
+    connect(roomListDelegate_, &RoomListDelegate::inviteRejected, roomHandler_, &RoomHandler::rejectInvite);
 
     toolbarHandler_->setRoomHandler(roomHandler_);
     toolbarHandler_->setInterfaceElements(chatLogBtn_, threadBtn_);

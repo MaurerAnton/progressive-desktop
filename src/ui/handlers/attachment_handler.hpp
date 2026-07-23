@@ -17,6 +17,8 @@ public:
     AttachmentHandler(MatrixClient* client, TimelineModel* timelineModel,
                       QLabel* statusLabel, QObject* parent = nullptr);
 
+    void setClient(MatrixClient* c) { client_ = c; }
+
     void openAttachment(const QString& eventId, const QString& mxcUrl);
 
 private:

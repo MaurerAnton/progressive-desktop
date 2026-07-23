@@ -47,6 +47,9 @@ class RoomStore {
 public:
     RoomStore(MatrixClient* client, SessionStore* store);
 
+    void setClient(MatrixClient* c) { client_ = c; }
+    void setSessionStore(SessionStore* s) { store_ = s; }
+
     // Heavy part — runs on worker thread, no model access
     static RoomSyncUpdate prepareRoomSyncUpdate(const FastSyncResponse& resp,
                                                  const std::string& currentRoomId,

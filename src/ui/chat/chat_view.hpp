@@ -17,6 +17,8 @@ public:
     ChatView(MatrixClient* client, TimelineModel* model, MessageEdit* edit,
              SyncEngine* sync, QWidget* parent = nullptr);
 
+    void setClient(MatrixClient* c) { client_ = c; }
+
     void setCurrentRoom(const std::string& roomId, const std::string& threadRoot = "",
                         bool isEncrypted = false);
     void clear();

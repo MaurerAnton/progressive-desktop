@@ -51,8 +51,8 @@ class RoomStore {
 public:
     RoomStore(MatrixClient* client, SessionStore* store);
 
-    void setClient(MatrixClient* c) { client_ = c; }
-    void setSessionStore(SessionStore* s) { store_ = s; }
+    void setClient(MatrixClient* c);
+    void setSessionStore(SessionStore* s);
 
     RoomDataLoader* dataLoader() const { return dataLoader_.get(); }
 

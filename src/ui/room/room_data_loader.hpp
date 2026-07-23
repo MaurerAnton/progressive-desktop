@@ -22,6 +22,9 @@ public:
     RoomDataLoader(MatrixClient* client, SessionStore* store,
                    QObject* parent = nullptr);
 
+    void setClient(MatrixClient* c) { client_ = c; }
+    void setSessionStore(SessionStore* s) { store_ = s; }
+
     void loadHistory(const std::string& roomId, TimelineModel* model,
                      LifeToken token, std::function<void(int, const std::string&)> callback);
 

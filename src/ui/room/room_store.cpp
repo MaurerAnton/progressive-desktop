@@ -102,6 +102,16 @@ std::string msgBody(std::string_view json) { return extractStringDec(json, "body
 RoomStore::RoomStore(MatrixClient* client, SessionStore* store)
     : client_(client), store_(store), dataLoader_(std::make_unique<RoomDataLoader>(client, store)) {}
 
+void RoomStore::setClient(MatrixClient* c) {
+    client_ = c;
+    if (dataLoader_) dataLoader_->setClient(c);
+}
+
+void RoomStore::setSessionStore(SessionStore* s) {
+    store_ = s;
+    if (dataLoader_) dataLoader_->setSessionStore(s);
+}
+
 RoomMeta RoomStore::extractRoomMeta(const FastRoom& room, const std::string& myUserId) {
     RoomMeta m;
     for (const auto& e : room.stateEvents) {

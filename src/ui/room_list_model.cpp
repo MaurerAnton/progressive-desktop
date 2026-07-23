@@ -15,6 +15,14 @@ int RoomListModel::rowCount(const QModelIndex& parent) const {
     return static_cast<int>(rooms_.size());
 }
 
+int RoomListModel::joinedCount() const {
+    int count = 0;
+    for (const auto& r : rooms_) {
+        if (!r.isInvite) count++;
+    }
+    return count;
+}
+
 QVariant RoomListModel::data(const QModelIndex& index, int role) const {
     if (!index.isValid() || index.row() < 0 || index.row() >= (int)rooms_.size())
         return {};

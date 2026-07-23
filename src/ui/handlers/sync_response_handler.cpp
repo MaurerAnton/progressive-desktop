@@ -76,7 +76,7 @@ void SyncResponseHandler::handle(FastSyncResponse resp) {
             guard->roomStore()->batchLoadRoomStates(guard->roomModel(), QPointer<QWidget>(guard));
 
             guard->statusLabel()->setText(QString("Synced: %1 rooms | %2 messages")
-                .arg(guard->roomModel()->rowCount()).arg(guard->timelineModel()->rowCount()));
+                .arg(guard->roomModel()->joinedCount()).arg(guard->timelineModel()->rowCount()));
 
             logMemorySnapshot("after-sync-cleanup");
             trimMemory();

@@ -39,6 +39,7 @@ public:
     explicit RoomListModel(QObject* parent = nullptr);
 
     int rowCount(const QModelIndex& parent = QModelIndex()) const override;
+    int joinedCount() const;
     QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const override;
 
     // Update or insert a room from a /sync response. Returns true if model changed.

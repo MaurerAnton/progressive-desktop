@@ -227,32 +227,11 @@ void TimelineDelegate::drawSystemRow(QPainter* p, const QRect& rect,
     p->setFont(f);
 
     QString text;
-    if (type == "m.room.member") {
-        QString sender = idx.data(TimelineModel::SenderNameRole).toString();
-        if (sender.isEmpty()) sender = shortName(idx.data(TimelineModel::SenderRole).toString());
-        QString contentJson = idx.data(TimelineModel::ContentJsonRole).toString();
-        // Parse membership with simdjson
-        std::string cj = contentJson.toStdString();
-        QString membership;
-        simdjson::dom::parser pj;
-        auto doc = pj.parse(cj);
-        if (doc.error() == simdjson::SUCCESS) {
-            auto ms = doc.value()["membership"].get_string();
-            if (ms.error() == simdjson::SUCCESS) membership = QString::fromUtf8(ms.value().data(), (int)ms.value().size());
-        }
-        QString action;
-        if (membership == "join") action = "joined";
-        else if (membership == "leave") action = "left";
-        else if (membership == "invite") action = "was invited";
-        else if (membership == "ban") action = "was banned";
-        else action = membership;
+    if (type == "progressive.system") {
+        QString body = idx.data(TimelineModel::BodyRole).toString();
         int64_t ts = idx.data(TimelineModel::TimeRole).toLongLong();
-        text = formatTime(ts) + " — " + sender + " " + action;
-    } else if (type == "m.room.redaction") {
-        QString sender = idx.data(TimelineModel::SenderNameRole).toString();
-        if (sender.isEmpty()) sender = shortName(idx.data(TimelineModel::SenderRole).toString());
-        int64_t ts = idx.data(TimelineModel::TimeRole).toLongLong();
-        text = formatTime(ts) + " — " + sender + " redacted a message";
+        QString timeStr = formatTime(ts);
+        text = timeStr.isEmpty() ? body : timeStr + "  " + body;
     }
     p->drawText(rect, Qt::AlignHCenter | Qt::AlignVCenter, text);
 }
@@ -644,7 +623,7 @@ void TimelineDelegate::paint(QPainter* p, const QStyleOptionViewItem& opt,
     }
 
     QString type = idx.data(TimelineModel::TypeRole).toString();
-    if (type == "m.room.member" || type == "m.room.redaction") {
+    if (type == "progressive.system") {
         drawSystemRow(p, opt.rect, idx, type);
     } else {
         drawMessageBubble(p, opt.rect, idx);
@@ -656,7 +635,7 @@ void TimelineDelegate::paint(QPainter* p, const QStyleOptionViewItem& opt,
 QSize TimelineDelegate::sizeHint(const QStyleOptionViewItem& opt,
                                    const QModelIndex& idx) const {
     QString type = idx.data(TimelineModel::TypeRole).toString();
-    if (type == "m.room.member" || type == "m.room.redaction") {
+    if (type == "progressive.system") {
         return QSize(opt.rect.width() > 40 ? opt.rect.width() : 600, 28);
     }
 
@@ -683,7 +662,7 @@ bool TimelineDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
     QString msgtype = index.data(TimelineModel::MsgTypeRole).toString();
     QString body = index.data(TimelineModel::BodyRole).toString();
     QString type = index.data(TimelineModel::TypeRole).toString();
-    if (type == "m.room.member" || type == "m.room.redaction") return false;
+    if (type == "progressive.system") return false;
 
     // Use the same layout as paint/sizeHint for accurate hit zones
     int width = option.rect.width();

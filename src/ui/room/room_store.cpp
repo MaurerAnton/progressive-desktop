@@ -440,6 +440,43 @@ static void fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
     }
 }
 
+static DisplayedEvent makeSystemEvent(const FastEvent& e) {
+    DisplayedEvent sys;
+    sys.type = "progressive.system";
+    sys.eventId = std::string(e.eventId);
+    sys.originServerTs = e.originServerTs;
+    sys.senderName = "system";
+
+    if (e.type == "m.room.member") {
+        std::string displayName(e.stateKey.data(), e.stateKey.size());
+        auto colon = displayName.find(':');
+        if (colon != std::string::npos) displayName = displayName.substr(1, colon - 1);
+        auto ms = extractString(e.contentJson, "membership");
+        if (ms == "join")      sys.body = displayName + " joined";
+        else if (ms == "leave") sys.body = displayName + " left";
+        else if (ms == "invite") sys.body = displayName + " was invited";
+        else if (ms == "ban")   sys.body = displayName + " was banned";
+    }
+    else if (e.type == "m.room.topic") {
+        auto topic = extractString(e.contentJson, "topic");
+        sys.body = "Topic changed" + (topic.empty() ? "" : ": " + topic);
+    }
+    else if (e.type == "m.room.name") {
+        auto name = extractString(e.contentJson, "name");
+        sys.body = "Room renamed to " + (name.empty() ? "(removed)" : name);
+    }
+    else if (e.type == "m.room.encryption") {
+        sys.body = "Encryption enabled";
+    }
+    else if (e.type == "m.room.create") {
+        sys.body = "Room created";
+    }
+    else if (e.type == "m.room.avatar") {
+        sys.body = "Avatar changed";
+    }
+    return sys;
+}
+
 static void appendTimelineForRoom(const std::string& roomId,
     const std::vector<FastEvent>& events, TimelineModel* model,
     const std::unordered_map<std::string,std::string>* memberAvatars,
@@ -467,6 +504,17 @@ static void appendTimelineForRoom(const std::string& roomId,
             }
             continue;
         }
+        if (e.type == "m.room.member" || e.type == "m.room.topic" ||
+            e.type == "m.room.name" || e.type == "m.room.encryption" ||
+            e.type == "m.room.create" || e.type == "m.room.avatar") {
+            DisplayedEvent sys = makeSystemEvent(e);
+            if (!sys.body.empty()) batch.push_back(sys);
+            continue;
+        }
+        if (e.type == "m.typing" || e.type == "m.receipt" || e.type == "m.fully_read") {
+            continue;
+        }
+        if (e.type != "m.room.message" && e.type != "m.room.encrypted") continue;
         DisplayedEvent de;
         fastEventToDisplayed(e, de, roomId, nullptr);
         if (memberAvatars && !de.senderId.empty()) {

@@ -18,6 +18,7 @@
 #include <QListView>
 #include <QMessageBox>
 #include <QPointer>
+#include <QApplication>
 #include <QSplitter>
 #include <QToolBar>
 #include <QAction>
@@ -213,6 +214,7 @@ void MainWindow::closeEvent(QCloseEvent* e) {
     E2eeInitHandler::persistCrypto(client_.get(), store_.get(), &sync_);
     sync_.stop();
     QMainWindow::closeEvent(e);
+    QApplication::quit();
 }
 
 void MainWindow::keyPressEvent(QKeyEvent* e) {

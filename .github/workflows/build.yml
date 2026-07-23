@@ -1,0 +1,32 @@
+name: Build + Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y qt6-base-dev libqt6widgets6 qt6-base-dev-tools \
+          cmake ninja-build ccache libcurl4-openssl-dev libsqlite3-dev
+
+    - name: Configure
+      run: cmake --preset ci
+
+    - name: Build
+      run: cmake --build build -j$(nproc)
+
+    - name: Test
+      run: ctest --test-dir build --output-on-failure

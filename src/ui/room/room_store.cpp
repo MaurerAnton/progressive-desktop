@@ -316,12 +316,20 @@ static void fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
     if (de.type == "m.room.message") {
         de.msgtype = msgType(de.contentJson);
         de.body = msgBody(de.contentJson);
+        if (de.body.empty() && !de.contentJson.empty()) {
+            LOG(LogChannel::DBG, "sync-empty-body: m.room.message sender=%s content=[%.300s]",
+                de.senderId.c_str(), de.contentJson.c_str());
+        }
         if (de.msgtype == "m.image" || de.msgtype == "m.video") {
             de.mxcUrl = extractStringDec(de.contentJson, "url");
             de.mimetype = extractStringDec(de.contentJson, "mimetype");
         }
         auto thRoot = threadRootId(de.contentJson);
         if (!thRoot.empty()) { de.isThreadReply = true; de.threadRootId = thRoot; }
+    }
+    if (de.type == "m.room.encrypted") {
+        LOG(LogChannel::DBG, "sync-encrypted: sender=%s content=[%.300s]",
+            de.senderId.c_str(), de.contentJson.c_str());
     }
 }
 

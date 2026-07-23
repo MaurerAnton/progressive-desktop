@@ -49,9 +49,10 @@ void SyncResponseHandler::handle(FastSyncResponse resp) {
     QLabel* rlh = roomListHeader_;
 
     ThreadPool::instance().enqueue([guard, rmh, resp = std::move(resp), myUserId, curRoomId, notifier, rlh]() mutable {
-        auto syncUpdate = RoomStore::prepareRoomSyncUpdate(resp, curRoomId, myUserId);
+        auto keepAlive = std::make_shared<FastSyncResponse>(std::move(resp));
+        auto syncUpdate = RoomStore::prepareRoomSyncUpdate(*keepAlive, curRoomId, myUserId);
 
-        QMetaObject::invokeMethod(guard, [guard, rmh, syncUpdate = std::move(syncUpdate), notifier, rlh]() mutable {
+        QMetaObject::invokeMethod(guard, [guard, rmh, syncUpdate = std::move(syncUpdate), notifier, rlh, keepAlive]() mutable {
             if (guard.isNull()) return;
             guard->roomStore_->applyRoomSyncUpdate(syncUpdate,
                 guard->roomModel_, guard->timelineModel_);

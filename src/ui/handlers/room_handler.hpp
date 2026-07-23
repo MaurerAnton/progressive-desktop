@@ -61,9 +61,9 @@ public slots:
     void closeThreadView();
     void acceptInvite(const QString& roomId);
     void rejectInvite(const QString& roomId);
+    void openThreadView(const QString& rootEventId);
 
 private:
-    void openThreadView(const QString& rootEventId);
     void showTimelineContextMenu(const QString& eventId, const QPoint& globalPos);
 
     MatrixClient* client_;

@@ -160,6 +160,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(timelineDelegate_, &TimelineDelegate::messageClicked, this, &MainWindow::onMessageClicked);
 
     connect(timelineView_, &QListView::customContextMenuRequested, roomHandler_, &RoomHandler::onTimelineContextMenu);
+    connect(timelineDelegate_, &TimelineDelegate::threadIndicatorClicked, roomHandler_, &RoomHandler::openThreadView);
 
     connect(logoutAction_, &QAction::triggered, auth_, &AuthHandler::logout);
 

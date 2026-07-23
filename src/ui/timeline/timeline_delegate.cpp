@@ -711,6 +711,19 @@ bool TimelineDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
         }
     }
 
+    // Thread indicator zone
+    int threadCount = index.data(TimelineModel::ThreadCountRole).toInt();
+    if (threadCount > 0) {
+        int tcY = bubbleY + L.bubbleH - PAD_BOTTOM - TIME_ROW_H - L.threadCountH - 2;
+        int textX = bubbleX + PAD;
+        int textW = bubbleW - PAD * 2;
+        QRect threadZone(textX, tcY, textW, 14);
+        if (threadZone.contains(me->pos())) {
+            emit threadIndicatorClicked(eventId);
+            return true;
+        }
+    }
+
     // Image zone
     if ((msgtype == "m.image" || msgtype == "m.video") && !mxcUrl.isEmpty() && L.imageH > 0) {
         int imgY = bubbleY + PAD_TOP;

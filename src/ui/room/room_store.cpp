@@ -193,6 +193,12 @@ RoomSyncUpdate RoomStore::prepareRoomSyncUpdate(const FastSyncResponse& resp,
                     if (!av.empty()) u.currentRoomAvatars[std::string(e.stateKey)] = av;
                 }
             }
+            for (const auto& e : room.timeline.events) {
+                if (e.type == "m.room.member" && !e.contentJson.empty()) {
+                    auto av = extractStringDec(e.contentJson, "avatar_url");
+                    if (!av.empty()) u.currentRoomAvatars[std::string(e.stateKey)] = av;
+                }
+            }
         }
     }
 
@@ -272,6 +278,7 @@ void RoomStore::loadHistory(const std::string& roomId, TimelineModel* model,
             auto chunk = root.value()["chunk"].get_array();
             if (chunk.error() != simdjson::SUCCESS) { if (callback) callback(0, ""); return; }
             std::vector<DisplayedEvent> events;
+            std::unordered_map<std::string, std::string> localAvatars;
             for (auto evt : chunk.value()) {
                 DisplayedEvent de;
                 auto t = evt["type"].get_string();
@@ -287,6 +294,13 @@ void RoomStore::loadHistory(const std::string& roomId, TimelineModel* model,
                 if (!de.senderId.empty() && de.senderId[0] == '@') {
                     auto c = de.senderId.find(':');
                     de.senderName = (c != std::string::npos) ? de.senderId.substr(1, c-1) : de.senderId.substr(1);
+                }
+                if (de.type == "m.room.member" && !de.contentJson.empty()) {
+                    auto av = extractStringDec(de.contentJson, "avatar_url");
+                    std::string stateKey;
+                    auto sk = evt["state_key"].get_string();
+                    if (sk.error() == simdjson::SUCCESS) stateKey = std::string(sk.value());
+                    if (!av.empty() && !stateKey.empty()) localAvatars[stateKey] = av;
                 }
                 if (de.type == "m.room.redaction" && !de.contentJson.empty()) {
                     auto rid = extractStringDec(de.contentJson, "redacts");
@@ -311,8 +325,31 @@ void RoomStore::loadHistory(const std::string& roomId, TimelineModel* model,
                     }
                     continue;
                 }
+                if (de.type == "m.reaction" && !de.contentJson.empty()) {
+                    std::string eid, emoji;
+                    auto rp = de.contentJson.find("\"event_id\":");
+                    if (rp == std::string::npos) rp = de.contentJson.find("\"event_id\": ");
+                    if (rp != std::string::npos) {
+                        auto es = de.contentJson.find('"', rp + 12);
+                        auto ee = de.contentJson.find('"', es + 1);
+                        if (es != std::string::npos && ee != std::string::npos)
+                            eid = de.contentJson.substr(es + 1, ee - es - 1);
+                    }
+                    auto kp = de.contentJson.find("\"key\":");
+                    if (kp == std::string::npos) kp = de.contentJson.find("\"key\": ");
+                    if (kp != std::string::npos) {
+                        auto ks = de.contentJson.find('"', kp + 6);
+                        auto ke = de.contentJson.find('"', ks + 1);
+                        if (ks != std::string::npos && ke != std::string::npos)
+                            emoji = de.contentJson.substr(ks + 1, ke - ks - 1);
+                    }
+                    if (!eid.empty() && !emoji.empty()) {
+                        model->addReaction(eid, emoji, de.senderId);
+                    }
+                    continue;
+                }
                 if (de.type == "m.typing" || de.type == "m.receipt" ||
-                    de.type == "m.fully_read" || de.type == "m.reaction") {
+                    de.type == "m.fully_read") {
                     continue;
                 }
                 if (de.type != "m.room.message" && de.type != "m.room.encrypted") continue;
@@ -323,6 +360,12 @@ void RoomStore::loadHistory(const std::string& roomId, TimelineModel* model,
                 events.push_back(std::move(de));
             }
             std::reverse(events.begin(), events.end());
+            for (auto& evt : events) {
+                if (evt.avatarUrl.empty() && !evt.senderId.empty()) {
+                    auto it = localAvatars.find(evt.senderId);
+                    if (it != localAvatars.end()) evt.avatarUrl = it->second;
+                }
+            }
             model->appendBackBatch(events);
             int count = (int)events.size();
             std::string pBatch;

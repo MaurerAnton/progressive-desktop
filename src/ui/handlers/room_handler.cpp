@@ -244,6 +244,16 @@ void RoomHandler::onRoomClicked(const QModelIndex& idx) {
                 if (!m.avatarUrl.empty()) memberAvatarCache_[m.userId] = m.avatarUrl;
                 if (!m.displayName.empty()) memberAvatarCache_[m.userId + "/name"] = m.displayName;
             }
+            for (int i = 0; i < mainWindow_->timelineModel()->rowCount(); ++i) {
+                auto* evt = mainWindow_->timelineModel()->at(i);
+                if (!evt || !evt->avatarUrl.empty() || evt->senderId.empty()) continue;
+                auto avIt = memberAvatarCache_.find(evt->senderId);
+                if (avIt != memberAvatarCache_.end()) {
+                    evt->avatarUrl = avIt->second;
+                    auto idx = mainWindow_->timelineModel()->index(i);
+                    emit mainWindow_->timelineModel()->dataChanged(idx, idx, {TimelineModel::AvatarUrlRole});
+                }
+            }
         });
 
     QStringList memberNames;
@@ -575,8 +585,9 @@ void RoomHandler::showTimelineContextMenu(const QString& eventId, const QPoint& 
         QString reply = QInputDialog::getText(mainWindow_.data(), "Reply in thread",
             QString("Replying to:\n\"%1\"\n\nYour reply:").arg(rootText.left(100)), QLineEdit::Normal, "", &ok);
         if (!ok || reply.trimmed().isEmpty()) return;
-        ThreadPool::instance().enqueue([this, roomIdStr, eidStrVal, body = reply.toStdString()]() {
-            auto r = client_->sendThreadReply(roomIdStr, body, eidStrVal);
+        ThreadPool::instance().enqueue([this, roomIdStr, eidStrVal, body = reply.toStdString(), threadRoot = currentThreadRoot_]() {
+            std::string effectiveRoot = threadRoot.empty() ? eidStrVal : threadRoot;
+            auto r = client_->sendThreadReply(roomIdStr, body, effectiveRoot);
             QMetaObject::invokeMethod(this, [this, r, eidStrVal]() {
                 if (r.ok) {
                     int rootRow = timelineModel_->findRow(eidStrVal);

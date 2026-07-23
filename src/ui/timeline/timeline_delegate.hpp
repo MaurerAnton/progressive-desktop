@@ -32,6 +32,7 @@ signals:
     void messageClicked(const QString& eventId);
     void linkClicked(const QString& url);
     void reactionClicked(const QString& eventId, const QString& emoji);
+    void threadIndicatorClicked(const QString& eventId);
 
 private:
     ImageLoader* loader_;

@@ -15,9 +15,9 @@
 
 namespace progressive::desktop {
 
-AttachmentHandler::AttachmentHandler(MatrixClient* client, TimelineModel* timelineModel,
+AttachmentHandler::AttachmentHandler(std::shared_ptr<MatrixClient> client, TimelineModel* timelineModel,
                                      QLabel* statusLabel, QObject* parent)
-    : QObject(parent), client_(client), timelineModel_(timelineModel),
+    : QObject(parent), client_(std::move(client)), timelineModel_(timelineModel),
       statusLabel_(statusLabel) {}
 
 void AttachmentHandler::openAttachment(const QString& eventId, const QString& mxcUrl) {
@@ -33,7 +33,7 @@ void AttachmentHandler::openAttachment(const QString& eventId, const QString& mx
     }
 
     std::string mxc = mxcUrl.toStdString();
-    MatrixClient* client = client_;
+    auto client = client_;
     QPointer<AttachmentHandler> guard(this);
 
     if (msgtype == "m.video" || msgtype == "m.audio" || msgtype == "m.file") {

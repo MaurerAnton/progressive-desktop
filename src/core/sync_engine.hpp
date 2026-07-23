@@ -15,6 +15,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -51,8 +52,8 @@ public:
     SyncEngine();
     ~SyncEngine();
 
-    void setClient(MatrixClient* c) { client_ = c; }
-    void setSessionStore(SessionStore* s) { store_ = s; }
+    void setClient(std::shared_ptr<MatrixClient> c) { client_ = std::move(c); }
+    void setSessionStore(std::shared_ptr<SessionStore> s) { store_ = std::move(s); }
     void onSync(SyncCallback cb) { syncCb_ = std::move(cb); }
     void onStateChange(StateCallback cb) { stateCb_ = std::move(cb); }
     // Called when the access token is invalid (M_UNKNOWN_TOKEN) — UI should
@@ -87,8 +88,8 @@ private:
     // (adds megolm inbound sessions) and m.room.encrypted (Olm 1:1, future).
     void processToDeviceEvents(const FastSyncResponse& resp);
 
-    MatrixClient* client_ = nullptr;
-    SessionStore* store_ = nullptr;
+    std::shared_ptr<MatrixClient> client_;
+    std::shared_ptr<SessionStore> store_;
     SyncCallback syncCb_;
     StateCallback stateCb_;
     AuthErrorCallback authErrCb_;

@@ -19,9 +19,9 @@
 
 namespace progressive::desktop {
 
-ChatView::ChatView(MatrixClient* client, TimelineModel* model, MessageEdit* edit,
+ChatView::ChatView(std::shared_ptr<MatrixClient> client, TimelineModel* model, MessageEdit* edit,
                    SyncEngine* sync, QWidget* parent)
-    : QWidget(parent), client_(client), model_(model), edit_(edit), sync_(sync) {
+    : QWidget(parent), client_(std::move(client)), model_(model), edit_(edit), sync_(sync) {
     connect(edit_, &MessageEdit::sendMessage, this, [this](const std::string& body) {
         std::fprintf(stderr, "[chat] send: room=%s body=\"%s\" encrypted=%d thread=%s\n",
                      roomId_.c_str(), body.c_str(), encrypted_ ? 1 : 0,
@@ -99,7 +99,7 @@ void ChatView::doSend(const std::string& body) {
 
     std::string roomId = roomId_;
     std::string threadRoot = threadRoot_;
-    MatrixClient* client = client_;
+    auto client = client_;
     QString myUserId = QString::fromStdString(client->account().userId);
     QPointer<ChatView> guard(this);
 
@@ -208,7 +208,7 @@ void ChatView::doAttachFile(const QString& filePath) {
     std::string roomId = roomId_;
     std::string fn = fileName.toStdString();
     std::string ct = contentType.toStdString();
-    MatrixClient* client = client_;
+    auto client = client_;
     QPointer<ChatView> guard(this);
 
     ThreadPool::instance().enqueue([guard, client, roomId, fn, ct, filePath, isImage, isVideo, isAudio]() {
@@ -251,7 +251,7 @@ void ChatView::doQuickReact(const QString& emoji) {
                  roomId_.c_str(), evt->eventId.c_str(), emoji.toUtf8().data());
     std::string eid = evt->eventId;
     std::string em = emoji.toStdString();
-    MatrixClient* client = client_;
+    auto client = client_;
     std::string roomId = roomId_;
     QPointer<ChatView> guard(this);
     ThreadPool::instance().enqueue([guard, client, roomId, eid, em]() {

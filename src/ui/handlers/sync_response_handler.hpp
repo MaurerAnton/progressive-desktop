@@ -22,7 +22,7 @@ class RoomHandler;
 class SyncResponseHandler : public QObject {
     Q_OBJECT
 public:
-    SyncResponseHandler(MatrixClient* client, RoomStore* roomStore,
+    SyncResponseHandler(std::shared_ptr<MatrixClient> client, RoomStore* roomStore,
                         RoomListModel* roomModel, TimelineModel* timelineModel,
                         DesktopNotifier* notifier, QLabel* roomListHeader,
                         QLabel* inviteHeader, QLabel* statusLabel,
@@ -31,12 +31,12 @@ public:
                         RoomHandler* roomHandler, QObject* parent = nullptr);
     ~SyncResponseHandler();
 
-    void setClient(MatrixClient* c) { client_ = c; }
+    void setClient(std::shared_ptr<MatrixClient> c) { client_ = std::move(c); }
 
     void handle(FastSyncResponse resp);
 
 private:
-    MatrixClient* client_;
+    std::shared_ptr<MatrixClient> client_;
     RoomStore* roomStore_;
     RoomListModel* roomModel_;
     TimelineModel* timelineModel_;

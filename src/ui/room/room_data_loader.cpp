@@ -14,14 +14,14 @@
 
 namespace progressive::desktop {
 
-RoomDataLoader::RoomDataLoader(MatrixClient* client, SessionStore* store, QObject* parent)
-    : QObject(parent), client_(client), store_(store) {}
+RoomDataLoader::RoomDataLoader(std::shared_ptr<MatrixClient> client, std::shared_ptr<SessionStore> store, QObject* parent)
+    : QObject(parent), client_(std::move(client)), store_(std::move(store)) {}
 
 void RoomDataLoader::loadHistory(const std::string& roomId, TimelineModel* model,
                                    LifeToken token,
                                    std::function<void(int, const std::string&)> callback) {
     if (!client_ || !client_->isLoggedIn()) { if (callback) callback(0, ""); return; }
-    MatrixClient* c = client_;
+    auto c = client_;
     QPointer<RoomDataLoader> selfGuard(this);
     ThreadPool::instance().enqueue([selfGuard, c, roomId, model, callback, token]() {
         auto result = c->getMessages(roomId, "", 30);
@@ -155,7 +155,7 @@ void RoomDataLoader::loadMembers(const std::string& roomId, LifeToken token,
                                    const std::vector<std::string>& relevantIds,
                                    std::function<void(std::vector<MemberInfo>)> callback) {
     if (!client_ || !client_->isLoggedIn()) return;
-    MatrixClient* c = client_;
+    auto c = client_;
     QPointer<RoomDataLoader> selfGuard(this);
     ThreadPool::instance().enqueue([selfGuard, c, roomId, relevantIds, callback, token]() {
         auto r = c->getRoomMembers(roomId);
@@ -221,7 +221,7 @@ void RoomDataLoader::batchLoadRoomStates(RoomListModel* model, LifeToken token) 
             roomIds.push_back(rd->roomId);
     }
     if (roomIds.empty()) return;
-    MatrixClient* c = client_;
+    auto c = client_;
     QPointer<RoomDataLoader> selfGuard(this);
     ThreadPool::instance().enqueue([selfGuard, c, roomIds, model, token]() {
         for (const auto& roomId : roomIds) {

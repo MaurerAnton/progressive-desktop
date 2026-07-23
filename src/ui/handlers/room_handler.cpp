@@ -177,7 +177,7 @@ std::string extractReplyToId(std::string_view contentJson) {
 
 } // namespace
 
-RoomHandler::RoomHandler(MatrixClient* client, RoomStore* roomStore,
+RoomHandler::RoomHandler(std::shared_ptr<MatrixClient> client, RoomStore* roomStore,
                            RoomListModel* roomModel, TimelineModel* timelineModel,
                            SyncEngine* sync, ImageLoader* imageLoader,
                            QListView* roomList, QListView* timelineView,
@@ -186,7 +186,7 @@ RoomHandler::RoomHandler(MatrixClient* client, RoomStore* roomStore,
                            MessageEdit* messageEdit,
                            QPointer<MainWindow> mainWindow,
                            QObject* parent)
-    : QObject(parent), client_(client), roomStore_(roomStore),
+    : QObject(parent), client_(std::move(client)), roomStore_(roomStore),
       roomModel_(roomModel), timelineModel_(timelineModel),
       sync_(sync), imageLoader_(imageLoader),
       roomList_(roomList), timelineView_(timelineView),
@@ -238,7 +238,7 @@ void RoomHandler::onRoomClicked(const QModelIndex& idx) {
             if (evt && !evt->eventId.empty()) {
                 std::string roomIdStr = r->roomId;
                 std::string eventIdStr = evt->eventId;
-                MatrixClient* client = client_;
+                auto client = client_;
                 ThreadPool::instance().enqueue([client, roomIdStr, eventIdStr]() {
                     client->setReadMarker(roomIdStr, eventIdStr);
                 });
@@ -302,7 +302,7 @@ void RoomHandler::onLoadMoreClicked() {
 
     std::string roomId = currentRoomIdStr_;
     std::string from = currentPrevBatch_;
-    MatrixClient* client = client_;
+    auto client = client_;
     QPointer<MainWindow> guard(mainWindow_);
     QPointer<RoomHandler> self(this);
 
@@ -431,7 +431,7 @@ void RoomHandler::closeThreadView() {
 void RoomHandler::acceptInvite(const QString& roomId) {
     if (!client_) return;
     statusLabel_->setText("Accepting invite...");
-    MatrixClient* client = client_;
+    auto client = client_;
     QPointer<RoomHandler> self(this);
     ThreadPool::instance().enqueue([self, client, roomId]() {
         auto r = client->joinRoom(roomId.toStdString());
@@ -455,7 +455,7 @@ void RoomHandler::acceptInvite(const QString& roomId) {
 void RoomHandler::rejectInvite(const QString& roomId) {
     if (!client_) return;
     statusLabel_->setText("Rejecting invite...");
-    MatrixClient* client = client_;
+    auto client = client_;
     QPointer<RoomHandler> self(this);
     ThreadPool::instance().enqueue([self, client, roomId]() {
         auto r = client->leaveRoom(roomId.toStdString());

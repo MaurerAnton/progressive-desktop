@@ -99,17 +99,17 @@ std::string msgBody(std::string_view json) { return extractStringDec(json, "body
 
 // ---- RoomStore ----
 
-RoomStore::RoomStore(MatrixClient* client, SessionStore* store)
-    : client_(client), store_(store), dataLoader_(std::make_unique<RoomDataLoader>(client, store)) {}
+RoomStore::RoomStore(std::shared_ptr<MatrixClient> client, std::shared_ptr<SessionStore> store)
+    : client_(std::move(client)), store_(std::move(store)), dataLoader_(std::make_unique<RoomDataLoader>(client_, store_)) {}
 
-void RoomStore::setClient(MatrixClient* c) {
-    client_ = c;
-    if (dataLoader_) dataLoader_->setClient(c);
+void RoomStore::setClient(std::shared_ptr<MatrixClient> c) {
+    client_ = std::move(c);
+    if (dataLoader_) dataLoader_->setClient(client_);
 }
 
-void RoomStore::setSessionStore(SessionStore* s) {
-    store_ = s;
-    if (dataLoader_) dataLoader_->setSessionStore(s);
+void RoomStore::setSessionStore(std::shared_ptr<SessionStore> s) {
+    store_ = std::move(s);
+    if (dataLoader_) dataLoader_->setSessionStore(store_);
 }
 
 RoomMeta RoomStore::extractRoomMeta(const FastRoom& room, const std::string& myUserId) {

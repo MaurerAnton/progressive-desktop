@@ -16,7 +16,7 @@ class MainWindow;
 class ThreadHandler : public QObject {
     Q_OBJECT
 public:
-    ThreadHandler(MatrixClient* client, TimelineModel* timelineModel,
+    ThreadHandler(std::shared_ptr<MatrixClient> client, TimelineModel* timelineModel,
                   QLabel* threadBanner, QLabel* statusLabel,
                   QPointer<MainWindow> mw, QObject* parent = nullptr);
 
@@ -32,7 +32,7 @@ private:
     void sendThreadReply(const std::string& roomId, const std::string& threadRoot,
                          const std::string& replyToEventId, const std::string& text);
 
-    MatrixClient* client_;
+    std::shared_ptr<MatrixClient> client_;
     TimelineModel* timelineModel_;
     QLabel* threadBanner_;
     QLabel* statusLabel_;

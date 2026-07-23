@@ -49,10 +49,10 @@ struct RoomSyncUpdate {
 
 class RoomStore {
 public:
-    RoomStore(MatrixClient* client, SessionStore* store);
+    RoomStore(std::shared_ptr<MatrixClient> client, std::shared_ptr<SessionStore> store);
 
-    void setClient(MatrixClient* c);
-    void setSessionStore(SessionStore* s);
+    void setClient(std::shared_ptr<MatrixClient> c);
+    void setSessionStore(std::shared_ptr<SessionStore> s);
 
     RoomDataLoader* dataLoader() const { return dataLoader_.get(); }
 
@@ -86,8 +86,8 @@ public:
         const std::vector<FastEvent>& events);
 
 private:
-    MatrixClient* client_;
-    SessionStore* store_;
+    std::shared_ptr<MatrixClient> client_;
+    std::shared_ptr<SessionStore> store_;
     std::unique_ptr<RoomDataLoader> dataLoader_;
     bool batchInProgress_ = false;
 };

@@ -11,13 +11,13 @@
 
 namespace progressive::desktop {
 
-AuthHandler::AuthHandler(MatrixClient* client, SessionStore* store, SyncEngine* sync,
+AuthHandler::AuthHandler(std::shared_ptr<MatrixClient> client, std::shared_ptr<SessionStore> store, SyncEngine* sync,
                            QLabel* userLabel, QLabel* statusLabel, QObject* parent)
-    : QObject(parent), client_(client), store_(store), sync_(sync),
+    : QObject(parent), client_(std::move(client)), store_(std::move(store)), sync_(sync),
       userLabel_(userLabel), statusLabel_(statusLabel) {}
 
 void AuthHandler::showLoginDialog() {
-    auto* dlg = new LoginDialog(client_, store_, qobject_cast<QWidget*>(parent()));
+    auto* dlg = new LoginDialog(client_.get(), store_.get(), qobject_cast<QWidget*>(parent()));
     connect(dlg, &QDialog::accepted, this, &AuthHandler::onLoginDialogAccepted);
     connect(dlg, &QDialog::finished, dlg, &QObject::deleteLater);
     dlg->show();

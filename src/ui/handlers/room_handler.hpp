@@ -29,7 +29,7 @@ class RoomContextMenu;
 class RoomHandler : public QObject {
     Q_OBJECT
 public:
-    RoomHandler(MatrixClient* client, RoomStore* roomStore,
+    RoomHandler(std::shared_ptr<MatrixClient> client, RoomStore* roomStore,
                 RoomListModel* roomModel, TimelineModel* timelineModel,
                 SyncEngine* sync, ImageLoader* imageLoader,
                 QListView* roomList, QListView* timelineView,
@@ -40,7 +40,7 @@ public:
                 QObject* parent = nullptr);
     ~RoomHandler();
 
-    void setClient(MatrixClient* c) { client_ = c; }
+    void setClient(std::shared_ptr<MatrixClient> c) { client_ = std::move(c); }
 
     const std::string& currentRoomId() const { return currentRoomIdStr_; }
     const std::string& currentPrevBatch() const { return currentPrevBatch_; }
@@ -67,7 +67,7 @@ public slots:
     void openThreadView(const QString& rootEventId);
 
 private:
-    MatrixClient* client_;
+    std::shared_ptr<MatrixClient> client_;
     RoomStore* roomStore_;
     RoomListModel* roomModel_;
     TimelineModel* timelineModel_;

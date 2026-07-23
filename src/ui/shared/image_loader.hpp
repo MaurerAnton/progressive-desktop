@@ -15,10 +15,9 @@ class MatrixClient;
 class ImageLoader : public QObject {
     Q_OBJECT
 public:
-    explicit ImageLoader(MatrixClient* client, QObject* parent = nullptr);
+    explicit ImageLoader(std::shared_ptr<MatrixClient> client, QObject* parent = nullptr);
 
-    // Update the client pointer (used after login).
-    void setClient(MatrixClient* client) { client_ = client; }
+    void setClient(std::shared_ptr<MatrixClient> client) { client_ = std::move(client); }
 
     // Fetch a thumbnail (or full image if w/h=0). Calls callback on the
     // UI thread when done. Returns cached image immediately if available.
@@ -41,7 +40,7 @@ public:
     int cacheSize() const { return imageCache_.maxCost(); }
 
 private:
-    MatrixClient* client_;
+    std::shared_ptr<MatrixClient> client_;
     QCache<QString, QImage> imageCache_{20};
     QHash<QString, QMovie*> moviePool_;
 };

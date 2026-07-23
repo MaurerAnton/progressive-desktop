@@ -20,7 +20,7 @@ class MainWindow;
 class RoomContextMenu : public QObject {
     Q_OBJECT
 public:
-    RoomContextMenu(MatrixClient* client, TimelineModel* timelineModel,
+    RoomContextMenu(std::shared_ptr<MatrixClient> client, TimelineModel* timelineModel,
                     RoomListModel* roomModel, QListView* roomList,
                     ThreadHandler* threadHandler, QLabel* statusLabel,
                     QPointer<MainWindow> mw, QObject* parent = nullptr);
@@ -34,7 +34,7 @@ signals:
     void roomLeft(const std::string& roomId);
 
 private:
-    MatrixClient* client_;
+    std::shared_ptr<MatrixClient> client_;
     TimelineModel* timelineModel_;
     RoomListModel* roomModel_;
     QListView* roomList_;

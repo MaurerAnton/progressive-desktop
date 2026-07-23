@@ -13,14 +13,14 @@
 
 namespace progressive::desktop {
 
-SyncResponseHandler::SyncResponseHandler(MatrixClient* client, RoomStore* roomStore,
+SyncResponseHandler::SyncResponseHandler(std::shared_ptr<MatrixClient> client, RoomStore* roomStore,
                          RoomListModel* roomModel, TimelineModel* timelineModel,
                          DesktopNotifier* notifier, QLabel* roomListHeader,
                          QLabel* inviteHeader, QLabel* statusLabel,
                          QWidget* placeholder, QWidget* timelineView,
                          QWidget* messageEdit, QPushButton* loadMoreBtn,
                          RoomHandler* roomHandler, QObject* parent)
-    : QObject(parent), client_(client), roomStore_(roomStore),
+    : QObject(parent), client_(std::move(client)), roomStore_(roomStore),
       roomModel_(roomModel), timelineModel_(timelineModel),
       notifier_(notifier), roomListHeader_(roomListHeader),
       inviteHeader_(inviteHeader), statusLabel_(statusLabel),

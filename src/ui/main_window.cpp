@@ -46,22 +46,22 @@
 
 namespace progressive::desktop {
 
-void MainWindow::setClient(MatrixClient* client) {
-    client_ = client;
-    if (imageLoader_) imageLoader_->setClient(client);
-    if (chatView_) chatView_->setClient(client);
-    if (roomStore_) roomStore_->setClient(client);
-    if (toolbarHandler_) toolbarHandler_->setClient(client);
-    if (roomHandler_) roomHandler_->setClient(client);
-    if (auth_) auth_->setClient(client);
-    if (attachmentHandler_) attachmentHandler_->setClient(client);
-    if (accountSwitcher_) accountSwitcher_->setClient(client);
-    if (syncHandler_) syncHandler_->setClient(client);
+void MainWindow::setClient(std::shared_ptr<MatrixClient> client) {
+    client_ = std::move(client);
+    if (imageLoader_) imageLoader_->setClient(client_);
+    if (chatView_) chatView_->setClient(client_);
+    if (roomStore_) roomStore_->setClient(client_);
+    if (toolbarHandler_) toolbarHandler_->setClient(client_);
+    if (roomHandler_) roomHandler_->setClient(client_);
+    if (auth_) auth_->setClient(client_);
+    if (attachmentHandler_) attachmentHandler_->setClient(client_);
+    if (accountSwitcher_) accountSwitcher_->setClient(client_);
+    if (syncHandler_) syncHandler_->setClient(client_);
 }
 
-void MainWindow::setSessionStore(SessionStore* store) {
-    store_ = store;
-    if (roomStore_) roomStore_->setSessionStore(store);
+void MainWindow::setSessionStore(std::shared_ptr<SessionStore> store) {
+    store_ = std::move(store);
+    if (roomStore_) roomStore_->setSessionStore(store_);
 }
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
@@ -210,7 +210,7 @@ void MainWindow::startWithSavedSession() {
 }
 
 void MainWindow::closeEvent(QCloseEvent* e) {
-    E2eeInitHandler::persistCrypto(client_, store_, &sync_);
+    E2eeInitHandler::persistCrypto(client_.get(), store_.get(), &sync_);
     sync_.stop();
     QMainWindow::closeEvent(e);
 }

@@ -14,10 +14,10 @@ class SyncEngine;
 class ChatView : public QWidget {
     Q_OBJECT
 public:
-    ChatView(MatrixClient* client, TimelineModel* model, MessageEdit* edit,
+    ChatView(std::shared_ptr<MatrixClient> client, TimelineModel* model, MessageEdit* edit,
              SyncEngine* sync, QWidget* parent = nullptr);
 
-    void setClient(MatrixClient* c) { client_ = c; }
+    void setClient(std::shared_ptr<MatrixClient> c) { client_ = std::move(c); }
 
     void setCurrentRoom(const std::string& roomId, const std::string& threadRoot = "",
                         bool isEncrypted = false);
@@ -31,7 +31,7 @@ private:
     void doAttachFile(const QString& path);
     void doQuickReact(const QString& emoji);
 
-    MatrixClient* client_;
+    std::shared_ptr<MatrixClient> client_;
     TimelineModel* model_;
     MessageEdit* edit_;
     SyncEngine* sync_;

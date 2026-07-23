@@ -18,6 +18,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <csignal>
+#include <memory>
 
 #include "core/crash_handler.hpp"
 #include "core/http_client.hpp"
@@ -40,14 +41,14 @@ using namespace progressive::desktop;
 static int smoke() {
     std::cout << "=== progressive-desktop Phase 2 smoke test ===\n";
     std::cout << "  http_client   : OK (libcurl " << curl_version() << ")\n";
-    MatrixClient c;
+    auto c = std::make_shared<MatrixClient>();
     std::cout << "  matrix_client  : OK (constructed)\n";
-    SessionStore s;
-    bool ok = s.open(":memory:");
+    auto s = std::make_shared<SessionStore>();
+    bool ok = s->open(":memory:");
     std::cout << "  session_store  : " << (ok ? "OK (opened :memory:)" : "FAIL") << "\n";
     SyncEngine se;
-    se.setClient(&c);
-    se.setSessionStore(&s);
+    se.setClient(c);
+    se.setSessionStore(s);
     std::cout << "  sync_engine    : OK (constructed)\n";
     std::cout << "  progressive_native::markdownToHtml(\"**hi**\") = "
               << progressive::markdownToHtml("**hi**") << "\n";
@@ -56,21 +57,21 @@ static int smoke() {
 }
 
 static int discover(const std::string& url) {
-    MatrixClient c;
-    auto r = c.discoverHomeserver(url);
+    auto c = std::make_shared<MatrixClient>();
+    auto r = c->discoverHomeserver(url);
     if (!r.ok) {
         std::cerr << "discover failed: " << r.error.message << "\n";
         return 1;
     }
     std::cout << "discovered homeserver: " << r.data << "\n";
-    c.setAccount({"", "", r.data, "", ""});
-    auto v = c.getVersions();
+    c->setAccount({"", "", r.data, "", ""});
+    auto v = c->getVersions();
     if (!v.ok) {
         std::cerr << "versions failed: " << v.error.message << "\n";
         return 1;
     }
     std::cout << "versions: " << v.data << "\n";
-    auto f = c.getLoginFlows();
+    auto f = c->getLoginFlows();
     if (!f.ok) {
         std::cerr << "login flows failed: " << f.error.message << "\n";
         return 1;
@@ -80,11 +81,11 @@ static int discover(const std::string& url) {
 }
 
 static int loginTest(const std::string& user, const std::string& pass) {
-    MatrixClient c;
-    auto d = c.discoverHomeserver("matrix.org");
+    auto c = std::make_shared<MatrixClient>();
+    auto d = c->discoverHomeserver("matrix.org");
     if (!d.ok) { std::cerr << "discover: " << d.error.message << "\n"; return 1; }
-    c.setAccount({"", "", d.data, "", ""});
-    auto r = c.loginWithPassword(user, pass);
+    c->setAccount({"", "", d.data, "", ""});
+    auto r = c->loginWithPassword(user, pass);
     if (!r.ok) {
         std::cerr << "login failed: " << r.error.code << " — " << r.error.message << "\n";
         return 1;
@@ -93,25 +94,25 @@ static int loginTest(const std::string& user, const std::string& pass) {
               << " (device " << r.data.deviceId << ")\n";
     SessionStore s;
     s.open("/tmp/progressive-desktop-test.db");
-    c.setSessionStore(&s);
-    c.persistSession();
+    c->setSessionStore(&s);
+    c->persistSession();
     std::cout << "session saved\n";
     return 0;
 }
 
 static int syncTest(int count) {
-    SessionStore s;
-    s.open("/tmp/progressive-desktop-test.db");
-    auto acct_opt = s.loadAccount();
+    auto s = std::make_shared<SessionStore>();
+    s->open("/tmp/progressive-desktop-test.db");
+    auto acct_opt = s->loadAccount();
     if (!acct_opt) { std::cerr << "no saved session — run --login first\n"; return 1; }
     auto acct = *acct_opt;
-    MatrixClient c;
-    c.setAccount(acct);
-    c.setSessionStore(&s);
+    auto c = std::make_shared<MatrixClient>();
+    c->setAccount(acct);
+    c->setSessionStore(s.get());
 
     SyncEngine se;
-    se.setClient(&c);
-    se.setSessionStore(&s);
+    se.setClient(c);
+    se.setSessionStore(s);
     int syncs_seen = 0;
     se.onSync([&](const FastSyncResponse& r) {
         syncs_seen++;
@@ -149,7 +150,7 @@ static int memcheck() {
     s.open(":memory:");
     logMemorySnapshot("after-sqlite-open");
 
-    MatrixClient c;
+    auto c = std::make_shared<MatrixClient>();
     logMemorySnapshot("after-matrix-client");
 
     // Simulate a sync parse — create FastSyncResponse with some rooms
@@ -224,7 +225,7 @@ static void runGui(int argc, char** argv) {
     Design::fontScale = QApplication::font().pointSize() / 10.0;
 
     // Open session store first
-    SessionStore store;
+    auto store = std::make_shared<SessionStore>();
     const char* xdg = getenv("XDG_DATA_HOME");
     std::string dataPath;
     if (xdg && xdg[0]) {
@@ -236,25 +237,25 @@ static void runGui(int argc, char** argv) {
     std::filesystem::create_directories(dataPath);
     QString dbPath = QString::fromStdString(dataPath + "/session.db");
     std::fprintf(stderr, "[session] data dir: %s\n", dataPath.c_str());
-    store.open(dbPath.toStdString());
+    store->open(dbPath.toStdString());
 
     // Create client + load saved session if present
-    MatrixClient client;
-    client.setSessionStore(&store);
-    bool hasSession = client.loadSavedSession();
+    auto client = std::make_shared<MatrixClient>();
+    client->setSessionStore(store.get());
+    bool hasSession = client->loadSavedSession();
 
     MainWindow w;
-    w.setClient(&client);
-    w.setSessionStore(&store);
+    w.setClient(client);
+    w.setSessionStore(store);
     // MainWindow owns the SyncEngine and wires its callbacks in its constructor.
 
-    if (hasSession && client.isLoggedIn()) {
+    if (hasSession && client->isLoggedIn()) {
         w.show();
         // Start sync on next event loop tick so the window shows first
         QTimer::singleShot(0, &w, [&]() { w.startWithSavedSession(); });
     } else {
         // Show login dialog
-        LoginDialog dlg(&client, &store, &w);
+        LoginDialog dlg(client.get(), store.get(), &w);
         if (dlg.exec() == QDialog::Accepted && dlg.loggedIn()) {
             w.show();
             QTimer::singleShot(0, &w, [&]() { w.startWithSavedSession(); });

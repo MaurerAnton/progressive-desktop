@@ -9,8 +9,8 @@
 
 namespace progressive::desktop {
 
-ImageLoader::ImageLoader(MatrixClient* client, QObject* parent)
-    : QObject(parent), client_(client) {}
+ImageLoader::ImageLoader(std::shared_ptr<MatrixClient> client, QObject* parent)
+    : QObject(parent), client_(std::move(client)) {}
 
 void ImageLoader::fetchThumbnail(const std::string& mxcUrl, int w, int h,
                                    std::function<void(const QImage&)> cb) {

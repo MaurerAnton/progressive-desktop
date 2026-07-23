@@ -18,7 +18,7 @@
 
 namespace progressive::desktop {
 
-void handleReaction(QPointer<QWidget> parent, MatrixClient* client,
+void handleReaction(QPointer<QWidget> parent, const std::shared_ptr<MatrixClient>& client,
                      const std::string& roomId, const std::string& eventId,
                      TimelineModel* model, QLabel* statusLabel) {
     EmojiPicker picker(parent);
@@ -40,7 +40,7 @@ void handleReaction(QPointer<QWidget> parent, MatrixClient* client,
     picker.exec();
 }
 
-void handleEdit(QPointer<QWidget> parent, MatrixClient* client,
+void handleEdit(QPointer<QWidget> parent, const std::shared_ptr<MatrixClient>& client,
                  const std::string& roomId, const std::string& eventId,
                  TimelineModel* model, QLabel* statusLabel) {
     int row = model->findRow(eventId);
@@ -65,7 +65,7 @@ void handleEdit(QPointer<QWidget> parent, MatrixClient* client,
     });
 }
 
-void handleDelete(QPointer<QWidget> parent, MatrixClient* client,
+void handleDelete(QPointer<QWidget> parent, const std::shared_ptr<MatrixClient>& client,
                    const std::string& roomId, const std::string& eventId,
                    TimelineModel* model, QLabel* statusLabel) {
     auto reply = QMessageBox::question(parent, "Delete",
@@ -85,7 +85,7 @@ void handleDelete(QPointer<QWidget> parent, MatrixClient* client,
     });
 }
 
-void handlePin(QPointer<QWidget> parent, MatrixClient* client,
+void handlePin(QPointer<QWidget> parent, const std::shared_ptr<MatrixClient>& client,
                 const std::string& roomId, const std::string& eventId,
                 TimelineModel* model, QLabel* statusLabel) {
     QPointer<QWidget> guard(parent);

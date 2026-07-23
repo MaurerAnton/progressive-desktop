@@ -21,7 +21,7 @@ class ChatView;
 class AccountSwitcher : public QObject {
     Q_OBJECT
 public:
-    AccountSwitcher(MatrixClient* client, SessionStore* store, SyncEngine* sync,
+    AccountSwitcher(std::shared_ptr<MatrixClient> client, std::shared_ptr<SessionStore> store, SyncEngine* sync,
                     QComboBox* accountCombo, QLabel* userLabel, QLabel* statusLabel,
                     RoomListModel* roomModel, TimelineModel* timelineModel,
                     ImageLoader* imageLoader, TimelineDelegate* timelineDelegate,
@@ -29,14 +29,14 @@ public:
                     QWidget* placeholder, QWidget* timelineView, QWidget* messageEdit,
                     QObject* parent = nullptr);
 
-    void setClient(MatrixClient* c) { client_ = c; }
+    void setClient(std::shared_ptr<MatrixClient> c) { client_ = std::move(c); }
 
 public slots:
     void switchAccount(int index);
 
 private:
-    MatrixClient* client_;
-    SessionStore* store_;
+    std::shared_ptr<MatrixClient> client_;
+    std::shared_ptr<SessionStore> store_;
     SyncEngine* sync_;
     QComboBox* accountCombo_;
     QLabel* userLabel_;

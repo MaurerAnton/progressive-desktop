@@ -21,7 +21,7 @@ class RoomHandler;
 class ToolbarHandler : public QObject {
     Q_OBJECT
 public:
-    ToolbarHandler(MatrixClient* client, RoomListModel* roomModel,
+    ToolbarHandler(std::shared_ptr<MatrixClient> client, RoomListModel* roomModel,
                    RoomStore* roomStore, TimelineModel* timelineModel,
                    QLabel* statusLabel, QWidget* parent);
 
@@ -34,7 +34,7 @@ public:
     QAction* createSettingsAction();
     QAction* createFullscreenAction();
     QAction* fullscreenAction() const { return fullscreenAction_; }
-    void setClient(MatrixClient* c) { client_ = c; }
+        void setClient(std::shared_ptr<MatrixClient> c) { client_ = std::move(c); }
 
     void setRoomHandler(RoomHandler* rh) { roomHandler_ = rh; }
     void setInterfaceElements(QPushButton* chatLog, QPushButton* threadBtn) {
@@ -59,7 +59,7 @@ private slots:
     void onSettings();
 
 private:
-    MatrixClient* client_;
+    std::shared_ptr<MatrixClient> client_;
     RoomListModel* roomModel_;
     RoomStore* roomStore_;
     TimelineModel* timelineModel_;

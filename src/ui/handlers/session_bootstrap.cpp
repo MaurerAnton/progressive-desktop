@@ -16,7 +16,7 @@
 
 namespace progressive::desktop {
 
-void SessionBootstrap::start(MatrixClient* client, SessionStore* store, SyncEngine* sync,
+void SessionBootstrap::start(const std::shared_ptr<MatrixClient>& client, const std::shared_ptr<SessionStore>& store, SyncEngine* sync,
                       QComboBox* accountCombo, QLabel* userLabel, QLabel* statusLabel,
                       ImageLoader* imageLoader, TimelineDelegate* timelineDelegate,
                       DesktopNotifier* notifier) {
@@ -52,7 +52,7 @@ void SessionBootstrap::start(MatrixClient* client, SessionStore* store, SyncEngi
     userLabel->setText(" " + QString::fromStdString(client->account().userId) + " ");
     statusLabel->setText("Starting sync...");
 
-    E2eeInitHandler::init(client, store, sync,
+    E2eeInitHandler::init(client.get(), store.get(), sync,
         [=](bool ok, bool keysPublished) {
             if (!ok) {
                 std::cerr << "[e2ee] init failed — continuing without E2EE\n";

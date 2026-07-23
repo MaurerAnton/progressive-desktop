@@ -15,10 +15,10 @@
 
 namespace progressive::desktop {
 
-ThreadHandler::ThreadHandler(MatrixClient* client, TimelineModel* timelineModel,
+ThreadHandler::ThreadHandler(std::shared_ptr<MatrixClient> client, TimelineModel* timelineModel,
                                QLabel* threadBanner, QLabel* statusLabel,
                                QPointer<MainWindow> mw, QObject* parent)
-    : QObject(parent), client_(client), timelineModel_(timelineModel),
+    : QObject(parent), client_(std::move(client)), timelineModel_(timelineModel),
       threadBanner_(threadBanner), statusLabel_(statusLabel), mw_(mw) {}
 
 void ThreadHandler::openThreadView(const QString& rootEventId, const std::string& roomId) {

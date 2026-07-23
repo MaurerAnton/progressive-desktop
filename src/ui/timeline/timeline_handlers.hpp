@@ -2,6 +2,7 @@
 #pragma once
 #include <QPointer>
 #include <string>
+#include <memory>
 
 class QWidget;
 class QLabel;
@@ -11,19 +12,19 @@ namespace progressive::desktop {
 class MatrixClient;
 class TimelineModel;
 
-void handleReaction(QPointer<QWidget> parent, MatrixClient* client,
+void handleReaction(QPointer<QWidget> parent, const std::shared_ptr<MatrixClient>& client,
                      const std::string& roomId, const std::string& eventId,
                      TimelineModel* model, QLabel* statusLabel);
 
-void handleEdit(QPointer<QWidget> parent, MatrixClient* client,
+void handleEdit(QPointer<QWidget> parent, const std::shared_ptr<MatrixClient>& client,
                  const std::string& roomId, const std::string& eventId,
                  TimelineModel* model, QLabel* statusLabel);
 
-void handleDelete(QPointer<QWidget> parent, MatrixClient* client,
+void handleDelete(QPointer<QWidget> parent, const std::shared_ptr<MatrixClient>& client,
                    const std::string& roomId, const std::string& eventId,
                    TimelineModel* model, QLabel* statusLabel);
 
-void handlePin(QPointer<QWidget> parent, MatrixClient* client,
+void handlePin(QPointer<QWidget> parent, const std::shared_ptr<MatrixClient>& client,
                 const std::string& roomId, const std::string& eventId,
                 TimelineModel* model, QLabel* statusLabel);
 

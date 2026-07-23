@@ -19,11 +19,11 @@ struct MemberInfo;
 class RoomDataLoader : public QObject {
     Q_OBJECT
 public:
-    RoomDataLoader(MatrixClient* client, SessionStore* store,
+    RoomDataLoader(std::shared_ptr<MatrixClient> client, std::shared_ptr<SessionStore> store,
                    QObject* parent = nullptr);
 
-    void setClient(MatrixClient* c) { client_ = c; }
-    void setSessionStore(SessionStore* s) { store_ = s; }
+    void setClient(std::shared_ptr<MatrixClient> c) { client_ = std::move(c); }
+    void setSessionStore(std::shared_ptr<SessionStore> s) { store_ = std::move(s); }
 
     void loadHistory(const std::string& roomId, TimelineModel* model,
                      LifeToken token, std::function<void(int, const std::string&)> callback);
@@ -35,8 +35,8 @@ public:
     void batchLoadRoomStates(RoomListModel* model, LifeToken token);
 
 private:
-    MatrixClient* client_;
-    SessionStore* store_;
+    std::shared_ptr<MatrixClient> client_;
+    std::shared_ptr<SessionStore> store_;
 };
 
 } // namespace progressive::desktop

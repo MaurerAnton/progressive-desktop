@@ -17,14 +17,14 @@
 
 namespace progressive::desktop {
 
-AccountSwitcher::AccountSwitcher(MatrixClient* client, SessionStore* store, SyncEngine* sync,
+AccountSwitcher::AccountSwitcher(std::shared_ptr<MatrixClient> client, std::shared_ptr<SessionStore> store, SyncEngine* sync,
                     QComboBox* accountCombo, QLabel* userLabel, QLabel* statusLabel,
                     RoomListModel* roomModel, TimelineModel* timelineModel,
                     ImageLoader* imageLoader, TimelineDelegate* timelineDelegate,
                     RoomHandler* roomHandler, ChatView* chatView,
                     QWidget* placeholder, QWidget* timelineView, QWidget* messageEdit,
                     QObject* parent)
-    : QObject(parent), client_(client), store_(store), sync_(sync),
+    : QObject(parent), client_(std::move(client)), store_(std::move(store)), sync_(sync),
       accountCombo_(accountCombo), userLabel_(userLabel), statusLabel_(statusLabel),
       roomModel_(roomModel), timelineModel_(timelineModel),
       imageLoader_(imageLoader), timelineDelegate_(timelineDelegate),

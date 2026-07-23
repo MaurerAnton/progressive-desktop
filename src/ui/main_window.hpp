@@ -22,6 +22,7 @@
 #include <QPushButton>
 #include <QComboBox>
 #include <QPointer>
+#include <memory>
 
 class QToolBar;
 class QAction;
@@ -43,8 +44,8 @@ public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow();
 
-    void setClient(MatrixClient* client);
-    void setSessionStore(SessionStore* store);
+    void setClient(std::shared_ptr<MatrixClient> client);
+    void setSessionStore(std::shared_ptr<SessionStore> store);
     void startWithSavedSession();
 
     void onSyncState(SyncEngineState state, const SyncEngineStats& stats);
@@ -74,8 +75,8 @@ private slots:
 private:
     void wireSyncCallbacks();
 
-    MatrixClient* client_ = nullptr;
-    SessionStore* store_ = nullptr;
+    std::shared_ptr<MatrixClient> client_;
+    std::shared_ptr<SessionStore> store_;
     SyncEngine sync_;
     ImageLoader* imageLoader_ = nullptr;
     DesktopNotifier notifier_;

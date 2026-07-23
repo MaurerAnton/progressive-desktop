@@ -29,10 +29,10 @@
 
 namespace progressive::desktop {
 
-ToolbarHandler::ToolbarHandler(MatrixClient* client, RoomListModel* roomModel,
+ToolbarHandler::ToolbarHandler(std::shared_ptr<MatrixClient> client, RoomListModel* roomModel,
                                  RoomStore* roomStore, TimelineModel* timelineModel,
                                  QLabel* statusLabel, QWidget* parent)
-    : QObject(parent), client_(client), roomModel_(roomModel),
+    : QObject(parent), client_(std::move(client)), roomModel_(roomModel),
       roomStore_(roomStore), timelineModel_(timelineModel),
       statusLabel_(statusLabel), parentWidget_(parent) {}
 
@@ -95,7 +95,7 @@ void ToolbarHandler::onNewChat() {
 
     statusLabel_->setText("Creating direct chat...");
     std::string uid = userId.toStdString();
-    MatrixClient* client = client_;
+    auto client = client_;
     QPointer<QWidget> guard(parentWidget_);
     ThreadPool::instance().enqueue([guard, client, uid]() {
         auto r = client->startDirectMessage(uid);
@@ -128,7 +128,7 @@ void ToolbarHandler::onJoinRoom() {
 
     statusLabel_->setText("Joining...");
     std::string id = input.trimmed().toStdString();
-    MatrixClient* client = client_;
+    auto client = client_;
     QPointer<QWidget> guard(parentWidget_);
     ThreadPool::instance().enqueue([guard, client, id]() {
         auto r = client->joinRoom(id);
@@ -141,7 +141,7 @@ void ToolbarHandler::onJoinRoom() {
 
 void ToolbarHandler::onBrowseRooms() {
     if (!client_ || !client_->isLoggedIn()) return;
-    RoomDirectoryDialog dlg(client_, parentWidget_);
+    RoomDirectoryDialog dlg(client_.get(), parentWidget_);
     dlg.exec();
     if (!dlg.joinedRoomId().isEmpty()) {
         RoomData rd;
@@ -156,19 +156,19 @@ void ToolbarHandler::onBrowseRooms() {
 
 void ToolbarHandler::onAllThreads() {
     if (!client_ || !client_->isLoggedIn()) { QMessageBox::information(parentWidget_, "Threads", "Login first."); return; }
-    ThreadsDialog dlg(client_, "", parentWidget_);
+    ThreadsDialog dlg(client_.get(), "", parentWidget_);
     dlg.exec();
 }
 
 void ToolbarHandler::onRoomSettings() {
     if (!client_) return;
-    RoomSettingsDialog dlg(client_, "", "Room", parentWidget_);
+    RoomSettingsDialog dlg(client_.get(), "", "Room", parentWidget_);
     dlg.exec();
 }
 
 void ToolbarHandler::onRoomMembers() {
     if (!client_) { QMessageBox::information(parentWidget_, "Members", "Select a room first."); return; }
-    RoomMembersDialog dlg(client_, "", parentWidget_);
+    RoomMembersDialog dlg(client_.get(), "", parentWidget_);
     dlg.exec();
 }
 
@@ -187,7 +187,7 @@ void ToolbarHandler::onSettings() {
             "Progressive Chat — Desktop\n\nVersion: " PROGRESSIVE_DESKTOP_VERSION);
     } else if (selected == profileAction) {
         if (!client_ || !client_->isLoggedIn()) return;
-        ProfileDialog dlg(client_, parentWidget_);
+        ProfileDialog dlg(client_.get(), parentWidget_);
         dlg.exec();
     } else if (selected == prefsAction) {
         PrefsDialog dlg(parentWidget_);
@@ -255,7 +255,7 @@ void ToolbarHandler::toggleThreadPanel() {
         QMessageBox::information(parentWidget_, "Threads", "Select a room first.");
         return;
     }
-    ThreadsDialog dlg(client_, roomHandler_->currentRoomId(), parentWidget_);
+    ThreadsDialog dlg(client_.get(), roomHandler_->currentRoomId(), parentWidget_);
     dlg.exec();
 }
 

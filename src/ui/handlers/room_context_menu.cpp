@@ -18,11 +18,11 @@
 
 namespace progressive::desktop {
 
-RoomContextMenu::RoomContextMenu(MatrixClient* client, TimelineModel* timelineModel,
+RoomContextMenu::RoomContextMenu(std::shared_ptr<MatrixClient> client, TimelineModel* timelineModel,
                                    RoomListModel* roomModel, QListView* roomList,
                                    ThreadHandler* threadHandler, QLabel* statusLabel,
                                    QPointer<MainWindow> mw, QObject* parent)
-    : QObject(parent), client_(client), timelineModel_(timelineModel),
+    : QObject(parent), client_(std::move(client)), timelineModel_(timelineModel),
       roomModel_(roomModel), roomList_(roomList),
       threadHandler_(threadHandler), statusLabel_(statusLabel), mw_(mw) {}
 

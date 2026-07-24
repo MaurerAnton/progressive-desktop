@@ -3,7 +3,7 @@
 // On PineTab 2 (Phosh) and most Linux desktops, QSystemTrayIcon uses
 // StatusNotifierItem D-Bus protocol to display notifications.
 #include "notifications.hpp"
-#include "../shared/theme.hpp"
+#include "shared/theme.hpp"
 
 #include <QIcon>
 #include <QApplication>

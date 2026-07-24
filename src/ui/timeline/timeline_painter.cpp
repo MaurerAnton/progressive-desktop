@@ -332,11 +332,11 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
 
     if (hasImage) {
         curY += 2;
-        int maxW = qMin(bubbleW - kBubblePadding * 2, 300);
+        int maxW = qMin(bubbleW - kBubblePadding * 2, kMaxImageW);
         if (imageLoaded) {
             QImage img = idx.data(TimelineModel::ImageRole).value<QImage>();
             if (!img.isNull()) {
-                QImage scaled = img.scaled(maxW, 200, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                QImage scaled = img.scaled(maxW, kImageLoadedH, Qt::KeepAspectRatio, Qt::SmoothTransformation);
                 QRect imgRect(bubbleX + kBubblePadding, curY, scaled.width(), scaled.height());
                 p->drawImage(imgRect, scaled);
                 curY += scaled.height() + 2;
@@ -351,7 +351,7 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
                 }
             }
         } else {
-            QRect placeholderRect(bubbleX + kBubblePadding, curY, maxW, 100);
+            QRect placeholderRect(bubbleX + kBubblePadding, curY, maxW, kImagePlaceholderH);
             p->setPen(QPen(QColor("#3a3a3a"), 1));
             p->setBrush(QColor("#1a1a1a"));
             p->drawRoundedRect(placeholderRect, 6, 6);
@@ -362,7 +362,7 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
             curY += 102;
             QString eventId = idx.data(TimelineModel::EventIdRole).toString();
             loader->fetchThumbnail(
-                mxcUrl.toStdString(), 300, 200,
+                mxcUrl.toStdString(), kMaxImageW, kImageLoadedH,
                 [eventId, model = const_cast<QAbstractItemModel*>(idx.model())]
                 (const QImage& img) {
                     if (!img.isNull() && model) {

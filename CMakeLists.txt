@@ -47,6 +47,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/progressive_native.cmake)
 find_package(SQLite3 REQUIRED)
 add_library(progressive_core STATIC
     src/core/http_client.cpp
+    src/core/json_utils.cpp
     src/core/matrix_client.cpp
     src/core/session_store.cpp
     src/core/sync_engine.cpp

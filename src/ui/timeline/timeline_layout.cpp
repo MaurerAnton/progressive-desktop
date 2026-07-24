@@ -87,7 +87,7 @@ BubbleLayout computeLayout(const QModelIndex& idx, const QString& myUserId, int 
     }
 
     if (hasImage)
-        L.imageH = imageLoaded ? 200 : 100;
+        L.imageH = imageLoaded ? kImageLoadedH : kImagePlaceholderH;
 
     if (pinned)           L.pinnedH     = 14;
     if (isThreadReply)     L.threadReplyH = 14;

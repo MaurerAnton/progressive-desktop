@@ -34,6 +34,7 @@
 #include "core/version.h"
 #include "core/memory_stats.hpp"
 #include "core/debug_log.hpp"
+#include "core/thread_pool.hpp"
 
 #include "handlers/sync_response_handler.hpp"
 #include "handlers/attachment_handler.hpp"
@@ -159,6 +160,16 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     });
 
     connect(timelineDelegate_, &TimelineDelegate::messageClicked, this, &MainWindow::onMessageClicked);
+    connect(timelineDelegate_, &TimelineDelegate::reactionClicked, this, [this](const QString& eventId, const QString& emoji) {
+        if (roomHandler_->currentRoomId().empty() || !client_) return;
+        auto client = client_;
+        std::string roomId = roomHandler_->currentRoomId();
+        std::string eid = eventId.toStdString();
+        std::string em = emoji.toStdString();
+        ThreadPool::instance().enqueue([client, roomId, eid, em]() {
+            client->sendReaction(roomId, eid, em);
+        });
+    });
 
     connect(timelineView_, &QListView::customContextMenuRequested, roomHandler_, &RoomHandler::onTimelineContextMenu);
     connect(timelineDelegate_, &TimelineDelegate::threadIndicatorClicked, roomHandler_, &RoomHandler::openThreadView);

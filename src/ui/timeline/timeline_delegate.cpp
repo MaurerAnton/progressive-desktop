@@ -144,7 +144,7 @@ bool TimelineDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
         if (L.threadReplyH) imgY += 14;
         if (L.replyH) imgY += 14;
         if (L.textH > 0) imgY += L.textH + 4;
-        QRect imgZone(bubbleX + kBubblePadding, imgY, qMin(bubbleW - kBubblePadding*2, 300), L.imageH);
+        QRect imgZone(bubbleX + kBubblePadding, imgY, qMin(bubbleW - kBubblePadding*2, kMaxImageW), L.imageH);
         if (imgZone.contains(me->pos())) {
             emit imageClicked(eventId, mxcUrl);
             return true;

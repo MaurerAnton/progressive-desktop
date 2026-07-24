@@ -18,6 +18,10 @@ inline constexpr int kMaxBubbleW    = 480;
 inline constexpr int kSameSenderGap = 2;
 inline constexpr int kTimeRowH      = 14;
 
+inline constexpr int kMaxImageW        = 300;
+inline constexpr int kImageLoadedH     = 200;
+inline constexpr int kImagePlaceholderH = 100;
+
 struct BubbleLayout {
     int nameH        = 0;
     int textH        = 0;

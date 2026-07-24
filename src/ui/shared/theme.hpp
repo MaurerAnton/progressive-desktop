@@ -63,6 +63,12 @@ struct Design {
     // Emoji picker
     static inline QColor emojiHoverBg = QColor("#3a3a3a");
 
+    // Play button overlay
+    static inline QColor playBtnOverlay    = QColor(255, 255, 255, 80);
+
+    // Deleted message
+    static inline QColor deletedTextColor  = QColor("#666");
+
     // Avatar
     static constexpr int avatarSize    = 36;
     static constexpr int bubbleRadius  = 12;

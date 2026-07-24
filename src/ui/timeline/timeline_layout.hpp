@@ -61,6 +61,8 @@ inline constexpr int kFileCardBarOff  = 2;
 inline constexpr int kReplyBarOffX    = 2;
 inline constexpr int kReplyTextOffX   = 8;
 inline constexpr int kReplyPreviewMax = 60;
+inline constexpr int kPlayBtnR = 15;
+inline constexpr int kPlayBtnD = 30;
 
 inline constexpr int kReactionPillAvgW = 100;
 inline constexpr int kFallbackViewW    = 600;

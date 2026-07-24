@@ -36,9 +36,5 @@ compile_commands.json
 # Test fixtures (recorded locally — not committed, may contain user data)
 tests/fixtures/
 AGENTS.md
-DREAM.md
-PROGRESS.md
-REFERENCE.md
-PROMPTER.md
-prompts/
+memory/
 CMakeFiles/

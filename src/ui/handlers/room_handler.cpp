@@ -131,6 +131,12 @@ void RoomHandler::onRoomClicked(const QModelIndex& idx) {
     if (mainWindow_.isNull()) return;
 
     currentRoomIdStr_ = r->roomId;
+    if (r->unreadCount > 0 || r->highlightCount > 0) {
+        RoomData* rd = const_cast<RoomData*>(r);
+        rd->unreadCount = 0;
+        rd->highlightCount = 0;
+        emit roomModel_->dataChanged(idx, idx);
+    }
     threadHandler_->clearThreadRoot();
     mainWindow_->threadBanner()->hide();
     currentPrevBatch_.clear();
@@ -356,10 +362,16 @@ void RoomHandler::acceptInvite(const QString& roomId) {
             if (r.ok) {
                 RoomData* rd = const_cast<RoomData*>(self->roomModel_->at(
                     self->roomModel_->findRowByRoomId(roomId.toStdString())));
-                if (rd) { rd->isInvite = false;
+                if (rd) {
+                    rd->isInvite = false;
+                    rd->unreadCount = 0;
                     int row = self->roomModel_->findRowByRoomId(roomId.toStdString());
-                    if (row >= 0) emit self->roomModel_->dataChanged(
-                        self->roomModel_->index(row), self->roomModel_->index(row)); }
+                    if (row >= 0) {
+                        emit self->roomModel_->dataChanged(
+                            self->roomModel_->index(row), self->roomModel_->index(row));
+                        self->onRoomClicked(self->roomModel_->index(row));
+                    }
+                }
                 self->statusLabel_->setText("Joined room.");
             } else {
                 self->statusLabel_->setText("Failed: " + QString::fromStdString(r.error.message));

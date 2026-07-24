@@ -7,6 +7,8 @@
 #include <QIcon>
 #include <QApplication>
 #include <QPixmap>
+#include <QPainter>
+#include <QFont>
 
 namespace progressive::desktop {
 
@@ -28,8 +30,15 @@ bool DesktopNotifier::init() {
     }
     if (tray_) return true;
     tray_ = new QSystemTrayIcon(this);
-    QPixmap pix(32, 32);
-    pix.fill(Qt::darkBlue);
+    QPixmap pix(kTrayIconW, kTrayIconH);
+    pix.fill(QColor("#1a1a2e"));
+    QPainter pp(&pix);
+    pp.setRenderHint(QPainter::Antialiasing);
+    QFont iconFont; iconFont.setBold(true); iconFont.setPixelSize(24);
+    pp.setFont(iconFont);
+    pp.setPen(QColor("#6699cc"));
+    pp.drawText(pix.rect(), Qt::AlignCenter, "P");
+    pp.end();
     tray_->setIcon(QIcon(pix));
     tray_->setToolTip("Progressive Chat");
     tray_->show();

@@ -78,18 +78,17 @@ void SyncResponseHandler::handle(FastSyncResponse resp) {
             guard->roomModel_->updateHeader(rlh, guard->inviteHeader_);
             logMemorySnapshot("after-rebuildRoomList");
 
-            static bool firstNotify = true;
-            if (!firstNotify) {
-                for (auto& rd : syncUpdate.roomsToUpsert) {
-                    if (rd.highlightCount > 0) {
-                        QString body = syncUpdate.lastNotificationBody.empty()
-                            ? QString("Highlight!") : QString::fromStdString(syncUpdate.lastNotificationBody);
-                        notifier->notify(QString::fromStdString(rd.name), body);
-                        break;
-                    }
+            for (auto& rd : syncUpdate.roomsToUpsert) {
+                if (rd.unreadCount == 0 && rd.highlightCount == 0) continue;
+                if (rmh && !rmh.isNull() && rd.roomId == rmh->currentRoomId()) continue;
+                QString body = rd.lastMessage.empty()
+                    ? QString("New message") : QString::fromStdString(rd.lastMessage);
+                if (rd.highlightCount > 0) {
+                    body = QString("@mention in %1").arg(QString::fromStdString(rd.name));
                 }
+                notifier->notify(QString::fromStdString(rd.name), body);
+                break;
             }
-            firstNotify = false;
             guard->roomStore_->batchLoadRoomStates(guard->roomModel_, guard->syncLifeToken_);
 
             guard->statusLabel_->setText(QString("Synced: %1 rooms | %2 messages")

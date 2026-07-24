@@ -46,7 +46,7 @@ void drawRichText(QPainter* p, const QRect& r, const QString& body,
     QTextDocument doc;
     doc.setDefaultFont(QFont(QApplication::font().family(), ds(kFontSizeBody)));
     if (msgtype == "m.notice" && body == "[Message deleted]") {
-        QString html = "<s style='color:#666;'>" + body.toHtmlEscaped() + "</s>";
+        QString html = "<s style='color:" + Design::deletedTextColor.name() + ";'>" + body.toHtmlEscaped() + "</s>";
         doc.setHtml(html);
     } else if (msgtype == "m.text" || msgtype == "m.emote" || msgtype.isEmpty()) {
         std::string html = progressive::markdownToHtml(body.toStdString());
@@ -305,20 +305,20 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
             int cardW = qMin(textW, kFileCardMaxW);
             QRect cardRect(textX, curY, cardW, cardH);
             p->setPen(QPen(Design::fileCardBorder, 1));
-            p->setBrush(QColor("#1e1e2e"));
+            p->setBrush(Design::fileCardBg);
             p->drawRoundedRect(cardRect, 6, 6);
-            p->setPen(QPen(QColor(msgtype == "m.audio" ? "#4a6" : "#48a"), 3));
-            p->drawLine(textX + 2, curY + 4, textX + 2, curY + cardH - 4);
+            p->setPen(QPen(msgtype == "m.audio" ? Design::fileAudioBar : Design::fileFileBar, kFileCardBarW));
+            p->drawLine(textX + kFileCardBarOff, curY + kFileCardBarOff * 2, textX + kFileCardBarOff, curY + cardH - kFileCardBarOff * 2);
             QFont iconFont = p->font(); iconFont.setPointSize(ds(kFontSizeEmoji)); p->setFont(iconFont);
             p->setPen(Design::fileCardIconText);
-            p->drawText(textX + 12, curY + 4, 24, 30, Qt::AlignCenter,
+            p->drawText(textX + kFileCardIconX, curY + kFileCardIconY, kFileCardIconW, kFileCardIconH, Qt::AlignCenter,
                         msgtype == "m.audio" ? "🎵" : "📄");
             QFont nameF = p->font(); nameF.setPointSize(ds(kFontSizeBody)); nameF.setBold(true);
             p->setFont(nameF);
             p->setPen(Design::fileCardFileName);
             QFontMetrics nfm(nameF);
             p->drawText(textX + kFileCardTextX, curY + kFileCardTextY, cardW - kFileCardTextW, kFileCardTextH, Qt::AlignLeft,
-                        nfm.elidedText(body, Qt::ElideMiddle, cardW - 48));
+                        nfm.elidedText(body, Qt::ElideMiddle, cardW - kFileCardTextW));
             QFont typeF = p->font(); typeF.setPointSize(ds(kFontSizeCaption)); p->setFont(typeF);
             p->setPen(Design::mutedTextColor);
             p->drawText(textX + kFileCardTextX, curY + kFileCardTypeY, cardW - kFileCardTextW, kIndicatorRowH, Qt::AlignLeft,
@@ -342,8 +342,8 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
                 curY += scaled.height() + 2;
                 if (msgtype == "m.video") {
                     p->setPen(Qt::NoPen);
-                    p->setBrush(QColor(255, 255, 255, 80));
-                    QRect playBtn(imgRect.center().x() - 15, imgRect.center().y() - 15, 30, 30);
+                    p->setBrush(Design::playBtnOverlay);
+                    QRect playBtn(imgRect.center().x() - kPlayBtnR, imgRect.center().y() - kPlayBtnR, kPlayBtnD, kPlayBtnD);
                     p->drawEllipse(playBtn);
                     p->setPen(Qt::white);
                     QFont pf = p->font(); pf.setPointSize(ds(kFontSizeIcon)); p->setFont(pf);

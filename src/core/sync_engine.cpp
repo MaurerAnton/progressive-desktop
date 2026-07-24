@@ -156,7 +156,8 @@ void SyncEngine::run() {
                         std::fprintf(stderr, "[session]   /refresh OK — new access token obtained\n");
                         AccountInfo newAcct = client_->account();
                         newAcct.accessToken = refresh.data.accessToken;
-                        newAcct.refreshToken = refresh.data.refreshToken;
+                        if (!refresh.data.refreshToken.empty())
+                            newAcct.refreshToken = refresh.data.refreshToken;
                         client_->setAccount(newAcct);
                     client_->persistSession();
                     continue;  // retry sync with new token
@@ -251,15 +252,18 @@ void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
                           << evt.senderId << ": " << contentStr << "\n";
             }
         } else if (evt.type == "m.room.encrypted") {
-            // Olm 1:1 — decrypts to a m.room_key event (or m.dummy etc.)
+            LOG(LogChannel::E2EE, "processToDevice: got m.room.encrypted (Olm-wrapped) from=%s",
+                std::string(evt.senderId).c_str());
             std::string contentStr(evt.contentJson);
             std::string innerPlaintext = decryptor_.handleOlmEncryptedToDevice(
                 std::string(evt.senderId), contentStr);
             if (!innerPlaintext.empty()) {
+                LOG(LogChannel::E2EE, "processToDevice: Olm decrypt OK — inner type should be m.room_key");
                 stats_.decryptedEvents++;
                 std::cerr << "[e2ee] decrypted Olm 1:1 to-device from "
                           << evt.senderId << " (" << innerPlaintext.size() << " bytes)\n";
             } else {
+                LOG(LogChannel::E2EE, "processToDevice: Olm decrypt FAILED or not m.room_key");
                 stats_.decryptErrors++;
                 std::cerr << "[e2ee] Olm 1:1 decryption failed from "
                           << evt.senderId << "\n";

@@ -282,19 +282,31 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
     //    {"<our_curve25519>":{"body":"<base64>","type":0}},"sender_key":"<their_curve25519>"}
     std::string_view cv(contentJson);
     auto algorithm = extractStr(cv, "algorithm");
-    if (algorithm != "m.olm.v1.curve25519-aes-sha2") return {};
+    if (algorithm != "m.olm.v1.curve25519-aes-sha2") {
+        LOG(LogChannel::E2EE, "Olm: wrong algorithm=%s", algorithm.c_str());
+        return {};
+    }
 
     auto senderKey = extractStr(cv, "sender_key");
-    if (senderKey.empty()) return {};
+    if (senderKey.empty()) {
+        LOG(LogChannel::E2EE, "Olm: no sender_key in content");
+        return {};
+    }
 
     // Find the ciphertext entry for our curve25519 key
     std::string ourCurve = account_->curve25519Key();
-    if (ourCurve.empty()) return {};
+    if (ourCurve.empty()) {
+        LOG(LogChannel::E2EE, "Olm: no our curve25519 key");
+        return {};
+    }
 
     // The ciphertext is an object keyed by our curve25519. Find it.
     std::string needle = "\"" + ourCurve + "\":";
     auto pos = contentJson.find(needle);
-    if (pos == std::string::npos) return {};
+    if (pos == std::string::npos) {
+        LOG(LogChannel::E2EE, "Olm: our key=%s not found in ciphertext keys", ourCurve.c_str());
+        return {};
+    }
     // Skip to the opening brace of the inner object
     pos = contentJson.find('{', pos);
     if (pos == std::string::npos) return {};
@@ -310,7 +322,10 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
     auto typeStr = extractStr(cipherObj, "type");
     int msgType = typeStr.empty() ? 0 : std::stoi(typeStr);
 
-    if (body.empty()) return {};
+    if (body.empty()) {
+        LOG(LogChannel::E2EE, "Olm: empty body in ciphertext object");
+        return {};
+    }
 
     // Try to find an existing OlmSession for this sender.
     // If none, create one from the pre-key message (type 0).
@@ -324,13 +339,13 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
         // Pre-key message — create inbound session, then decrypt
         auto result = session.createInbound(*underlyingAccount, body);
         if (!result.success) {
-            std::fprintf(stderr, "[e2ee] createInbound Olm session failed\n");
+            LOG(LogChannel::E2EE, "Olm: createInbound Olm session FAILED");
             return {};
         }
         // After createInbound, decrypt the message body
         auto decResult = session.decrypt(body, 0);
         if (!decResult.success) {
-            std::fprintf(stderr, "[e2ee] Olm decrypt after createInbound failed\n");
+            LOG(LogChannel::E2EE, "Olm: decrypt after createInbound FAILED");
             return {};
         }
         plaintext = decResult.data;
@@ -338,6 +353,7 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
         // Regular message — use existing session
         std::fprintf(stderr, "[e2ee] Olm 1:1 regular message from %s — not yet "
                              "implemented (needs session pickle management)\n", senderId.c_str());
+        LOG(LogChannel::E2EE, "Olm: regular msg type=%d not implemented (need session management)", msgType);
         return {};
     }
 
@@ -348,6 +364,7 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
         std::string_view pv(plaintext);
         auto innerType = extractStr(pv, "type");
         if (innerType == "m.room_key") {
+            LOG(LogChannel::E2EE, "Olm: inner type=m.room_key — calling handleRoomKey");
             auto innerContentStart = plaintext.find("\"content\":");
             if (innerContentStart != std::string::npos) {
                 auto braceStart = plaintext.find('{', innerContentStart);

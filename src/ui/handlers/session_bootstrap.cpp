@@ -58,10 +58,28 @@ void SessionBootstrap::start(const std::shared_ptr<MatrixClient>& client, const 
                 std::cerr << "[e2ee] init failed — continuing without E2EE\n";
             }
             if (keysPublished) {
-                statusLabel->setText("E2EE ready. Starting sync...");
+                statusLabel->setText("E2EE ready. Refreshing session...");
             } else {
                 statusLabel->setText("E2EE keys uploading...");
             }
+
+            if (!client->account().refreshToken.empty()) {
+                auto refresh = client->refreshAccessToken(client->account().refreshToken);
+                if (refresh.ok && !refresh.data.accessToken.empty()) {
+                    AccountInfo acct = client->account();
+                    acct.accessToken = refresh.data.accessToken;
+                    if (!refresh.data.refreshToken.empty())
+                        acct.refreshToken = refresh.data.refreshToken;
+                    client->setAccount(acct);
+                    client->persistSession();
+                    std::fprintf(stderr, "[session] pre-refresh OK — token updated\n");
+                } else {
+                    std::fprintf(stderr, "[session] pre-refresh FAILED (will try again on 401): %s\n",
+                        refresh.error.message.c_str());
+                }
+            }
+            statusLabel->setText("Starting sync...");
+
             notifier->init();
             sync->setClient(client);
             sync->setSessionStore(store);

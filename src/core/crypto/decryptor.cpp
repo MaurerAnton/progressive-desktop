@@ -81,7 +81,9 @@ std::string Decryptor::ed25519Key() const {
 
 DecryptionResult Decryptor::decryptMegolmEvent(const std::string& roomId,
                                                   const std::string& senderId,
-                                                  const std::string& contentJson) {
+                                                  const std::string& contentJson,
+                                                  const std::string& eventId,
+                                                  int64_t originServerTs) {
     DecryptionResult r;
     // Parse the m.room.encrypted content:
     // {"algorithm":"m.megolm.v1.aes-sha2","ciphertext":"...","sender_key":"...",
@@ -103,6 +105,15 @@ DecryptionResult Decryptor::decryptMegolmEvent(const std::string& roomId,
 
     if (!megolm_->hasSession(roomId, senderKey, sessionId)) {
         r.error = "no megolm session — waiting for room_key";
+        PendingEncryptedEvent p;
+        p.roomId = roomId;
+        p.senderKey = senderKey;
+        p.sessionId = sessionId;
+        p.ciphertext = ciphertext;
+        p.senderId = senderId;
+        p.eventId = eventId;
+        p.originServerTs = originServerTs;
+        megolm_->addPending(p);
         return r;
     }
 
@@ -136,7 +147,36 @@ bool Decryptor::handleRoomKey(const std::string& contentJson) {
         if (!keys.empty()) senderKey = extractStr(keys, "curve25519");
     }
     if (senderKey.empty()) return false;
-    return megolm_->addInboundSession(roomId, senderKey, sessionId, sessionKey);
+    bool ok = megolm_->addInboundSession(roomId, senderKey, sessionId, sessionKey);
+    if (ok) processPending(roomId, senderKey, sessionId);
+    return ok;
+}
+
+void Decryptor::processPending(const std::string& roomId,
+                               const std::string& senderKey,
+                               const std::string& sessionId) {
+    auto pending = megolm_->takePendingForSession(roomId, senderKey, sessionId);
+    if (pending.empty()) return;
+
+    std::lock_guard<std::mutex> lk(reDecryptedMtx_);
+    for (const auto& p : pending) {
+        auto plaintext = megolm_->decrypt(p.roomId, p.senderKey, p.sessionId, p.ciphertext);
+        if (plaintext.empty()) continue;
+        ReDecryptedEvent evt;
+        evt.roomId = p.roomId;
+        evt.eventId = p.eventId;
+        evt.plaintext = std::move(plaintext);
+        evt.senderId = p.senderId;
+        evt.originServerTs = p.originServerTs;
+        reDecryptedEvents_.push_back(std::move(evt));
+    }
+}
+
+std::vector<ReDecryptedEvent> Decryptor::takeDecryptedEvents() {
+    std::lock_guard<std::mutex> lk(reDecryptedMtx_);
+    std::vector<ReDecryptedEvent> out;
+    out.swap(reDecryptedEvents_);
+    return out;
 }
 
 // ---- Device key upload body builder ----

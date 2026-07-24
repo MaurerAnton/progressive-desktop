@@ -18,6 +18,7 @@ class RoomStore;
 class RoomListModel;
 class TimelineModel;
 class RoomHandler;
+class Decryptor;
 
 class SyncResponseHandler : public QObject {
     Q_OBJECT
@@ -32,6 +33,8 @@ public:
     ~SyncResponseHandler();
 
     void setClient(std::shared_ptr<MatrixClient> c) { client_ = std::move(c); }
+
+    void setDecryptor(Decryptor* d) { decryptor_ = d; }
 
     void handle(FastSyncResponse resp);
 
@@ -50,6 +53,7 @@ private:
     QPushButton* loadMoreBtn_;
     RoomHandler* roomHandler_;
     LifeToken syncLifeToken_;
+    Decryptor* decryptor_ = nullptr;
 };
 
 } // namespace progressive::desktop

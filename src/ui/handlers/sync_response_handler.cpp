@@ -2,6 +2,7 @@
 #include "core/matrix_client.hpp"
 #include "core/thread_pool.hpp"
 #include "core/memory_stats.hpp"
+#include "core/crypto/decryptor.hpp"
 #include "../room/room_store.hpp"
 #include "../room_list_model.hpp"
 #include "../timeline/timeline_model.hpp"
@@ -55,7 +56,10 @@ void SyncResponseHandler::handle(FastSyncResponse resp) {
         QMetaObject::invokeMethod(guard, [guard, rmh, syncUpdate = std::move(syncUpdate), notifier, rlh, keepAlive]() mutable {
             if (guard.isNull()) return;
             guard->roomStore_->applyRoomSyncUpdate(syncUpdate,
-                guard->roomModel_, guard->timelineModel_);
+                guard->roomModel_, guard->timelineModel_, guard->decryptor_);
+
+            if (guard->decryptor_)
+                guard->roomStore_->applyDecryptedEvents(guard->timelineModel_, guard->decryptor_);
 
             for (const auto& rid : syncUpdate.roomsToRemove) {
                 if (!rmh.isNull() && rid == rmh->currentRoomId()) {

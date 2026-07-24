@@ -42,7 +42,8 @@ static void fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
 static void appendTimelineForRoom(const std::string& roomId,
     const std::vector<FastEvent>& events, TimelineModel* model,
     const std::unordered_map<std::string,std::string>* memberAvatars,
-    const std::string& myUserId);
+    const std::string& myUserId,
+    Decryptor* decryptor = nullptr);
 
 std::string threadRootId(std::string_view json) {
     auto p = json.find("\"m.relates_to\"");
@@ -208,7 +209,8 @@ RoomSyncUpdate RoomStore::prepareRoomSyncUpdate(const FastSyncResponse& resp,
 
 void RoomStore::applyRoomSyncUpdate(RoomSyncUpdate& syncUpdate,
                                      RoomListModel* roomList,
-                                     TimelineModel* currentTimeline) {
+                                     TimelineModel* currentTimeline,
+                                     Decryptor* decryptor) {
     for (const auto& rid : syncUpdate.roomsToRemove) {
         roomList->removeRoom(rid);
     }
@@ -236,7 +238,8 @@ void RoomStore::applyRoomSyncUpdate(RoomSyncUpdate& syncUpdate,
     if (syncUpdate.currentRoomUpdated && currentTimeline) {
         appendTimelineForRoom(syncUpdate.currentRoomId, syncUpdate.currentRoomEvents,
                               currentTimeline, &syncUpdate.currentRoomAvatars,
-                              "" /* myUserId passed earlier */);
+                              "" /* myUserId passed earlier */,
+                              decryptor);
     }
 }
 
@@ -256,6 +259,37 @@ void RoomStore::batchLoadRoomStates(RoomListModel* model, LifeToken token) {
     dataLoader_->batchLoadRoomStates(model, token);
 }
 
+void RoomStore::applyDecryptedEvents(TimelineModel* model, Decryptor* decryptor) {
+    if (!decryptor) return;
+    auto events = decryptor->takeDecryptedEvents();
+    for (const auto& evt : events) {
+        simdjson::dom::parser p;
+        auto doc = p.parse(evt.plaintext);
+        if (doc.error() != simdjson::SUCCESS) continue;
+        std::string etype = "m.room.message";
+        auto t = doc.value()["type"].get_string();
+        if (t.error() == simdjson::SUCCESS) etype = std::string(t.value());
+        auto cr = doc.value()["content"];
+        std::string econtent = evt.plaintext;
+        if (cr.error() == simdjson::SUCCESS) econtent = simdjson::to_string(cr.value());
+
+        DisplayedEvent de;
+        de.eventId = evt.eventId;
+        de.senderId = evt.senderId;
+        de.originServerTs = evt.originServerTs;
+        de.type = etype;
+        de.contentJson = econtent;
+        FastEvent fe;
+        fe.eventId = std::string_view(evt.eventId);
+        fe.senderId = std::string_view(evt.senderId);
+        fe.type = de.type;
+        fe.contentJson = de.contentJson;
+        fe.originServerTs = evt.originServerTs;
+        fastEventToDisplayed(fe, de, evt.roomId, nullptr);
+        model->replaceEvent(evt.eventId, de);
+    }
+}
+
 static void fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
                                        const std::string& currentRoomId,
                                        Decryptor* decryptor) {
@@ -269,7 +303,7 @@ static void fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
         de.senderName = (colon != std::string::npos) ? de.senderId.substr(1, colon-1) : de.senderId.substr(1);
     }
     if (de.type == "m.room.encrypted" && decryptor && decryptor->isInitialized()) {
-        auto result = decryptor->decryptMegolmEvent(currentRoomId, de.senderId, de.contentJson);
+        auto result = decryptor->decryptMegolmEvent(currentRoomId, de.senderId, de.contentJson, de.eventId, de.originServerTs);
         if (result.ok) {
             simdjson::dom::parser parser;
             auto root = parser.parse(result.plaintext);
@@ -386,7 +420,8 @@ static DisplayedEvent makeSystemEvent(const FastEvent& e) {
 static void appendTimelineForRoom(const std::string& roomId,
     const std::vector<FastEvent>& events, TimelineModel* model,
     const std::unordered_map<std::string,std::string>* memberAvatars,
-    const std::string& myUserId) {
+    const std::string& myUserId,
+    Decryptor* decryptor) {
     std::vector<DisplayedEvent> batch;
     for (const auto& e : events) {
         if (e.type == "m.room.member" && !e.contentJson.empty()) {
@@ -422,7 +457,7 @@ static void appendTimelineForRoom(const std::string& roomId,
         }
         if (e.type != "m.room.message" && e.type != "m.room.encrypted") continue;
         DisplayedEvent de;
-        fastEventToDisplayed(e, de, roomId, nullptr);
+        fastEventToDisplayed(e, de, roomId, decryptor);
         if (memberAvatars && !de.senderId.empty()) {
             auto it = memberAvatars->find(de.senderId);
             if (it != memberAvatars->end()) de.avatarUrl = it->second;

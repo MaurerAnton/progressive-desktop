@@ -93,6 +93,10 @@ public:
     // from the server. If not found, appends the real event.
     void replaceEcho(const std::string& tempEventId, const DisplayedEvent& realEvent);
 
+    // Replace an existing event by eventId (e.g. [encrypted] → decrypted).
+    // Mutates fields in-place + emits dataChanged. Returns false if not found.
+    bool replaceEvent(const std::string& eventId, const DisplayedEvent& newEvent);
+
     // Mark an event as deleted (redacted). Updates the body to "[Message deleted]".
     void markDeleted(const std::string& eventId);
 

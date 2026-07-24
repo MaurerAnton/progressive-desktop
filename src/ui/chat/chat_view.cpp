@@ -109,10 +109,17 @@ void ChatView::doSend(const std::string& body) {
         // Thread reply (unencrypted)
         if (!threadRoot.empty() && !encrypted) {
             auto r = client->sendThreadReply(roomId, body, threadRoot);
-            if (!r.ok) std::fprintf(stderr, "[send] FAILED thread: %s (code=%s)\n",
-                                     r.error.message.c_str(), r.error.code.c_str());
+            if (!r.ok) {
+                std::fprintf(stderr, "[send] FAILED thread: %s (code=%s)\n",
+                             r.error.message.c_str(), r.error.code.c_str());
+                QMetaObject::invokeMethod(guard, [guard, r, tempId]() {
+                    if (guard.isNull()) return;
+                    guard->model_->replaceEcho(tempId, {.msgtype = "m.notice", .body = "❌ " + r.error.message});
+                }, Qt::QueuedConnection);
+                return;
+            }
             QMetaObject::invokeMethod(guard, [guard, r, tempId, body, myUserId, threadRoot]() {
-                if (guard.isNull() || !r.ok) return;
+                if (guard.isNull()) return;
                 DisplayedEvent real;
                 real.eventId = r.data; real.senderId = myUserId.toStdString();
                 real.senderName = "you"; real.type = "m.room.message";
@@ -128,7 +135,14 @@ void ChatView::doSend(const std::string& body) {
             auto* dec = guard->sync_->decryptor();
             std::string deviceId = client->account().deviceId;
             std::string sessId = dec->getOrCreateOutboundSession(roomId);
-            if (sessId.empty()) return;
+            if (sessId.empty()) {
+                std::fprintf(stderr, "[send] FAILED: outbound session creation\n");
+                QMetaObject::invokeMethod(guard, [guard, tempId]() {
+                    if (guard.isNull()) return;
+                    guard->model_->replaceEcho(tempId, {.msgtype = "m.notice", .body = "❌ Failed to encrypt"});
+                }, Qt::QueuedConnection);
+                return;
+            }
             std::string escaped;
             for (char c : body) {
                 if (c == '"') escaped += "\\\""; else if (c == '\\') escaped += "\\\\";
@@ -136,9 +150,23 @@ void ChatView::doSend(const std::string& body) {
             }
             std::string inner = "{\"type\":\"m.room.message\",\"content\":{\"msgtype\":\"m.text\",\"body\":\"" + escaped + "\"}}";
             std::string enc = dec->encryptMessage(roomId, deviceId, inner);
-            if (enc.empty()) return;
+            if (enc.empty()) {
+                std::fprintf(stderr, "[send] FAILED: encryption\n");
+                QMetaObject::invokeMethod(guard, [guard, tempId]() {
+                    if (guard.isNull()) return;
+                    guard->model_->replaceEcho(tempId, {.msgtype = "m.notice", .body = "❌ Encryption failed"});
+                }, Qt::QueuedConnection);
+                return;
+            }
             auto r = client->sendEncryptedEvent(roomId, enc, "pd" + std::to_string(std::time(nullptr)));
-            if (!r.ok) std::fprintf(stderr, "[send] FAILED encrypted: %s\n", r.error.message.c_str());
+            if (!r.ok) {
+                std::fprintf(stderr, "[send] FAILED encrypted: %s\n", r.error.message.c_str());
+                QMetaObject::invokeMethod(guard, [guard, r, tempId]() {
+                    if (guard.isNull()) return;
+                    guard->model_->replaceEcho(tempId, {.msgtype = "m.notice", .body = "❌ " + r.error.message});
+                }, Qt::QueuedConnection);
+                return;
+            }
             QMetaObject::invokeMethod(guard, [guard, r, tempId, body, myUserId]() {
                 if (guard.isNull() || !r.ok) return;
                 DisplayedEvent real;
@@ -180,8 +208,15 @@ void ChatView::doSend(const std::string& body) {
             }
         } else {
             auto r = client->sendMessage(roomId, body);
-            if (!r.ok) std::fprintf(stderr, "[send] FAILED message: %s (code=%s)\n",
-                                     r.error.message.c_str(), r.error.code.c_str());
+            if (!r.ok) {
+                std::fprintf(stderr, "[send] FAILED message: %s (code=%s)\n",
+                             r.error.message.c_str(), r.error.code.c_str());
+                QMetaObject::invokeMethod(guard, [guard, r, tempId]() {
+                    if (guard.isNull()) return;
+                    guard->model_->replaceEcho(tempId, {.msgtype = "m.notice", .body = "❌ " + r.error.message});
+                }, Qt::QueuedConnection);
+                return;
+            }
             QMetaObject::invokeMethod(guard, [guard, r, tempId, body, myUserId]() {
                 if (guard.isNull() || !r.ok) return;
                 DisplayedEvent real;

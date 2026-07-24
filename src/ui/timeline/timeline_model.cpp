@@ -153,6 +153,26 @@ void TimelineModel::updateBody(const std::string& eventId, const std::string& ne
     emit dataChanged(index(row), index(row), {BodyRole, MsgTypeRole});
 }
 
+bool TimelineModel::replaceEvent(const std::string& eventId, const DisplayedEvent& newEvent) {
+    int row = findRow(eventId);
+    if (row < 0) return false;
+    auto& e = events_[row];
+    e.body = newEvent.body;
+    e.msgtype = newEvent.msgtype;
+    e.contentJson = newEvent.contentJson;
+    e.mxcUrl = newEvent.mxcUrl;
+    e.mimetype = newEvent.mimetype;
+    e.isThreadRoot = newEvent.isThreadRoot;
+    e.threadReplyCount = newEvent.threadReplyCount;
+    e.isThreadReply = newEvent.isThreadReply;
+    e.threadRootId = newEvent.threadRootId;
+    e.image = newEvent.image;
+    e.imageLoaded = newEvent.imageLoaded;
+    e.isMovie = newEvent.isMovie;
+    emit dataChanged(index(row), index(row));
+    return true;
+}
+
 void TimelineModel::appendFront(const std::vector<DisplayedEvent>& evts) {
     // Filter out duplicates
     std::vector<DisplayedEvent> newOnes;

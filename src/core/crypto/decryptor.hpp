@@ -23,6 +23,14 @@ struct DecryptionResult {
     std::string error;
 };
 
+struct ReDecryptedEvent {
+    std::string roomId;
+    std::string eventId;
+    std::string plaintext;     // full decrypted event JSON (type+content+sender)
+    std::string senderId;
+    int64_t originServerTs = 0;
+};
+
 // Per-room outbound megolm session. Created when we first send a message
 // to an encrypted room. The session key is shared with all room members
 // via m.room_key to-device events (Olm 1:1 encrypted).
@@ -60,12 +68,19 @@ public:
 
     // ---- Inbound Megolm (room message decryption) ----
     // Decrypts a m.room.encrypted event (Megolm algorithm).
+    // eventId + originServerTs are preserved for the pending queue (re-decryption).
     DecryptionResult decryptMegolmEvent(const std::string& roomId,
                                           const std::string& senderId,
-                                          const std::string& contentJson);
+                                          const std::string& contentJson,
+                                          const std::string& eventId = "",
+                                          int64_t originServerTs = 0);
 
     // Handle a to-device m.room_key event — adds the megolm inbound session.
+    // Upon success, drains the pending queue and re-decrypts any saved events.
     bool handleRoomKey(const std::string& contentJson);
+
+    // Drain re-decrypted events (called from UI thread after sync).
+    std::vector<ReDecryptedEvent> takeDecryptedEvents();
 
     // ---- Inbound Olm 1:1 (to-device decryption) ----
     // Handle a to-device m.room.encrypted event (Olm 1:1 algorithm).
@@ -150,7 +165,15 @@ private:
     // Try to create an inbound OlmSession from a pre-key message.
     // Stores the session pickle for future use.
     bool createInboundOlmSession(const std::string& preKeyMessage,
-                                   const std::string& senderIdentityKey);
+                                    const std::string& senderIdentityKey);
+
+    // Drain pending events for a room — re-decrypts each saved event.
+    void processPending(const std::string& roomId,
+                         const std::string& senderKey,
+                         const std::string& sessionId);
+
+    std::vector<ReDecryptedEvent> reDecryptedEvents_;
+    std::mutex reDecryptedMtx_;
 };
 
 } // namespace progressive::desktop

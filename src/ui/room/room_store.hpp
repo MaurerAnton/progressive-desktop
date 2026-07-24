@@ -14,6 +14,7 @@ namespace progressive::desktop {
 
 using LifeToken = std::shared_ptr<bool>;
 
+class Decryptor;
 class MatrixClient;
 class SessionStore;
 class RoomListModel;
@@ -64,7 +65,8 @@ public:
     // Light part — runs on UI thread, only model operations
     void applyRoomSyncUpdate(RoomSyncUpdate& syncUpdate,
                               RoomListModel* roomList,
-                              TimelineModel* currentTimeline);
+                              TimelineModel* currentTimeline,
+                              Decryptor* decryptor = nullptr);
 
     void loadHistory(const std::string& roomId,
                      TimelineModel* model,
@@ -79,6 +81,9 @@ public:
 
     void batchLoadRoomStates(RoomListModel* model,
                               LifeToken token);
+
+    // Apply re-decrypted E2EE events to the timeline (drains from decryptor).
+    void applyDecryptedEvents(TimelineModel* model, Decryptor* decryptor);
 
     static RoomMeta extractRoomMeta(const FastRoom& room,
                                      const std::string& myUserId);

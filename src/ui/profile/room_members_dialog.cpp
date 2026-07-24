@@ -23,7 +23,7 @@ RoomMembersDialog::RoomMembersDialog(MatrixClient* client, const std::string& ro
     : QDialog(parent), client_(client), roomId_(roomId) {
     setWindowTitle("Room Members");
     setModal(true);
-    resize(380, 500);
+    resize(kDialogW, kDialogH);
 
     searchEdit_ = new QLineEdit(this);
     searchEdit_->setPlaceholderText("Search members...");

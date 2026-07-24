@@ -28,7 +28,7 @@ RoomDirectoryDialog::RoomDirectoryDialog(MatrixClient* client, QWidget* parent)
     : QDialog(parent), client_(client) {
     setWindowTitle("Public Rooms — Browse & Join");
     setModal(true);
-    resize(700, 500);
+    resize(kDirectoryW, kDirectoryH);
 
     searchEdit_ = new QLineEdit(this);
     searchEdit_->setPlaceholderText("Search public rooms (e.g. 'matrix', 'linux')...");

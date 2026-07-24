@@ -24,7 +24,7 @@ ImageViewerDialog::ImageViewerDialog(const QImage& image, const QString& mxcUrl,
     : QDialog(parent), image_(image), mxcUrl_(mxcUrl) {
     setWindowTitle("Image Viewer");
     setModal(true);
-    resize(800, 600);
+    resize(kViewerW, kViewerH);
 
     scene_ = new QGraphicsScene(this);
     if (!image_.isNull()) {

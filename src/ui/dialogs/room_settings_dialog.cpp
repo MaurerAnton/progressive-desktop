@@ -73,7 +73,7 @@ RoomSettingsDialog::RoomSettingsDialog(MatrixClient* client, const std::string& 
     : QDialog(parent), client_(client), roomId_(roomId) {
     setWindowTitle(QString("Room Settings — %1").arg(QString::fromStdString(roomName)));
     setModal(true);
-    resize(600, 500);
+    resize(kSettingsW, kSettingsH);
 
     nameEdit_ = new QLineEdit(QString::fromStdString(roomName), this);
     topicEdit_ = new QTextEdit(this);

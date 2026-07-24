@@ -230,7 +230,7 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
         nameFont.setBold(true);
         p->setFont(nameFont);
         p->setPen(colorFromId(senderId));
-        p->drawText(bubbleX + kBubblePadding, topY, bubbleW - kBubblePadding, 16,
+        p->drawText(bubbleX + kBubblePadding, topY, bubbleW - kBubblePadding, kNameRowH,
                     Qt::AlignLeft | Qt::AlignBottom, senderName);
     }
 
@@ -297,12 +297,12 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
         QRect emoteRect(bubbleX + kBubblePadding, bubbleY + 6, textW, L.textH + 14);
         p->drawText(emoteRect, Qt::AlignLeft | Qt::TextWordWrap, emoteText);
     } else if (!body.isEmpty()) {
-        int textBottom = bubbleY + L.bubbleH - 18;
+        int textBottom = bubbleY + L.bubbleH - kEmoteBottomPad;
         int textH = textBottom - curY;
-        if (textH < 20) textH = 20;
+        if (textH < kMinTextH) textH = kMinTextH;
         if (msgtype == "m.file" || msgtype == "m.audio") {
             int cardH = kFileCardH;
-            int cardW = qMin(textW, 250);
+            int cardW = qMin(textW, kFileCardMaxW);
             QRect cardRect(textX, curY, cardW, cardH);
             p->setPen(QPen(Design::fileCardBorder, 1));
             p->setBrush(QColor("#1e1e2e"));
@@ -317,11 +317,11 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
             p->setFont(nameF);
             p->setPen(Design::fileCardFileName);
             QFontMetrics nfm(nameF);
-            p->drawText(textX + 40, curY + 6, cardW - 48, 18, Qt::AlignLeft,
+            p->drawText(textX + kFileCardTextX, curY + kFileCardTextY, cardW - kFileCardTextW, kFileCardTextH, Qt::AlignLeft,
                         nfm.elidedText(body, Qt::ElideMiddle, cardW - 48));
             QFont typeF = p->font(); typeF.setPointSize(ds(kFontSizeCaption)); p->setFont(typeF);
             p->setPen(Design::mutedTextColor);
-            p->drawText(textX + 40, curY + 22, cardW - 48, 14, Qt::AlignLeft,
+            p->drawText(textX + kFileCardTextX, curY + kFileCardTypeY, cardW - kFileCardTextW, kIndicatorRowH, Qt::AlignLeft,
                         msgtype == "m.audio" ? "Audio file" : "File");
             curY += cardH + 4;
         } else {

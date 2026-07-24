@@ -28,7 +28,7 @@ ProfileDialog::ProfileDialog(MatrixClient* client, QWidget* parent)
     : QDialog(parent), client_(client) {
     setWindowTitle("My Profile");
     setModal(true);
-    resize(400, 300);
+    resize(kDialogW, kDialogH);
 
     nameEdit_ = new QLineEdit(this);
     avatarPreview_ = new QLabel(this);

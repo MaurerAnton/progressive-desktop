@@ -18,6 +18,7 @@ namespace progressive::desktop {
 namespace {
 inline constexpr int kDialogW = 400;
 inline constexpr int kDialogH = 300;
+inline constexpr int kAvatarLarge = 72;
 } // namespace
 
 UserProfileDialog::UserProfileDialog(MatrixClient* client, const std::string& roomId,

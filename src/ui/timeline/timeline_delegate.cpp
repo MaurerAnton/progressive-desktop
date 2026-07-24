@@ -41,7 +41,7 @@ void TimelineDelegate::paint(QPainter* p, const QStyleOptionViewItem& opt,
         timeline_render::drawSystemRow(p, opt.rect, idx, type);
     } else {
         int width = opt.rect.width();
-        if (width <= 40) width = 600;
+        if (width <= kMinUsableViewW) width = kFallbackViewW;
         int bubbleW = qMin(kMaxBubbleW, width - kAvatarSize - kGap - kMargin * 2);
         BubbleLayout L = computeLayout(idx, myUserId_, bubbleW);
         timeline_render::drawMessageBubble(p, opt.rect, idx, L, myUserId_,
@@ -55,11 +55,11 @@ QSize TimelineDelegate::sizeHint(const QStyleOptionViewItem& opt,
                                    const QModelIndex& idx) const {
     QString type = idx.data(TimelineModel::TypeRole).toString();
     if (type == "progressive.system") {
-        return QSize(opt.rect.width() > 40 ? opt.rect.width() : 600, 28);
+        return QSize(opt.rect.width() > kMinUsableViewW ? opt.rect.width() : kFallbackViewW, 28);
     }
 
     int width = opt.rect.width();
-    if (width <= 40) width = 600;
+    if (width <= kMinUsableViewW) width = kFallbackViewW;
     int bubbleW = qMin(kMaxBubbleW, width - kAvatarSize - kGap - kMargin * 2);
 
     BubbleLayout L = computeLayout(idx, myUserId_, bubbleW);

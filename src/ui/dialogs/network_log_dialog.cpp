@@ -20,7 +20,7 @@ inline constexpr int kScrollHysteresis = 10;
 
 NetworkLogDialog::NetworkLogDialog(QWidget* parent) : QDialog(parent) {
     setWindowTitle("Network Log");
-    resize(750, 500);
+    resize(kNetLogW, kNetLogH);
     setModal(false);
 
     logView_ = new QTextEdit(this);

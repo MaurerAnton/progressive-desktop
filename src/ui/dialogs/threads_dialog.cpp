@@ -26,7 +26,7 @@ ThreadsDialog::ThreadsDialog(MatrixClient* client, const std::string& roomId, QW
     : QDialog(parent), client_(client), roomId_(roomId) {
     setWindowTitle("Threads in this room");
     setModal(true);
-    resize(600, 400);
+    resize(kThreadsW, kThreadsH);
 
     list_ = new QListWidget(this);
     statusLabel_ = new QLabel("Loading threads...", this);

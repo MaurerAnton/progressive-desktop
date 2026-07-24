@@ -281,7 +281,7 @@ QString findEmojiFont() {
 EmojiPicker::EmojiPicker(QWidget* parent) : QDialog(parent) {
     setWindowTitle("Pick emoji");
     setModal(true);
-    resize(420, 350);
+    resize(kPickerW, kPickerH);
 
     searchEdit_ = new QLineEdit(this);
     searchEdit_->setPlaceholderText("Search emoji (e.g. candle, fire, heart)...");
@@ -289,12 +289,12 @@ EmojiPicker::EmojiPicker(QWidget* parent) : QDialog(parent) {
 
     // Set a slightly larger font for search
     QFont searchFont = searchEdit_->font();
-    searchFont.setPointSize(11);
+    searchFont.setPointSize(kSearchFont);
     searchEdit_->setFont(searchFont);
 
     grid_ = new QGridLayout;
-    grid_->setSpacing(2);
-    grid_->setContentsMargins(4, 4, 4, 4);
+    grid_->setSpacing(kGridSpacing);
+    grid_->setContentsMargins(kGridMargins, kGridMargins, kGridMargins, kGridMargins);
 
     auto* scrollContent = new QWidget;
     scrollContent->setLayout(grid_);
@@ -329,7 +329,7 @@ void EmojiPicker::buildGrid() {
     // Find an emoji-capable font for rendering the buttons
     static QString emojiFont = findEmojiFont();
 
-    int cols = 10;
+    int cols = kEmojiCols;
     buttons_.clear();
     buttons_.reserve(allEmojis_.size());
 
@@ -339,27 +339,27 @@ void EmojiPicker::buildGrid() {
     QLabel renderLabel;
     QFont emojiF = renderLabel.font();
     if (!emojiFont.isEmpty()) emojiF.setFamily(emojiFont);
-    emojiF.setPixelSize(24);
+    emojiF.setPixelSize(kEmojiFont);
     renderLabel.setFont(emojiF);
     renderLabel.setAlignment(Qt::AlignCenter);
-    renderLabel.setFixedSize(32, 32);
+    renderLabel.setFixedSize(kRenderSz, kRenderSz);
 
     for (int i = 0; i < allEmojis_.size(); ++i) {
         const auto& entry = allEmojis_[i];
 
         // Render emoji to pixmap via QLabel
         renderLabel.setText(entry.emoji);
-        QPixmap pix(32, 32);
+        QPixmap pix(kRenderSz, kRenderSz);
         pix.fill(Qt::transparent);
         QPainter p(&pix);
         p.setRenderHint(QPainter::Antialiasing);
-        renderLabel.render(&p, QPoint(0, 0), QRegion(0, 0, 32, 32));
+        renderLabel.render(&p, QPoint(0, 0), QRegion(0, 0, kRenderSz, kRenderSz));
         p.end();
 
         auto* btn = new QPushButton(this);
-        btn->setFixedSize(34, 34);
+        btn->setFixedSize(kEmojiBtnW, kEmojiBtnH);
         btn->setIcon(QIcon(pix));
-        btn->setIconSize(QSize(28, 28));
+        btn->setIconSize(QSize(kIconW, kIconH));
         btn->setToolTip(entry.emoji + " " + entry.name + " — " + entry.keywords);
         btn->setFlat(true);
         btn->setStyleSheet("QPushButton { border: none; background: transparent; }"

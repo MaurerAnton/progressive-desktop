@@ -31,6 +31,13 @@ inline constexpr int kUnreadPad      = 4;
 inline constexpr int kUnreadW        = 24;
 inline constexpr int kUnreadH        = 24;
 inline constexpr int kRowH           = 56;
+inline constexpr int kUnreadRight   = 28;
+inline constexpr int kUnreadTop     = 12;
+inline constexpr int kAvatarFont    = 12;
+inline constexpr int kBtnFont       = 11;
+inline constexpr int kRoomNameFont  = 10;
+inline constexpr int kLastMsgFont   = 9;
+inline constexpr int kBadgeFont     = 8;
 } // namespace
 
 RoomListDelegate::RoomListDelegate(ImageLoader* loader, QObject* parent)
@@ -67,7 +74,7 @@ void RoomListDelegate::drawAvatar(QPainter* painter, const QRect& rect,
     }
     QFont font = painter->font();
     font.setBold(true);
-    font.setPointSize(qMax(1, (int)(12 * Design::fontScale)));
+    font.setPointSize(qMax(1, (int)(kAvatarFont * Design::fontScale)));
     painter->setFont(font);
     painter->setPen(Qt::white);
     painter->drawText(rect, Qt::AlignCenter, letter);
@@ -96,8 +103,8 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     QStringList typingUsers = typingVar.value<QStringList>();
     bool hasTyping = !typingUsers.isEmpty();
 
-    int padding = 8;
-    int avatarSize = 36;
+    int padding = kAvatarPad;
+    int avatarSize = kAvatarSz;
     QRect avatarRect(option.rect.x() + padding,
                      option.rect.y() + (option.rect.height() - avatarSize) / 2,
                      avatarSize, avatarSize);
@@ -118,7 +125,7 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
             QString avatarUrlCopy = avatarUrl;
             auto* model = const_cast<QAbstractItemModel*>(index.model());
             const_cast<RoomListDelegate*>(this)->loader_->fetchThumbnail(
-                avatarUrl.toStdString(), 64, 64,
+                avatarUrl.toStdString(), kThumbnailSz, kThumbnailSz,
                 [roomIdCopy, avatarUrlCopy, model](const QImage& img) {
                     if (img.isNull() || !model) return;
                     // Trigger dataChanged for the row with this roomId —
@@ -138,14 +145,14 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
 
     // Text area (right of avatar)
     int textX = avatarRect.right() + padding;
-    int textWidth = option.rect.width() - textX - padding - 60;
-    QRect nameRect(textX, option.rect.y() + 6, textWidth, 20);
-    QRect msgRect(textX, option.rect.y() + 26, textWidth, 20);
+    int textWidth = option.rect.width() - textX - padding - kTextMargin;
+    QRect nameRect(textX, option.rect.y() + kTextRowOff, textWidth, kSecondRowH);
+    QRect msgRect(textX, option.rect.y() + kDescRowOff, textWidth, kSecondRowH);
 
     // Name
     QFont nameFont = painter->font();
     nameFont.setBold(true);
-    nameFont.setPointSize(qMax(1, (int)(10 * Design::fontScale)));
+    nameFont.setPointSize(qMax(1, (int)(kRoomNameFont * Design::fontScale)));
     painter->setFont(nameFont);
     painter->setPen(QColor("#e8e8e8"));
     QString displayName = name;
@@ -157,7 +164,7 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     // Last message / invite hint
     QFont msgFont = painter->font();
     msgFont.setBold(false);
-    msgFont.setPointSize(qMax(1, (int)(9 * Design::fontScale)));
+    msgFont.setPointSize(qMax(1, (int)(kLastMsgFont * Design::fontScale)));
     painter->setFont(msgFont);
     if (isInvite) {
         painter->setPen(Design::inviteTextColor);
@@ -171,20 +178,20 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         if (inviterName.isEmpty()) inviterName = "Someone";
         QString hint = inviterName + " invited you";
         painter->drawText(msgRect, Qt::AlignLeft | Qt::AlignVCenter,
-                          QFontMetrics(msgFont).elidedText(hint, Qt::ElideRight, textWidth - 60));
+                          QFontMetrics(msgFont).elidedText(hint, Qt::ElideRight, textWidth - kTextMargin));
         // Draw small [✓] [✗] buttons on the right
         QFont btnFont = painter->font();
-        btnFont.setPointSize(qMax(1, (int)(11 * Design::fontScale)));
+        btnFont.setPointSize(qMax(1, (int)(kBtnFont * Design::fontScale)));
         btnFont.setBold(true);
         painter->setFont(btnFont);
-        int btnY = option.rect.y() + (option.rect.height() - 28) / 2;
-        QRect acceptRect(option.rect.right() - 62, btnY, 28, 28);
+        int btnY = option.rect.y() + (option.rect.height() - kInviteBtnSize) / 2;
+        QRect acceptRect(option.rect.right() - kInviteAcceptX, btnY, kInviteBtnSize, kInviteBtnSize);
         painter->setBrush(QColor("#2d6a2d"));
         painter->setPen(Qt::NoPen);
         painter->drawRoundedRect(acceptRect, 5, 5);
         painter->setPen(Design::typingColor);
         painter->drawText(acceptRect, Qt::AlignCenter, "✓");
-        QRect rejectRect(option.rect.right() - 30, btnY, 28, 28);
+        QRect rejectRect(option.rect.right() - kInviteRejectX, btnY, kInviteBtnSize, kInviteBtnSize);
         painter->setBrush(QColor("#6a2d2d"));
         painter->setPen(Qt::NoPen);
         painter->drawRoundedRect(rejectRect, 4, 4);
@@ -210,13 +217,13 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
 
     // Unread badge (right side)
     if (unread > 0) {
-        QRect badgeRect(option.rect.right() - 28, option.rect.y() + 12, 24, 24);
+        QRect badgeRect(option.rect.right() - kUnreadRight, option.rect.y() + kUnreadTop, kUnreadW, kUnreadH);
         painter->setBrush(Design::unreadBadgeColor);
         painter->setPen(Qt::NoPen);
         painter->drawEllipse(badgeRect);
         QFont badgeFont = painter->font();
         badgeFont.setBold(true);
-        badgeFont.setPointSize(qMax(1, (int)(8 * Design::fontScale)));
+        badgeFont.setPointSize(qMax(1, (int)(kBadgeFont * Design::fontScale)));
         painter->setFont(badgeFont);
         painter->setPen(Qt::white);
         painter->drawText(badgeRect, Qt::AlignCenter, QString::number(unread));
@@ -227,7 +234,7 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
 
 QSize RoomListDelegate::sizeHint(const QStyleOptionViewItem& option,
                                    const QModelIndex& index) const {
-    return QSize(option.rect.width(), 56);
+    return QSize(option.rect.width(), kRowH);
 }
 
 bool RoomListDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
@@ -238,9 +245,9 @@ bool RoomListDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
     bool isInvite = index.data(RoomListModel::IsInviteRole).toBool();
     if (!isInvite) return false;
 
-    int btnY = option.rect.y() + (option.rect.height() - 28) / 2;
-    QRect acceptRect(option.rect.right() - 62, btnY, 28, 28);
-    QRect rejectRect(option.rect.right() - 30, btnY, 28, 28);
+    int btnY = option.rect.y() + (option.rect.height() - kInviteBtnSize) / 2;
+    QRect acceptRect(option.rect.right() - kInviteAcceptX, btnY, kInviteBtnSize, kInviteBtnSize);
+    QRect rejectRect(option.rect.right() - kInviteRejectX, btnY, kInviteBtnSize, kInviteBtnSize);
 
     if (acceptRect.contains(me->pos())) {
         emit inviteAccepted(index.data(RoomListModel::RoomIdRole).toString());

@@ -187,9 +187,9 @@ void LoginDialog::onLoginClicked() {
     }
 
     // Set the discovered URL on the client so login goes to the right server.
-    AccountInfo stubAcct;
-    stubAcct.homeserverUrl = discovered.data;
-    client_->setAccount(stubAcct);
+    auto current = client_->account();
+    current.homeserverUrl = discovered.data;
+    client_->setAccount(current);
 
     statusLabel_->setText(QString("Logging into %1...").arg(
         QString::fromStdString(discovered.data)));

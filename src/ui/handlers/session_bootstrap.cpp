@@ -55,6 +55,8 @@ void SessionBootstrap::start(const std::shared_ptr<MatrixClient>& client, const 
     userLabel->setText(" " + QString::fromStdString(client->account().userId) + " ");
     statusLabel->setText("Starting sync...");
 
+    sync->setClient(client);
+    sync->setSessionStore(store);
     E2eeInitHandler::init(client.get(), store.get(), sync,
         [=](bool ok, bool keysPublished) {
             LOG(LogChannel::E2EE, "E2eeInit: ok=%d decryptor isInitialized=%d",
@@ -90,8 +92,6 @@ void SessionBootstrap::start(const std::shared_ptr<MatrixClient>& client, const 
             statusLabel->setText("Starting sync...");
 
             notifier->init();
-            sync->setClient(client);
-            sync->setSessionStore(store);
             logMemorySnapshot("before-first-sync");
             sync->start();
         });

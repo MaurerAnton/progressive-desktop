@@ -304,7 +304,10 @@ void SyncEngine::uploadDeviceKeys() {
 
     if (result.ok) {
         LOG(LogChannel::E2EE, "uploadDeviceKeys: SUCCESS — response=[%.200s]", result.data.c_str());
-        if (store_) store_->saveE2eeFlag("keys_published", true);
+        if (store_) {
+            store_->saveE2eeFlag("keys_published", true);
+            LOG(LogChannel::E2EE, "uploadDeviceKeys: saved keys_published=true");
+        }
     } else {
         LOG(LogChannel::E2EE, "uploadDeviceKeys: FAILED — error=%s", result.error.message.c_str());
     }

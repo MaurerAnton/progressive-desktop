@@ -3,6 +3,7 @@
 // On PineTab 2 (Phosh) and most Linux desktops, QSystemTrayIcon uses
 // StatusNotifierItem D-Bus protocol to display notifications.
 #include "notifications.hpp"
+#include "../shared/theme.hpp"
 
 #include <QIcon>
 #include <QApplication>
@@ -16,6 +17,7 @@ namespace {
 inline constexpr int kTrayIconW = 32;
 inline constexpr int kTrayIconH = 32;
 inline constexpr int kNotifyMs  = 5000;
+inline constexpr int kTrayFontPx = 24;
 } // namespace
 
 DesktopNotifier::DesktopNotifier(QObject* parent) : QObject(parent) {}
@@ -31,12 +33,12 @@ bool DesktopNotifier::init() {
     if (tray_) return true;
     tray_ = new QSystemTrayIcon(this);
     QPixmap pix(kTrayIconW, kTrayIconH);
-    pix.fill(QColor("#1a1a2e"));
+    pix.fill(Design::trayIconBg);
     QPainter pp(&pix);
     pp.setRenderHint(QPainter::Antialiasing);
-    QFont iconFont; iconFont.setBold(true); iconFont.setPixelSize(24);
+    QFont iconFont; iconFont.setBold(true); iconFont.setPixelSize(kTrayFontPx);
     pp.setFont(iconFont);
-    pp.setPen(QColor("#6699cc"));
+    pp.setPen(Design::trayIconText);
     pp.drawText(pix.rect(), Qt::AlignCenter, "P");
     pp.end();
     tray_->setIcon(QIcon(pix));
@@ -47,7 +49,7 @@ bool DesktopNotifier::init() {
 
 void DesktopNotifier::notify(const QString& title, const QString& body) {
     if (!enabled_ || !tray_) return;
-    tray_->showMessage(title, body, QSystemTrayIcon::Information, 5000);
+    tray_->showMessage(title, body, QSystemTrayIcon::Information, kNotifyMs);
 }
 
 } // namespace progressive::desktop

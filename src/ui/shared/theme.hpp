@@ -60,6 +60,10 @@ struct Design {
     static inline QColor rejectButtonBg = QColor("#6a2d2d");
     static inline QColor rejectButtonText = QColor("#f66");
 
+    // Tray icon
+    static inline QColor trayIconBg   = QColor("#1a1a2e");
+    static inline QColor trayIconText = QColor("#6699cc");
+
     // Emoji picker
     static inline QColor emojiHoverBg = QColor("#3a3a3a");
 

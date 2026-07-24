@@ -123,7 +123,9 @@ void LoginDialog::onRegisterClicked() {
             else { const char* home = getenv("HOME"); dataPath = std::string(home ? home : "/tmp") + "/.local/share/progressive-desktop"; }
             std::filesystem::create_directories(dataPath);
             QString dbPath = QString::fromStdString(dataPath + "/session.db");
-            store_->open(dbPath.toStdString());
+        store_->open(dbPath.toStdString());
+        LOG(LogChannel::E2EE, "login: store open ok=%d db=%p",
+            store_->isOpen() ? 1 : 0, (void*)store_);
         }
         client_->setSessionStore(store_);
         client_->persistSession();
@@ -218,17 +220,19 @@ void LoginDialog::onLoginClicked() {
         return;
     }
 
-    // Persist session
-    if (store_) {
+    // Persist session — store is already open from main.cpp
+    if (store_ && !store_->isOpen()) {
         const char* xdg = getenv("XDG_DATA_HOME");
         std::string dataPath;
         if (xdg && xdg[0]) { dataPath = std::string(xdg) + "/progressive-desktop"; }
         else { const char* home = getenv("HOME"); dataPath = std::string(home ? home : "/tmp") + "/.local/share/progressive-desktop"; }
         std::filesystem::create_directories(dataPath);
         QString dbPath = QString::fromStdString(dataPath + "/session.db");
-        store_->open(dbPath.toStdString());
+        bool opened = store_->open(dbPath.toStdString());
+        LOG(LogChannel::E2EE, "login: store open ok=%d db=%p",
+            opened ? 1 : 0, (void*)store_);
     }
-    client_->setSessionStore(store_);
+    // setSessionStore already called in main.cpp:244 — skip redundant call
     auto saved = client_->account();
     LOG(LogChannel::E2EE, "SAVE: access=%.8s refresh=%.8s device=%s",
         saved.accessToken.c_str(), saved.refreshToken.c_str(), saved.deviceId.c_str());

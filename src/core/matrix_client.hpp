@@ -20,6 +20,8 @@
 
 #include <string>
 #include <unordered_map>
+#include <atomic>
+#include <memory>
 
 namespace progressive::desktop {
 
@@ -258,8 +260,14 @@ public:
     // ---- Account / session ----
 
     void setAccount(const AccountInfo& acct);
-    const AccountInfo& account() const { return account_; }
-    bool isLoggedIn() const { return !account_.accessToken.empty(); }
+    AccountInfo account() const {
+        auto ptr = accountPtr_.load();
+        return ptr ? *ptr : AccountInfo{};
+    }
+    bool isLoggedIn() const {
+        auto ptr = accountPtr_.load();
+        return ptr && !ptr->accessToken.empty();
+    }
 
     void setSessionStore(SessionStore* store) { sessionStore_ = store; }
 
@@ -354,7 +362,7 @@ public:
                                           const std::string& newBody);
 
 private:
-    AccountInfo account_;
+    std::atomic<std::shared_ptr<AccountInfo>> accountPtr_{std::make_shared<AccountInfo>()};
     SessionStore* sessionStore_ = nullptr;
 
     // Build the standard auth header if logged in.

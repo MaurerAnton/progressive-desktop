@@ -129,7 +129,7 @@ void SyncEngine::run() {
                                      "    4. Server-side token cleanup\n"
                                      "    5. SQLite session.db was corrupted and token is garbage\n");
 
-                const auto& acct = client_->account();
+                auto acct = client_->account();
                 std::fprintf(stderr, "[session]   user=%s device=%s refresh=%s\n",
                              acct.userId.c_str(),
                              acct.deviceId.c_str(),

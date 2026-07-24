@@ -103,8 +103,9 @@ MatrixClient::~MatrixClient() {
 
 std::unordered_map<std::string, std::string> MatrixClient::authHeaders() const {
     std::unordered_map<std::string, std::string> h;
-    if (!account_.accessToken.empty()) {
-        h["Authorization"] = "Bearer " + account_.accessToken;
+    auto acct = account();
+    if (!acct.accessToken.empty()) {
+        h["Authorization"] = "Bearer " + acct.accessToken;
     }
     h["Content-Type"] = "application/json";
     h["Accept"] = "application/json";
@@ -138,11 +139,11 @@ ApiResult<std::string> MatrixClient::discoverHomeserver(const std::string& userI
 
 ApiResult<std::string> MatrixClient::getVersions() {
     ApiResult<std::string> r;
-    if (account_.homeserverUrl.empty()) {
+    if (account().homeserverUrl.empty()) {
         r.error.message = "no homeserver URL set";
         return r;
     }
-    auto resp = httpGet(account_.homeserverUrl + "/_matrix/client/versions",
+    auto resp = httpGet(account().homeserverUrl + "/_matrix/client/versions",
                         authHeaders(), 10000);
     r.httpStatus = resp.statusCode;
     if (resp.success) {
@@ -157,11 +158,11 @@ ApiResult<std::string> MatrixClient::getVersions() {
 
 ApiResult<progressive::LoginAuthFlowsResult> MatrixClient::getLoginFlows() {
     ApiResult<progressive::LoginAuthFlowsResult> r;
-    if (account_.homeserverUrl.empty()) {
+    if (account().homeserverUrl.empty()) {
         r.error.message = "no homeserver URL set";
         return r;
     }
-    auto resp = httpGet(account_.homeserverUrl + "/_matrix/client/v3/login",
+    auto resp = httpGet(account().homeserverUrl + "/_matrix/client/v3/login",
                         authHeaders(), 10000);
     r.httpStatus = resp.statusCode;
     if (resp.success) {
@@ -178,19 +179,19 @@ ApiResult<AccountInfo> MatrixClient::loginWithPassword(const std::string& userna
                                                         const std::string& password,
                                                         const std::string& deviceId) {
     ApiResult<AccountInfo> r;
-    if (account_.homeserverUrl.empty()) {
+    if (account().homeserverUrl.empty()) {
         r.error.message = "no homeserver URL set (call discoverHomeserver first)";
         return r;
     }
     std::string body = buildLoginBody(username, password, deviceId);
-    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/login",
+    auto resp = httpPost(account().homeserverUrl + "/_matrix/client/v3/login",
                          body, authHeaders(), 30000);
     r.httpStatus = resp.statusCode;
     if (resp.success) {
-        r.data = parseLoginResponse(resp.body, account_.homeserverUrl);
+        r.data = parseLoginResponse(resp.body, account().homeserverUrl);
         if (r.data.isValid() ||
             (!r.data.userId.empty() && !r.data.accessToken.empty())) {
-            account_ = r.data;
+            setAccount(r.data);
             r.ok = true;
         } else {
             r.error.code = progressive::ErrorCode::M_UNKNOWN;
@@ -210,7 +211,7 @@ ApiResult<bool> MatrixClient::logout() {
         r.data = true;
         return r;
     }
-    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/logout",
+    auto resp = httpPost(account().homeserverUrl + "/_matrix/client/v3/logout",
                          "{}", authHeaders(), 10000);
     r.httpStatus = resp.statusCode;
     r.ok = resp.success;
@@ -219,13 +220,13 @@ ApiResult<bool> MatrixClient::logout() {
         r.error = progressive::parseMatrixErrorJson(resp.body);
     }
     // Clear local state regardless of server response.
-    account_ = AccountInfo{};
+    setAccount(AccountInfo{});
     return r;
 }
 
 ApiResult<AccountInfo> MatrixClient::refreshAccessToken(const std::string& refreshToken) {
     ApiResult<AccountInfo> r;
-    if (account_.homeserverUrl.empty() || refreshToken.empty()) {
+    if (account().homeserverUrl.empty() || refreshToken.empty()) {
         r.error.message = "no homeserver URL or refresh token";
         return r;
     }
@@ -234,14 +235,14 @@ ApiResult<AccountInfo> MatrixClient::refreshAccessToken(const std::string& refre
     // (possibly expired) access token. Use minimal headers.
     std::unordered_map<std::string, std::string> hdrs;
     hdrs["Content-Type"] = "application/json";
-    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/refresh",
+    auto resp = httpPost(account().homeserverUrl + "/_matrix/client/v3/refresh",
                          body, hdrs, 15000);
     LOG(LogChannel::NET, "/refresh http=%d body=[%.200s]",
         resp.statusCode,
         resp.body.data() ? resp.body.c_str() : "(null)");
     r.httpStatus = resp.statusCode;
     if (resp.success) {
-        r.data = parseLoginResponse(resp.body, account_.homeserverUrl);
+        r.data = parseLoginResponse(resp.body, account().homeserverUrl);
         r.ok = r.data.isValid();
         if (!r.ok) r.error.message = "refresh response missing access_token";
     } else {
@@ -264,7 +265,7 @@ ApiResult<std::string> MatrixClient::sendMessage(const std::string& roomId,
     uint64_t txn = static_cast<uint64_t>(std::time(nullptr)) * 1000 +
                     (txnCounter.fetch_add(1) % 1000);
     std::ostringstream url;
-    url << account_.homeserverUrl << "/_matrix/client/v3/rooms/"
+    url << account().homeserverUrl << "/_matrix/client/v3/rooms/"
         << urlEncodePath(roomId) << "/send/m.room.message/" << "pd" << txn;
 
     // Escape body for JSON
@@ -313,7 +314,7 @@ ApiResult<std::string> MatrixClient::getMessages(const std::string& roomId,
         return r;
     }
     std::ostringstream url;
-    url << account_.homeserverUrl << "/_matrix/client/v3/rooms/"
+    url << account().homeserverUrl << "/_matrix/client/v3/rooms/"
         << roomId << "/messages?dir=b&limit=" << limit;
     if (!from.empty()) url << "&from=" << from;
 
@@ -337,7 +338,7 @@ ApiResult<bool> MatrixClient::setReadMarker(const std::string& roomId,
         return r;
     }
     std::ostringstream url;
-    url << account_.homeserverUrl << "/_matrix/client/v3/rooms/" << roomId << "/read_markers";
+    url << account().homeserverUrl << "/_matrix/client/v3/rooms/" << roomId << "/read_markers";
     std::string body = R"({"m.read":")" + eventId + R"("})";
     auto resp = httpPost(url.str(), body, authHeaders(), 10000);
     r.httpStatus = resp.statusCode;
@@ -376,7 +377,7 @@ ApiResult<std::string> MatrixClient::createRoom(const std::string& name,
     }
     o << R"(,"visibility":"private"})";
 
-    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/createRoom",
+    auto resp = httpPost(account().homeserverUrl + "/_matrix/client/v3/createRoom",
                          o.str(), authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
     if (resp.success) {
@@ -410,7 +411,7 @@ ApiResult<std::string> MatrixClient::searchUsers(const std::string& query, int l
     }
     std::ostringstream o;
     o << R"({"search_term":")" << query << R"(","limit":)" << limit << "}";
-    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/user_directory/search",
+    auto resp = httpPost(account().homeserverUrl + "/_matrix/client/v3/user_directory/search",
                          o.str(), authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
     if (resp.success) {
@@ -430,7 +431,7 @@ ApiResult<std::string> MatrixClient::getUserProfile(const std::string& userId) {
         return r;
     }
     std::ostringstream url;
-    url << account_.homeserverUrl << "/_matrix/client/v3/profile/" << userId;
+    url << account().homeserverUrl << "/_matrix/client/v3/profile/" << userId;
     auto resp = httpGet(url.str(), authHeaders(), 10000);
     r.httpStatus = resp.statusCode;
     if (resp.success) {
@@ -461,7 +462,7 @@ ApiResult<std::string> MatrixClient::joinRoom(const std::string& roomIdOrAlias,
     // URL-encode the room ID/alias. Aliases start with '#' which MUST be
     // %23 in URLs. Room IDs start with '!' which is usually fine but
     // urlEncodePath handles spaces too.
-    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/join/" + urlEncodePath(roomIdOrAlias),
+    auto resp = httpPost(account().homeserverUrl + "/_matrix/client/v3/join/" + urlEncodePath(roomIdOrAlias),
                          body.str(), authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
     if (resp.success) {
@@ -478,7 +479,7 @@ ApiResult<std::string> MatrixClient::joinRoom(const std::string& roomIdOrAlias,
 ApiResult<bool> MatrixClient::leaveRoom(const std::string& roomId) {
     ApiResult<bool> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
-    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) + "/leave",
+    auto resp = httpPost(account().homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) + "/leave",
                          "{}", authHeaders(), 15000);
     r.httpStatus = resp.statusCode; r.ok = resp.success; r.data = resp.success;
     if (!resp.success && !resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
@@ -494,7 +495,7 @@ ApiResult<std::string> MatrixClient::sendReaction(const std::string& roomId,
     std::ostringstream body;
     body << "{\"m.relates_to\":{\"rel_type\":\"m.annotation\",\"event_id\":\""
          << jsonEscape(eventId) << "\",\"key\":\"" << jsonEscape(emoji) << "\"}}";
-    auto resp = httpPut(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) +
+    auto resp = httpPut(account().homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) +
                          "/send/m.reaction/" + txn, body.str(), authHeaders(), 10000);
     r.httpStatus = resp.statusCode;
     if (resp.success) {
@@ -515,7 +516,7 @@ ApiResult<bool> MatrixClient::redactEvent(const std::string& roomId,
     std::string body = reason.empty() ? "{}"
         : "{\"reason\":\"" + jsonEscape(reason) + "\"}";
     // PUT /_matrix/client/v3/rooms/{roomId}/redact/{eventId}/{txnId}
-    auto resp = httpPut(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) +
+    auto resp = httpPut(account().homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) +
                         "/redact/" + eventId + "/" + txn, body, authHeaders(), 10000);
     r.httpStatus = resp.statusCode; r.ok = resp.success; r.data = resp.success;
     if (!resp.success && !resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
@@ -586,7 +587,7 @@ ApiResult<bool> MatrixClient::unpinMessage(const std::string& roomId, const std:
 ApiResult<std::string> MatrixClient::getRoomState(const std::string& roomId) {
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
-    auto resp = httpGet(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) + "/state",
+    auto resp = httpGet(account().homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) + "/state",
                         authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
     if (resp.success) { r.ok = true; r.data = resp.body; }
@@ -600,7 +601,7 @@ ApiResult<std::string> MatrixClient::getRoomStateEvent(const std::string& roomId
                                                           const std::string& stateKey) {
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
-    std::string url = account_.homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId)
+    std::string url = account().homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId)
                       + "/state/" + eventType;
     if (!stateKey.empty()) url += "/" + stateKey;
     auto resp = httpGet(url, authHeaders(), 10000);
@@ -621,7 +622,7 @@ ApiResult<bool> MatrixClient::sendStateEvent(const std::string& roomId,
                                               const std::string& bodyJson) {
     ApiResult<bool> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
-    std::string url = account_.homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) +
+    std::string url = account().homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) +
                       "/state/" + eventType;
     if (!stateKey.empty()) url += "/" + stateKey;
     auto resp = httpPut(url, bodyJson, authHeaders(), 10000);
@@ -643,7 +644,7 @@ ApiResult<bool> MatrixClient::setRoomName(const std::string& roomId, const std::
 ApiResult<std::string> MatrixClient::getRoomMembers(const std::string& roomId) {
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
-    auto resp = httpGet(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) + "/members",
+    auto resp = httpGet(account().homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) + "/members",
                         authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
     if (resp.success) { r.ok = true; r.data = resp.body; }
@@ -657,7 +658,7 @@ ApiResult<bool> MatrixClient::kickUser(const std::string& roomId, const std::str
     std::string body = "{\"user_id\":\"" + jsonEscape(userId) + "\"";
     if (!reason.empty()) body += ",\"reason\":\"" + jsonEscape(reason) + "\"";
     body += "}";
-    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) + "/kick",
+    auto resp = httpPost(account().homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) + "/kick",
                          body, authHeaders(), 10000);
     r.httpStatus = resp.statusCode; r.ok = resp.success; r.data = resp.success;
     if (!resp.success && !resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
@@ -670,7 +671,7 @@ ApiResult<bool> MatrixClient::banUser(const std::string& roomId, const std::stri
     std::string body = "{\"user_id\":\"" + jsonEscape(userId) + "\"";
     if (!reason.empty()) body += ",\"reason\":\"" + jsonEscape(reason) + "\"";
     body += "}";
-    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) + "/ban",
+    auto resp = httpPost(account().homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) + "/ban",
                          body, authHeaders(), 10000);
     r.httpStatus = resp.statusCode; r.ok = resp.success; r.data = resp.success;
     if (!resp.success && !resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
@@ -681,7 +682,7 @@ ApiResult<bool> MatrixClient::unbanUser(const std::string& roomId, const std::st
     ApiResult<bool> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
     std::string body = "{\"user_id\":\"" + jsonEscape(userId) + "\"}";
-    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) + "/unban",
+    auto resp = httpPost(account().homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) + "/unban",
                          body, authHeaders(), 10000);
     r.httpStatus = resp.statusCode; r.ok = resp.success; r.data = resp.success;
     if (!resp.success && !resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
@@ -787,7 +788,7 @@ ApiResult<std::string> MatrixClient::getThreads(const std::string& roomId, const
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
     std::ostringstream url;
     // /threads endpoint is v1 per Matrix spec
-    url << account_.homeserverUrl << "/_matrix/client/v1/rooms/" << urlEncodePath(roomId)
+    url << account().homeserverUrl << "/_matrix/client/v1/rooms/" << urlEncodePath(roomId)
         << "/threads?limit=" << limit;
     if (!from.empty()) url << "&from=" << from;
     auto resp = httpGet(url.str(), authHeaders(), 15000);
@@ -803,7 +804,7 @@ ApiResult<std::string> MatrixClient::getThreadReplies(const std::string& roomId,
     // /relations endpoint is v1 per Matrix spec.
     // Returns {original_event: ..., chunk: [...replies...]}
     std::ostringstream url;
-    url << account_.homeserverUrl << "/_matrix/client/v1/rooms/" << urlEncodePath(roomId)
+    url << account().homeserverUrl << "/_matrix/client/v1/rooms/" << urlEncodePath(roomId)
         << "/relations/" << urlEncodePath(rootEventId) << "/m.thread?limit=50&dir=f";
     auto resp = httpGet(url.str(), authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
@@ -822,7 +823,7 @@ ApiResult<std::string> MatrixClient::searchPublicRooms(const std::string& server
     if (!from.empty()) body << ",\"from\":\"" << jsonEscape(from) << "\"";
     if (!query.empty()) body << ",\"filter\":{\"generic_search_term\":\"" << jsonEscape(query) << "\"}";
     body << "}";
-    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/publicRooms",
+    auto resp = httpPost(account().homeserverUrl + "/_matrix/client/v3/publicRooms",
                          body.str(), authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
     if (resp.success) { r.ok = true; r.data = resp.body; }
@@ -834,7 +835,7 @@ ApiResult<std::string> MatrixClient::getSpaceHierarchy(const std::string& spaceI
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
     std::ostringstream url;
-    url << account_.homeserverUrl << "/_matrix/client/v1/rooms/" << spaceId
+    url << account().homeserverUrl << "/_matrix/client/v1/rooms/" << spaceId
         << "/hierarchy?max_depth=" << maxDepth;
     auto resp = httpGet(url.str(), authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
@@ -849,9 +850,9 @@ ApiResult<std::vector<uint8_t>> MatrixClient::downloadMedia(const std::string& m
     // Resolve mxc:// to HTTP URL using progressive::resolveMxcDownloadUrl / resolveMxcThumbnailUrl
     std::string httpUrl;
     if (width > 0 && height > 0) {
-        httpUrl = progressive::resolveMxcThumbnailUrl(mxcUrl, account_.homeserverUrl, width, height, "scale");
+        httpUrl = progressive::resolveMxcThumbnailUrl(mxcUrl, account().homeserverUrl, width, height, "scale");
     } else {
-        httpUrl = progressive::resolveMxcDownloadUrl(mxcUrl, account_.homeserverUrl);
+        httpUrl = progressive::resolveMxcDownloadUrl(mxcUrl, account().homeserverUrl);
     }
     if (httpUrl.empty() || httpUrl == mxcUrl) {
         r.error.message = "invalid mxc URL";
@@ -877,7 +878,7 @@ ApiResult<progressive::SyncResponse> MatrixClient::sync(const std::string& since
         return r;
     }
     std::ostringstream url;
-    url << account_.homeserverUrl << "/_matrix/client/v3/sync"
+    url << account().homeserverUrl << "/_matrix/client/v3/sync"
         << "?timeout=" << timeoutMs
         << "&full_state=false";
     if (!since.empty()) url << "&since=" << since;
@@ -905,7 +906,7 @@ MatrixClient::FastSyncResult MatrixClient::syncFast(const std::string& since,
         return r;
     }
     std::ostringstream url;
-    url << account_.homeserverUrl << "/_matrix/client/v3/sync"
+    url << account().homeserverUrl << "/_matrix/client/v3/sync"
         << "?timeout=" << timeoutMs
         << "&full_state=" << (fullState ? "true" : "false");
     if (!since.empty()) url << "&since=" << since;
@@ -925,19 +926,19 @@ MatrixClient::FastSyncResult MatrixClient::syncFast(const std::string& since,
 }
 
 void MatrixClient::setAccount(const AccountInfo& acct) {
-    account_ = acct;
+    accountPtr_.store(std::make_shared<AccountInfo>(acct));
 }
 
 bool MatrixClient::persistSession() {
     if (!sessionStore_) return false;
-    return sessionStore_->saveAccount(account_);
+    return sessionStore_->saveAccount(account());
 }
 
 bool MatrixClient::loadSavedSession() {
     if (!sessionStore_) return false;
     auto acct = sessionStore_->loadAccount();
     if (acct && !acct->userId.empty() && !acct->accessToken.empty()) {
-        account_ = *acct;
+        setAccount(*acct);
         return true;
     }
     return false;
@@ -948,7 +949,7 @@ bool MatrixClient::loadSavedSession() {
 ApiResult<std::string> MatrixClient::uploadKeys(const std::string& body) {
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
-    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/keys/upload",
+    auto resp = httpPost(account().homeserverUrl + "/_matrix/client/v3/keys/upload",
                          body, authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
     if (resp.success) { r.ok = true; r.data = resp.body; }
@@ -960,7 +961,7 @@ ApiResult<std::string> MatrixClient::uploadKeys(const std::string& body) {
 ApiResult<std::string> MatrixClient::queryKeys(const std::string& body) {
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
-    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/keys/query",
+    auto resp = httpPost(account().homeserverUrl + "/_matrix/client/v3/keys/query",
                          body, authHeaders(), 30000);
     r.httpStatus = resp.statusCode;
     if (resp.success) { r.ok = true; r.data = resp.body; }
@@ -972,7 +973,7 @@ ApiResult<std::string> MatrixClient::queryKeys(const std::string& body) {
 ApiResult<std::string> MatrixClient::claimKeys(const std::string& body) {
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
-    auto resp = httpPost(account_.homeserverUrl + "/_matrix/client/v3/keys/claim",
+    auto resp = httpPost(account().homeserverUrl + "/_matrix/client/v3/keys/claim",
                          body, authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
     if (resp.success) { r.ok = true; r.data = resp.body; }
@@ -986,7 +987,7 @@ ApiResult<bool> MatrixClient::sendToDevice(const std::string& eventType,
                                               const std::string& body) {
     ApiResult<bool> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
-    std::string url = account_.homeserverUrl + "/_matrix/client/v3/sendToDevice/" +
+    std::string url = account().homeserverUrl + "/_matrix/client/v3/sendToDevice/" +
                       eventType + "/" + txnId;
     auto resp = httpPut(url, body, authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
@@ -1004,7 +1005,7 @@ ApiResult<std::string> MatrixClient::uploadMedia(const std::vector<uint8_t>& dat
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
     std::ostringstream url;
-    url << account_.homeserverUrl << "/_matrix/media/v3/upload";
+    url << account().homeserverUrl << "/_matrix/media/v3/upload";
     if (!filename.empty()) url << "?filename=" << filename;
 
     // Build headers with content type
@@ -1108,8 +1109,8 @@ ApiResult<bool> MatrixClient::setDisplayName(const std::string& displayName) {
     ApiResult<bool> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
     std::string body = "{\"displayname\":\"" + jsonEscape(displayName) + "\"}";
-    std::string url = account_.homeserverUrl + "/_matrix/client/v3/profile/" +
-                     urlEncodePath(account_.userId) + "/displayname";
+    std::string url = account().homeserverUrl + "/_matrix/client/v3/profile/" +
+                     urlEncodePath(account().userId) + "/displayname";
     auto resp = httpPut(url, body, authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
     r.ok = resp.success;
@@ -1122,8 +1123,8 @@ ApiResult<bool> MatrixClient::setAvatarUrl(const std::string& mxcUrl) {
     ApiResult<bool> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
     std::string body = "{\"avatar_url\":\"" + jsonEscape(mxcUrl) + "\"}";
-    std::string url = account_.homeserverUrl + "/_matrix/client/v3/profile/" +
-                     urlEncodePath(account_.userId) + "/avatar_url";
+    std::string url = account().homeserverUrl + "/_matrix/client/v3/profile/" +
+                     urlEncodePath(account().userId) + "/avatar_url";
     auto resp = httpPut(url, body, authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
     r.ok = resp.success;
@@ -1135,7 +1136,7 @@ ApiResult<bool> MatrixClient::setAvatarUrl(const std::string& mxcUrl) {
 ApiResult<std::string> MatrixClient::getProfile(const std::string& userId) {
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
-    std::string url = account_.homeserverUrl + "/_matrix/client/v3/profile/" + urlEncodePath(userId);
+    std::string url = account().homeserverUrl + "/_matrix/client/v3/profile/" + urlEncodePath(userId);
     auto resp = httpGet(url, authHeaders(), 10000);
     r.httpStatus = resp.statusCode;
     if (resp.success) { r.ok = true; r.data = resp.body; }
@@ -1156,7 +1157,7 @@ ApiResult<std::string> MatrixClient::sendThreadReply(const std::string& roomId,
              << R"(","m.relates_to":{"rel_type":"m.thread","event_id":")"
              << jsonEscape(rootEventId) << R"("}})";
     std::ostringstream url;
-    url << account_.homeserverUrl << "/_matrix/client/v3/rooms/"
+    url << account().homeserverUrl << "/_matrix/client/v3/rooms/"
         << urlEncodePath(roomId) << "/send/m.room.message/" << txn;
     auto resp = httpPut(url.str(), jsonBody.str(), authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
@@ -1177,7 +1178,7 @@ ApiResult<std::string> MatrixClient::sendEncryptedEvent(const std::string& roomI
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
     std::ostringstream url;
-    url << account_.homeserverUrl << "/_matrix/client/v3/rooms/"
+    url << account().homeserverUrl << "/_matrix/client/v3/rooms/"
         << urlEncodePath(roomId) << "/send/m.room.encrypted/" << txnId;
     auto resp = httpPut(url.str(), contentJson, authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
@@ -1199,7 +1200,7 @@ ApiResult<std::string> MatrixClient::sendMessageEvent(const std::string& roomId,
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
     std::string txn = genTxnId("pd");
     std::ostringstream url;
-    url << account_.homeserverUrl << "/_matrix/client/v3/rooms/"
+    url << account().homeserverUrl << "/_matrix/client/v3/rooms/"
         << urlEncodePath(roomId) << "/send/" << eventType << "/" << txn;
     auto resp = httpPut(url.str(), contentJson, authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
@@ -1226,7 +1227,7 @@ ApiResult<std::string> MatrixClient::editMessage(const std::string& roomId,
              << R"("},"m.relates_to":{"rel_type":"m.replace","event_id":")"
              << jsonEscape(originalEventId) << R"("}})";
     std::ostringstream url;
-    url << account_.homeserverUrl << "/_matrix/client/v3/rooms/"
+    url << account().homeserverUrl << "/_matrix/client/v3/rooms/"
         << urlEncodePath(roomId) << "/send/m.room.message/" << txn;
     auto resp = httpPut(url.str(), jsonBody.str(), authHeaders(), 15000);
     r.httpStatus = resp.statusCode;

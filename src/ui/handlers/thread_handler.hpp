@@ -20,6 +20,8 @@ public:
                   QLabel* threadBanner, QLabel* statusLabel,
                   QPointer<MainWindow> mw, QObject* parent = nullptr);
 
+    void setClient(std::shared_ptr<MatrixClient> c) { client_ = std::move(c); }
+
     const std::string& currentThreadRoot() const { return currentThreadRoot_; }
     void clearThreadRoot() { currentThreadRoot_.clear(); }
 

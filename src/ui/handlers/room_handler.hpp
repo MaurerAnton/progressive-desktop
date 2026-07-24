@@ -40,7 +40,7 @@ public:
                 QObject* parent = nullptr);
     ~RoomHandler();
 
-    void setClient(std::shared_ptr<MatrixClient> c) { client_ = std::move(c); }
+    void setClient(std::shared_ptr<MatrixClient> c);
 
     const std::string& currentRoomId() const { return currentRoomIdStr_; }
     const std::string& currentPrevBatch() const { return currentPrevBatch_; }

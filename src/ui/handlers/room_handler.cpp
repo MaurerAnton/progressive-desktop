@@ -207,6 +207,12 @@ RoomHandler::~RoomHandler() {
     if (roomLifeToken_) *roomLifeToken_ = false;
 }
 
+void RoomHandler::setClient(std::shared_ptr<MatrixClient> c) {
+    client_ = std::move(c);
+    if (threadHandler_) threadHandler_->setClient(client_);
+    if (contextMenu_) contextMenu_->setClient(client_);
+}
+
 void RoomHandler::onRoomClicked(const QModelIndex& idx) {
     const RoomData* r = roomModel_->at(idx.row());
     if (!r) return;

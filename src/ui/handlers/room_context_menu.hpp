@@ -25,6 +25,8 @@ public:
                     ThreadHandler* threadHandler, QLabel* statusLabel,
                     QPointer<MainWindow> mw, QObject* parent = nullptr);
 
+    void setClient(std::shared_ptr<MatrixClient> c) { client_ = std::move(c); }
+
 public slots:
     void showTimelineContextMenu(const QString& eventId, const QPoint& globalPos,
                                   const std::string& roomId);

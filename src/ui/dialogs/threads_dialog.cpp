@@ -15,6 +15,13 @@
 
 namespace progressive::desktop {
 
+namespace {
+inline constexpr int kThreadsW  = 600;
+inline constexpr int kThreadsH  = 400;
+inline constexpr int kLogTrunc  = 500;
+inline constexpr int kEidTrunc  = 20;
+} // namespace
+
 ThreadsDialog::ThreadsDialog(MatrixClient* client, const std::string& roomId, QWidget* parent)
     : QDialog(parent), client_(client), roomId_(roomId) {
     setWindowTitle("Threads in this room");

@@ -15,7 +15,7 @@ int ds(double pt) { return qMax(1, (int)(pt * Design::fontScale)); }
 int calcTextHeight(const QString& body, const QString& msgtype, int textWidth) {
     if (body.isEmpty()) return 0;
     QTextDocument doc;
-    doc.setDefaultFont(QFont(QApplication::font().family(), ds(10)));
+    doc.setDefaultFont(QFont(QApplication::font().family(), ds(kFontSizeBody)));
     if (msgtype == "m.text" || msgtype == "m.emote" || msgtype.isEmpty()) {
         std::string html = progressive::markdownToHtml(body.toStdString());
         if (html.empty()) doc.setPlainText(body);
@@ -78,7 +78,7 @@ BubbleLayout computeLayout(const QModelIndex& idx, const QString& myUserId, int 
     L.isLastInGroup = groupLast || isEmote;
 
     if (!isOutgoing && !isEmote && L.isFirstInGroup && !senderName.isEmpty())
-        L.nameH = 18;
+        L.nameH = kNameRowH;
 
     int textW = bubbleW - kBubblePadding * 2;
     if (!body.isEmpty() || isEmote) {
@@ -89,15 +89,15 @@ BubbleLayout computeLayout(const QModelIndex& idx, const QString& myUserId, int 
     if (hasImage)
         L.imageH = imageLoaded ? kImageLoadedH : kImagePlaceholderH;
 
-    if (pinned)           L.pinnedH     = 14;
-    if (isThreadReply)     L.threadReplyH = 14;
-    if (isReply && !replyTo.isEmpty()) L.replyH = 14;
-    if (threadCount > 0)  L.threadCountH = 16;
+    if (pinned)           L.pinnedH = kIndicatorRowH;
+    if (isThreadReply)     L.threadReplyH = kIndicatorRowH;
+    if (isReply && !replyTo.isEmpty()) L.replyH = kIndicatorRowH;
+    if (threadCount > 0)  L.threadCountH = kThreadCountRowH;
 
     auto rxns = idx.data(TimelineModel::ReactionsRole).value<QStringList>();
     if (!rxns.isEmpty()) {
-        int perRow = qMax(1, (bubbleW - kBubblePadding * 2) / 100);
-        L.reactionH = qMin(2, ((int)rxns.size() + perRow - 1) / perRow) * 20;
+        int perRow = qMax(1, (bubbleW - kBubblePadding * 2) / kReactionPillAvgW);
+        L.reactionH = qMin(2, ((int)rxns.size() + perRow - 1) / perRow) * kReactionPillH;
     }
 
     L.bubbleH = L.totalBubbleH();

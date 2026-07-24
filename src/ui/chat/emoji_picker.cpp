@@ -15,6 +15,22 @@
 namespace progressive::desktop {
 
 namespace {
+inline constexpr int kPickerW      = 420;
+inline constexpr int kPickerH      = 350;
+inline constexpr int kSearchFont   = 11;
+inline constexpr int kGridSpacing  = 2;
+inline constexpr int kGridMargins  = 4;
+inline constexpr int kEmojiCols    = 10;
+inline constexpr int kEmojiFont    = 24;
+inline constexpr int kEmojiBtnW    = 34;
+inline constexpr int kEmojiBtnH    = 34;
+inline constexpr int kIconW        = 28;
+inline constexpr int kIconH        = 28;
+inline constexpr int kRenderSz     = 32;
+inline constexpr int kTabBarH      = 28;
+} // namespace
+
+namespace {
 
 // Named emoji database. Each entry: (emoji, name, keywords).
 // Names follow shortcodes similar to :short_code: used in Matrix.

@@ -9,6 +9,13 @@
 
 namespace progressive::desktop {
 
+namespace {
+inline constexpr int kPrefsW   = 500;
+inline constexpr int kPrefsH   = 500;
+inline constexpr int kCacheMin = 5;
+inline constexpr int kCacheMax = 500;
+} // namespace
+
 PrefsDialog::PrefsDialog(QWidget* parent) : QDialog(parent) {
     setWindowTitle("Preferences");
     setMinimumWidth(360);

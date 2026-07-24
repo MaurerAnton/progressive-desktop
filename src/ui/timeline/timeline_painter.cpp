@@ -44,7 +44,7 @@ QString shortName(const QString& mxid) {
 void drawRichText(QPainter* p, const QRect& r, const QString& body,
                   const QString& msgtype, bool isOutgoing) {
     QTextDocument doc;
-    doc.setDefaultFont(QFont(QApplication::font().family(), ds(10)));
+    doc.setDefaultFont(QFont(QApplication::font().family(), ds(kFontSizeBody)));
     if (msgtype == "m.notice" && body == "[Message deleted]") {
         QString html = "<s style='color:#666;'>" + body.toHtmlEscaped() + "</s>";
         doc.setHtml(html);
@@ -156,7 +156,7 @@ void drawBubbleAvatar(QPainter* p, int x, int y,
         }
         QFont f = p->font();
         f.setBold(true);
-        f.setPointSize(ds(11));
+        f.setPointSize(ds(kFontSizeName));
         p->setFont(f);
         p->setPen(Qt::white);
         p->drawText(r, Qt::AlignCenter, letter);
@@ -170,7 +170,7 @@ void drawSystemRow(QPainter* p, const QRect& rect, const QModelIndex& idx,
     p->setPen(Design::systemTextColor);
     QFont f = p->font();
     f.setItalic(true);
-    f.setPointSize(ds(10));
+    f.setPointSize(ds(kFontSizeBody));
     p->setFont(f);
 
     QString text;
@@ -226,7 +226,7 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
 
     if (!isOutgoing && !isEmote && L.isFirstInGroup && !senderName.isEmpty()) {
         QFont nameFont = p->font();
-        nameFont.setPointSize(ds(10));
+        nameFont.setPointSize(ds(kFontSizeBody));
         nameFont.setBold(true);
         p->setFont(nameFont);
         p->setPen(colorFromId(senderId));
@@ -254,14 +254,14 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
 
     if (pinned) {
         p->setPen(Design::pinnedColor);
-        QFont f = p->font(); f.setPointSize(ds(9)); p->setFont(f);
+        QFont f = p->font(); f.setPointSize(ds(kFontSizeSmall)); p->setFont(f);
         p->drawText(textX, curY, textW, 14, Qt::AlignLeft, "📌 Pinned");
         curY += 14;
     }
 
     if (isThreadReply) {
         p->setPen(Design::threadColor);
-        QFont f = p->font(); f.setPointSize(ds(9)); p->setFont(f);
+        QFont f = p->font(); f.setPointSize(ds(kFontSizeSmall)); p->setFont(f);
         p->drawText(textX, curY, textW, 14, Qt::AlignLeft, "🧵 thread reply");
         curY += 14;
     }
@@ -272,19 +272,19 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
         if (origRow >= 0) {
             auto* orig = model->at(origRow);
             if (orig) {
-                QString preview = QString::fromStdString(orig->body).left(60);
+                QString preview = QString::fromStdString(orig->body).left(kReplyPreviewMax);
                 if (preview.isEmpty()) preview = "...";
-                QFont f = p->font(); f.setPointSize(ds(9)); p->setFont(f);
-                p->setPen(QColor("#555"));
+                QFont f = p->font(); f.setPointSize(ds(kFontSizeSmall)); p->setFont(f);
+                p->setPen(Design::replyLineColor);
                 p->drawLine(textX + 2, curY + 2, textX + 2, curY + 14);
-                p->setPen(QColor("#888"));
+                p->setPen(Design::mutedTextColor);
                 p->drawText(textX + 8, curY + 2, textW - 8, 14, Qt::AlignLeft,
                             QString::fromStdString(orig->senderName) + ": " + preview);
                 curY += 14;
             }
         } else {
-            QFont f = p->font(); f.setPointSize(ds(9)); p->setFont(f);
-            p->setPen(QColor("#888"));
+            QFont f = p->font(); f.setPointSize(ds(kFontSizeSmall)); p->setFont(f);
+            p->setPen(Design::mutedTextColor);
             p->drawText(textX, curY, textW, 14, Qt::AlignLeft, "↩ replied");
             curY += 14;
         }
@@ -293,7 +293,7 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
     if (isEmote) {
         QString emoteText = "* " + senderName + " " + body;
         p->setPen(Design::emoteColor);
-        QFont f = p->font(); f.setItalic(true); f.setPointSize(ds(10)); p->setFont(f);
+        QFont f = p->font(); f.setItalic(true); f.setPointSize(ds(kFontSizeBody)); p->setFont(f);
         QRect emoteRect(bubbleX + kBubblePadding, bubbleY + 6, textW, L.textH + 14);
         p->drawText(emoteRect, Qt::AlignLeft | Qt::TextWordWrap, emoteText);
     } else if (!body.isEmpty()) {
@@ -301,26 +301,26 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
         int textH = textBottom - curY;
         if (textH < 20) textH = 20;
         if (msgtype == "m.file" || msgtype == "m.audio") {
-            int cardH = 38;
+            int cardH = kFileCardH;
             int cardW = qMin(textW, 250);
             QRect cardRect(textX, curY, cardW, cardH);
-            p->setPen(QPen(QColor("#444"), 1));
+            p->setPen(QPen(Design::fileCardBorder, 1));
             p->setBrush(QColor("#1e1e2e"));
             p->drawRoundedRect(cardRect, 6, 6);
             p->setPen(QPen(QColor(msgtype == "m.audio" ? "#4a6" : "#48a"), 3));
             p->drawLine(textX + 2, curY + 4, textX + 2, curY + cardH - 4);
-            QFont iconFont = p->font(); iconFont.setPointSize(ds(14)); p->setFont(iconFont);
-            p->setPen(QColor("#ccc"));
+            QFont iconFont = p->font(); iconFont.setPointSize(ds(kFontSizeEmoji)); p->setFont(iconFont);
+            p->setPen(Design::fileCardIconText);
             p->drawText(textX + 12, curY + 4, 24, 30, Qt::AlignCenter,
                         msgtype == "m.audio" ? "🎵" : "📄");
-            QFont nameF = p->font(); nameF.setPointSize(ds(10)); nameF.setBold(true);
+            QFont nameF = p->font(); nameF.setPointSize(ds(kFontSizeBody)); nameF.setBold(true);
             p->setFont(nameF);
-            p->setPen(QColor("#ddd"));
+            p->setPen(Design::fileCardFileName);
             QFontMetrics nfm(nameF);
             p->drawText(textX + 40, curY + 6, cardW - 48, 18, Qt::AlignLeft,
                         nfm.elidedText(body, Qt::ElideMiddle, cardW - 48));
-            QFont typeF = p->font(); typeF.setPointSize(ds(8)); p->setFont(typeF);
-            p->setPen(QColor("#888"));
+            QFont typeF = p->font(); typeF.setPointSize(ds(kFontSizeCaption)); p->setFont(typeF);
+            p->setPen(Design::mutedTextColor);
             p->drawText(textX + 40, curY + 22, cardW - 48, 14, Qt::AlignLeft,
                         msgtype == "m.audio" ? "Audio file" : "File");
             curY += cardH + 4;
@@ -346,20 +346,20 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
                     QRect playBtn(imgRect.center().x() - 15, imgRect.center().y() - 15, 30, 30);
                     p->drawEllipse(playBtn);
                     p->setPen(Qt::white);
-                    QFont pf = p->font(); pf.setPointSize(ds(12)); p->setFont(pf);
+                    QFont pf = p->font(); pf.setPointSize(ds(kFontSizeIcon)); p->setFont(pf);
                     p->drawText(playBtn, Qt::AlignCenter, "▶");
                 }
             }
         } else {
             QRect placeholderRect(bubbleX + kBubblePadding, curY, maxW, kImagePlaceholderH);
-            p->setPen(QPen(QColor("#3a3a3a"), 1));
-            p->setBrush(QColor("#1a1a1a"));
+            p->setPen(QPen(Design::reactionBorder, 1));
+            p->setBrush(Design::imgPlaceholderBg);
             p->drawRoundedRect(placeholderRect, 6, 6);
-            p->setPen(QColor("#888"));
-            QFont pf = p->font(); pf.setPointSize(ds(10)); p->setFont(pf);
+            p->setPen(Design::imgPlaceholderText);
+            QFont pf = p->font(); pf.setPointSize(ds(kFontSizeBody)); p->setFont(pf);
             p->drawText(placeholderRect, Qt::AlignCenter,
                         msgtype == "m.video" ? "🎬 loading..." : "🖼 loading...");
-            curY += 102;
+            curY += kImagePlaceholderH + 2;
             QString eventId = idx.data(TimelineModel::EventIdRole).toString();
             loader->fetchThumbnail(
                 mxcUrl.toStdString(), kMaxImageW, kImageLoadedH,
@@ -375,7 +375,7 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
 
     if (threadCount > 0) {
         p->setPen(Design::threadColor);
-        QFont f = p->font(); f.setPointSize(ds(9)); p->setFont(f);
+        QFont f = p->font(); f.setPointSize(ds(kFontSizeSmall)); p->setFont(f);
         int tcY = bubbleY + L.bubbleH - kPadBottom - kTimeRowH - L.threadCountH - 2;
         p->drawText(textX, tcY, textW, 14, Qt::AlignLeft,
                     QString("💬 %1 %2").arg(threadCount)
@@ -385,7 +385,7 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
     QString timeStr = formatTime(ts);
     if (!timeStr.isEmpty()) {
         p->setPen(Design::timeColor);
-        QFont f = p->font(); f.setPointSize(ds(9)); p->setFont(f);
+        QFont f = p->font(); f.setPointSize(ds(kFontSizeSmall)); p->setFont(f);
         QFontMetrics fm(f);
         int tw = fm.horizontalAdvance(timeStr);
         int ty = bubbleY + L.bubbleH - kPadBottom - kTimeRowH;
@@ -398,12 +398,12 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
     if (!reactions.isEmpty()) {
         int baseY;
         if (L.isLastInGroup) {
-            baseY = bubbleY + L.bubbleH + 2;
+            baseY = bubbleY + L.bubbleH + kBalloonBuf;
         } else {
             baseY = bubbleY + L.bubbleH - kPadBottom - kTimeRowH - L.reactionH;
-            if (threadCount > 0) baseY -= L.threadCountH + 2;
+            if (threadCount > 0) baseY -= L.threadCountH + kBalloonBuf;
         }
-        QFont pillFont = p->font(); pillFont.setPointSize(ds(9)); p->setFont(pillFont);
+        QFont pillFont = p->font(); pillFont.setPointSize(ds(kFontSizeSmall)); p->setFont(pillFont);
         QFontMetrics fm(pillFont);
         auto rows = computeReactionLayout(reactions, bubbleX, baseY, bubbleW, fm);
         for (const auto& row : rows) {
@@ -411,13 +411,13 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
                 p->setPen(Design::reactionBorder);
                 p->setBrush(Design::reactionBg);
                 p->drawRoundedRect(row.rect, 8, 8);
-                p->setPen(QColor("#e8e8e8"));
+                p->setPen(Design::reactionTextColor);
                 p->drawText(row.rect, Qt::AlignCenter, row.text);
             } else {
                 p->setPen(QColor("#3a3a3a"));
                 p->setBrush(QColor("#2a2a2a"));
                 p->drawRoundedRect(row.rect, 8, 8);
-                p->setPen(QColor("#e8e8e8"));
+                p->setPen(Design::reactionTextColor);
                 p->drawText(row.rect, Qt::AlignCenter, row.text);
             }
         }

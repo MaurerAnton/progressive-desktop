@@ -38,7 +38,7 @@ inline constexpr int kFontSizeEmoji      = 14;
 
 inline constexpr int kIndicatorRowH  = 14;
 inline constexpr int kNameRowH       = 18;
-inline constexpr int kThreadCountH_val = 16;  // display value, same role as kTimeRowH
+inline constexpr int kThreadCountRowH = 16;  // display value, same role as kTimeRowH
 inline constexpr int kBalloonBuf      = 2;      // gap below last-in-group bubble for reactions
 inline constexpr int kEmotePadY       = 6;       // top padding inside emote bubble
 inline constexpr int kEmoteBottomPad  = 18;      // bottom clearance for emote bubble
@@ -61,6 +61,10 @@ inline constexpr int kFileCardBarOff  = 2;
 inline constexpr int kReplyBarOffX    = 2;
 inline constexpr int kReplyTextOffX   = 8;
 inline constexpr int kReplyPreviewMax = 60;
+
+inline constexpr int kReactionPillAvgW = 100;
+inline constexpr int kFallbackViewW    = 600;
+inline constexpr int kMinUsableViewW   = 40;
 
 struct ReactionRow {
     QRect rect;

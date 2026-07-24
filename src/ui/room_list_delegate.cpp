@@ -16,6 +16,23 @@
 
 namespace progressive::desktop {
 
+namespace {
+inline constexpr int kAvatarPad      = 8;
+inline constexpr int kAvatarSz       = 36;
+inline constexpr int kThumbnailSz    = 64;
+inline constexpr int kTextMargin     = 60;
+inline constexpr int kTextRowOff     = 6;
+inline constexpr int kDescRowOff     = 26;
+inline constexpr int kSecondRowH     = 20;
+inline constexpr int kInviteBtnSize  = 28;
+inline constexpr int kInviteAcceptX  = 62;
+inline constexpr int kInviteRejectX  = 30;
+inline constexpr int kUnreadPad      = 4;
+inline constexpr int kUnreadW        = 24;
+inline constexpr int kUnreadH        = 24;
+inline constexpr int kRowH           = 56;
+} // namespace
+
 RoomListDelegate::RoomListDelegate(ImageLoader* loader, QObject* parent)
     : QStyledItemDelegate(parent), loader_(loader) {}
 

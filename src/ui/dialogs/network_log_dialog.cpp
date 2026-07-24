@@ -11,6 +11,13 @@
 
 namespace progressive::desktop {
 
+namespace {
+inline constexpr int kNetLogW    = 750;
+inline constexpr int kNetLogH    = 500;
+inline constexpr int kLogRefresh = 2000;
+inline constexpr int kScrollHysteresis = 10;
+} // namespace
+
 NetworkLogDialog::NetworkLogDialog(QWidget* parent) : QDialog(parent) {
     setWindowTitle("Network Log");
     resize(750, 500);

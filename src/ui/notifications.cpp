@@ -10,6 +10,12 @@
 
 namespace progressive::desktop {
 
+namespace {
+inline constexpr int kTrayIconW = 32;
+inline constexpr int kTrayIconH = 32;
+inline constexpr int kNotifyMs  = 5000;
+} // namespace
+
 DesktopNotifier::DesktopNotifier(QObject* parent) : QObject(parent) {}
 
 DesktopNotifier::~DesktopNotifier() {

@@ -20,6 +20,12 @@
 namespace progressive::desktop {
 
 namespace {
+inline constexpr int kSettingsW   = 600;
+inline constexpr int kSettingsH   = 500;
+inline constexpr int kTopicMaxH   = 80;
+} // namespace
+
+namespace {
 
 // Parse members response using simdjson — safe, fast, no string scan crashes.
 struct MemberInfo {

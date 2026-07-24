@@ -12,6 +12,13 @@
 
 namespace progressive::desktop {
 
+namespace {
+inline constexpr int kBtnW       = 36;
+inline constexpr int kBtnH       = 36;
+inline constexpr int kBtnFont    = 16;
+inline constexpr int kTextMaxH   = 120;
+} // namespace
+
 MessageEdit::MessageEdit(QWidget* parent)
     : QWidget(parent) {
     setupUi();
@@ -25,14 +32,14 @@ void MessageEdit::setupUi() {
     // Attach button — opens file picker
     attachBtn_ = new QPushButton("📎", this);
     attachBtn_->setObjectName("attachButton");
-    attachBtn_->setFixedSize(36, 36);
+    attachBtn_->setFixedSize(kBtnW, kBtnH);
     attachBtn_->setToolTip("Attach file (image, document, PDF)");
     attachBtn_->setFocusPolicy(Qt::NoFocus);
 
     // Try to set emoji font for the buttons — use bundled OpenMoji if no
     // system emoji font is available.
     QFont btnFont = attachBtn_->font();
-    btnFont.setPointSize(16);
+    btnFont.setPointSize(kBtnFont);
     QStringList emojiFonts = {"Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", "OpenMoji Color"};
     QStringList families = QFontDatabase::families();
     for (const QString& f : emojiFonts) {
@@ -42,7 +49,7 @@ void MessageEdit::setupUi() {
 
     // Emoji button — opens emoji picker for message input
     emojiBtn_ = new QPushButton("😊", this);
-    emojiBtn_->setFixedSize(36, 36);
+    emojiBtn_->setFixedSize(kBtnW, kBtnH);
     emojiBtn_->setToolTip("Insert emoji into message");
     emojiBtn_->setObjectName("emojiButton");
     emojiBtn_->setFocusPolicy(Qt::NoFocus);
@@ -50,7 +57,7 @@ void MessageEdit::setupUi() {
 
     // Quick-react button — opens popup of recent emojis for fast reaction
     auto* reactBtn = new QPushButton("😍", this);
-    reactBtn->setFixedSize(36, 36);
+    reactBtn->setFixedSize(kBtnW, kBtnH);
     reactBtn->setToolTip("Quick react to last message");
     reactBtn->setFocusPolicy(Qt::NoFocus);
     reactBtn->setFont(btnFont);
@@ -70,7 +77,7 @@ void MessageEdit::setupUi() {
     textEdit_->setObjectName("messageTextEdit");
     textEdit_->setAcceptRichText(false);
     textEdit_->setPlaceholderText("Type a message — Enter to send, Shift+Enter for newline");
-    textEdit_->setMaximumHeight(120);
+    textEdit_->setMaximumHeight(kTextMaxH);
     textEdit_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     textEdit_->installEventFilter(this);
 

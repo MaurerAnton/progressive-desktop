@@ -15,6 +15,8 @@
 
 namespace progressive::desktop {
 
+inline constexpr int kTruncLen = 100;
+
 ThreadHandler::ThreadHandler(std::shared_ptr<MatrixClient> client, TimelineModel* timelineModel,
                                QLabel* threadBanner, QLabel* statusLabel,
                                QPointer<MainWindow> mw, QObject* parent)
@@ -136,7 +138,7 @@ void ThreadHandler::replyInThread(const QString& eventId, const std::string& roo
     }
     bool ok;
     QString reply = QInputDialog::getText(mw_.data(), "Reply in thread",
-        QString("Replying to:\n\"%1\"\n\nYour reply:").arg(rootText.left(100)),
+        QString("Replying to:\n\"%1\"\n\nYour reply:").arg(rootText.left(kTruncLen)),
         QLineEdit::Normal, "", &ok);
     if (!ok || reply.trimmed().isEmpty()) return;
     sendThreadReply(roomId, currentThreadRoot_, eventId.toStdString(), reply.toStdString());

@@ -19,6 +19,10 @@
 #include <simdjson.h>
 
 namespace progressive::desktop {
+namespace {
+inline constexpr int kDialogW = 400;
+inline constexpr int kDialogH = 300;
+} // namespace
 
 ProfileDialog::ProfileDialog(MatrixClient* client, QWidget* parent)
     : QDialog(parent), client_(client) {

@@ -95,10 +95,10 @@ bool TimelineDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
     auto rxns = index.data(TimelineModel::ReactionsRole).value<QStringList>();
     int threadCount = index.data(TimelineModel::ThreadCountRole).toInt();
     if (!rxns.isEmpty()) {
-        int baseY = L.isLastInGroup ? (bubbleY + L.bubbleH + 2)
+        int baseY = L.isLastInGroup ? (bubbleY + L.bubbleH + kBalloonBuf)
                                      : (bubbleY + L.bubbleH - kPadBottom - kTimeRowH - L.reactionH);
-        if (threadCount > 0 && !L.isLastInGroup) baseY -= L.threadCountH + 2;
-        QFont pillFont; pillFont.setPointSize(ds(9));
+        if (threadCount > 0 && !L.isLastInGroup) baseY -= L.threadCountH + kBalloonBuf;
+        QFont pillFont; pillFont.setPointSize(ds(kFontSizeSmall));
         QFontMetrics fm(pillFont);
         auto rows = computeReactionLayout(rxns, bubbleX, baseY, bubbleW, fm);
         for (const auto& row : rows) {
@@ -147,7 +147,7 @@ bool TimelineDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
 
     if (msgtype == "m.text" || msgtype.isEmpty()) {
         QTextDocument doc;
-        doc.setDefaultFont(QFont(QApplication::font().family(), ds(10)));
+        doc.setDefaultFont(QFont(QApplication::font().family(), ds(kFontSizeBody)));
         std::string html = progressive::markdownToHtml(body.toStdString());
         doc.setHtml(html.empty() ? body.toHtmlEscaped() : QString::fromStdString(html));
         doc.setTextWidth(bubbleW - kBubblePadding * 2);

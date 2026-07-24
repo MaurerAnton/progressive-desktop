@@ -13,6 +13,10 @@
 #include <simdjson.h>
 
 namespace progressive::desktop {
+namespace {
+inline constexpr int kDialogW = 400;
+inline constexpr int kDialogH = 300;
+} // namespace
 
 RoomMembersDialog::RoomMembersDialog(MatrixClient* client, const std::string& roomId,
                                        QWidget* parent)

@@ -17,6 +17,13 @@
 
 namespace progressive::desktop {
 
+namespace {
+inline constexpr int kDirectoryW   = 700;
+inline constexpr int kDirectoryH   = 500;
+inline constexpr int kPageSize      = 20;
+inline constexpr int kTopicTrunc   = 80;
+} // namespace
+
 RoomDirectoryDialog::RoomDirectoryDialog(MatrixClient* client, QWidget* parent)
     : QDialog(parent), client_(client) {
     setWindowTitle("Public Rooms — Browse & Join");

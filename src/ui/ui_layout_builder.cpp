@@ -24,6 +24,14 @@
 
 namespace progressive::desktop {
 
+namespace {
+inline constexpr int kRoomListMinW = 280;
+inline constexpr int kRoomListMaxW = 400;
+inline constexpr int kToolbarSpacing = 4;
+inline constexpr int kSplitterLeft   = 1;
+inline constexpr int kSplitterRight  = 4;
+} // namespace
+
 UILayout buildMainWindowLayout(QWidget* window,
     ImageLoader* imageLoader,
     RoomListModel* roomModel,
@@ -66,8 +74,8 @@ UILayout buildMainWindowLayout(QWidget* window,
         "QListView::item:selected{background:#3a3a5e;}");
     ui.roomListDelegate = new RoomListDelegate(imageLoader, ui.roomList);
     ui.roomList->setItemDelegate(ui.roomListDelegate);
-    ui.roomList->setMinimumWidth(280);
-    ui.roomList->setMaximumWidth(400);
+    ui.roomList->setMinimumWidth(kRoomListMinW);
+    ui.roomList->setMaximumWidth(kRoomListMaxW);
     ui.roomList->setAlternatingRowColors(false);
     ui.roomList->setUniformItemSizes(true);
     ui.roomList->setWordWrap(false);

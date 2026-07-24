@@ -14,6 +14,11 @@
 
 namespace progressive::desktop {
 
+namespace {
+inline constexpr int kViewerW = 800;
+inline constexpr int kViewerH = 600;
+} // namespace
+
 ImageViewerDialog::ImageViewerDialog(const QImage& image, const QString& mxcUrl,
                                        QWidget* parent)
     : QDialog(parent), image_(image), mxcUrl_(mxcUrl) {

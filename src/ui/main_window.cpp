@@ -48,6 +48,12 @@
 
 namespace progressive::desktop {
 
+namespace {
+inline constexpr int kDefaultWinW = 1100;
+inline constexpr int kDefaultWinH = 720;
+inline constexpr int kAccountComboW = 140;
+}
+
 void MainWindow::setClient(std::shared_ptr<MatrixClient> client) {
     client_ = std::move(client);
     if (imageLoader_) imageLoader_->setClient(client_);
@@ -68,7 +74,7 @@ void MainWindow::setSessionStore(std::shared_ptr<SessionStore> store) {
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle("Progressive Chat — Desktop");
-    resize(1100, 720);
+    resize(kDefaultWinW, kDefaultWinH);
 
     imageLoader_ = new ImageLoader(nullptr, this);
     roomStore_ = new RoomStore(client_, store_);
@@ -111,7 +117,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     toolbar_->addWidget(spacer);
 
     accountCombo_ = new QComboBox(this);
-    accountCombo_->setMinimumWidth(140);
+    accountCombo_->setMinimumWidth(kAccountComboW);
     accountCombo_->setStyleSheet("QComboBox{background:#1a1a1a;color:#ccc;border:1px solid #333;padding:2px 4px;} QComboBox::drop-down{border:none;} QComboBox QAbstractItemView{background:#1a1a1a;color:#ccc;}");
     toolbar_->addWidget(accountCombo_);
 

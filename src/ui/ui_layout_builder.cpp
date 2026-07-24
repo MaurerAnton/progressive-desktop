@@ -85,6 +85,7 @@ UILayout buildMainWindowLayout(QWidget* window,
     ui.timelineView->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     ui.timelineView->setUniformItemSizes(false);
     ui.timelineView->setContextMenuPolicy(Qt::CustomContextMenu);
+    ui.timelineView->viewport()->setContentsMargins(0, 0, 0, 12);
     ui.timelineView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
     ui.threadBanner = new QLabel(

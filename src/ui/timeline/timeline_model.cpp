@@ -95,6 +95,7 @@ void TimelineModel::appendBack(const DisplayedEvent& evt) {
     endInsertRows();
     if (!evt.eventId.empty()) rowIndex_[evt.eventId] = row;
     updateGroupMarkers(events_);
+    if (!events_.empty()) emit dataChanged(index(0), index(static_cast<int>(events_.size()) - 1));
 
     if (static_cast<int>(events_.size()) > MAX_TIMELINE_EVENTS) {
         int excess = static_cast<int>(events_.size()) - MAX_TIMELINE_EVENTS;
@@ -172,6 +173,7 @@ void TimelineModel::appendFront(const std::vector<DisplayedEvent>& evts) {
         if (!events_[i].eventId.empty()) rowIndex_[events_[i].eventId] = (int)i;
     }
     updateGroupMarkers(events_);
+    if (!events_.empty()) emit dataChanged(index(0), index(static_cast<int>(events_.size()) - 1));
 }
 
 void TimelineModel::appendBackBatch(const std::vector<DisplayedEvent>& events) {
@@ -192,6 +194,7 @@ void TimelineModel::appendBackBatch(const std::vector<DisplayedEvent>& events) {
     for (int i = 0; i < static_cast<int>(events_.size()); ++i)
         if (!events_[i].eventId.empty()) rowIndex_[events_[i].eventId] = i;
     updateGroupMarkers(events_);
+    if (!events_.empty()) emit dataChanged(index(0), index(static_cast<int>(events_.size()) - 1));
 }
 
 void TimelineModel::clear() {

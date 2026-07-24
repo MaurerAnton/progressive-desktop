@@ -4,6 +4,7 @@
 #include "core/session_store.hpp"
 #include "core/sync_engine.hpp"
 #include "core/crypto/decryptor.hpp"
+#include "core/debug_log.hpp"
 
 #include <iostream>
 #include "core/thread_pool.hpp"
@@ -73,10 +74,12 @@ void E2eeInitHandler::init(MatrixClient* client, SessionStore* store,
             bool published = store ? store->loadE2eeFlag("keys_published").value_or(false) : false;
             keysPublished = published;
             if (!published) {
+                LOG(LogChannel::E2EE, "E2eeInit: publishing device keys (not published yet)");
                 ThreadPool::instance().enqueue([sync]() {
                     sync->uploadDeviceKeys();
                 });
             } else {
+                LOG(LogChannel::E2EE, "E2eeInit: device keys already published — skipping upload");
                 std::cerr << "[e2ee] device keys already published — skipping upload\n";
             }
         }

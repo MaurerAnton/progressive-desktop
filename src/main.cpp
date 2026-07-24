@@ -24,6 +24,7 @@
 #include "core/http_client.hpp"
 #include "core/matrix_client.hpp"
 #include "core/session_store.hpp"
+#include "core/debug_log.hpp"
 #include "core/sync_engine.hpp"
 #include "core/version.h"
 #include "core/memory_stats.hpp"
@@ -243,6 +244,11 @@ static void runGui(int argc, char** argv) {
     auto client = std::make_shared<MatrixClient>();
     client->setSessionStore(store.get());
     bool hasSession = client->loadSavedSession();
+    if (hasSession) {
+        auto loaded = client->account();
+        LOG(LogChannel::E2EE, "LOAD: access=%.8s refresh=%.8s device=%s",
+            loaded.accessToken.c_str(), loaded.refreshToken.c_str(), loaded.deviceId.c_str());
+    }
 
     MainWindow w;
     w.setClient(client);

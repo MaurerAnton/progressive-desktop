@@ -13,6 +13,7 @@
 #include <QCheckBox>
 
 #include "core/utils.hpp"
+#include "core/debug_log.hpp"
 
 #include <filesystem>
 #include <cstdlib>
@@ -228,6 +229,9 @@ void LoginDialog::onLoginClicked() {
         store_->open(dbPath.toStdString());
     }
     client_->setSessionStore(store_);
+    auto saved = client_->account();
+    LOG(LogChannel::E2EE, "SAVE: access=%.8s refresh=%.8s device=%s",
+        saved.accessToken.c_str(), saved.refreshToken.c_str(), saved.deviceId.c_str());
     client_->persistSession();
 
     logged_in_ = true;

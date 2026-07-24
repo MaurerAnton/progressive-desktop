@@ -24,6 +24,8 @@ void SessionBootstrap::start(const std::shared_ptr<MatrixClient>& client, const 
     if (!client || !client->isLoggedIn()) return;
 
     auto acct = client->account();
+    LOG(LogChannel::E2EE, "bootstrap: deviceId=%.20s (empty=%d)",
+        acct.deviceId.c_str(), acct.deviceId.empty() ? 1 : 0);
     if (acct.deviceId.empty() || acct.deviceId == "PROGRESSIVE_DESKTOP") {
         acct.deviceId = generateUUID();
         client->setAccount(acct);

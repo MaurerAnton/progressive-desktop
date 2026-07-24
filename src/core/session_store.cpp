@@ -1,6 +1,7 @@
 // src/core/session_store.cpp
 
 #include "session_store.hpp"
+#include "debug_log.hpp"
 
 #include <sqlite3.h>
 #include <cstring>
@@ -96,6 +97,7 @@ bool SessionStore::saveAccount(const AccountInfo& a) {
     sqlite3_bind_text(stmt, 4, a.accessToken.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 5, a.refreshToken.c_str(), -1, SQLITE_TRANSIENT);
     int rc = sqlite3_step(stmt);
+    LOG(LogChannel::E2EE, "saveAccount: SQLite rc=%d device=%s", rc, a.deviceId.c_str());
     sqlite3_finalize(stmt);
     if (rc != SQLITE_DONE) return false;
     checkpoint();

@@ -1,6 +1,7 @@
 // src/core/fast_sync.cpp — simdjson-based /sync parser implementation.
 
 #include "fast_sync.hpp"
+#include "debug_log.hpp"
 
 #include <simdjson.h>
 
@@ -215,6 +216,7 @@ FastSyncResponse parseSyncResponseFast(std::string json, std::string& errorMessa
 
     auto toDeviceResult = root["to_device"];
     if (toDeviceResult.error() == simdjson::SUCCESS) {
+        LOG(LogChannel::E2EE, "fastSync: to_device section present");
         auto toDevice = toDeviceResult.value();
         auto eventsResult = toDevice["events"].get_array();
         if (eventsResult.error() == simdjson::SUCCESS) {
@@ -225,7 +227,10 @@ FastSyncResponse parseSyncResponseFast(std::string json, std::string& errorMessa
                 resp.toDeviceEventList.push_back(std::move(fe));
             }
             resp.toDeviceEvents = static_cast<int>(resp.toDeviceEventList.size());
+            LOG(LogChannel::E2EE, "fastSync: parsed %d toDevice events", resp.toDeviceEvents);
         }
+    } else {
+        LOG(LogChannel::E2EE, "fastSync: no to_device section in sync response");
     }
 
     resp.buffer = std::make_shared<std::string>(std::move(json));

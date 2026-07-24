@@ -74,7 +74,7 @@ void SessionBootstrap::start(const std::shared_ptr<MatrixClient>& client, const 
                 auto refresh = client->refreshAccessToken(client->account().refreshToken);
                 LOG(LogChannel::E2EE, "pre-refresh: httpStatus=%d ok=%d accessToken len=%zu",
                     refresh.httpStatus, refresh.ok ? 1 : 0, refresh.data.accessToken.size());
-                if (refresh.ok && !refresh.data.accessToken.empty()) {
+                if (refresh.httpStatus == 200 && !refresh.data.accessToken.empty()) {
                     AccountInfo acct = client->account();
                     acct.accessToken = refresh.data.accessToken;
                     if (!refresh.data.refreshToken.empty())

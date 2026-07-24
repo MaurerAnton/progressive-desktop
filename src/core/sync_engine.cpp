@@ -154,7 +154,7 @@ void SyncEngine::run() {
                         client_->account().refreshToken.size());
                     std::fprintf(stderr, "[session]   trying /refresh with refresh token...\n");
                     auto refresh = client_->refreshAccessToken(client_->account().refreshToken);
-                    if (refresh.ok && !refresh.data.accessToken.empty()) {
+                    if (refresh.httpStatus == 200 && !refresh.data.accessToken.empty()) {
                         std::fprintf(stderr, "[session]   /refresh OK — new access token obtained\n");
                         AccountInfo newAcct = client_->account();
                         newAcct.accessToken = refresh.data.accessToken;

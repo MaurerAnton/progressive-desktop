@@ -72,11 +72,16 @@ void E2eeInitHandler::init(MatrixClient* client, SessionStore* store,
             }
 
             bool published = store ? store->loadE2eeFlag("keys_published").value_or(false) : false;
+            LOG(LogChannel::E2EE, "E2eeInit: keys_published flag=%d", published ? 1 : 0);
             keysPublished = published;
             if (!published) {
                 LOG(LogChannel::E2EE, "E2eeInit: publishing device keys (not published yet)");
-                ThreadPool::instance().enqueue([sync]() {
+                ThreadPool::instance().enqueue([sync, store]() {
                     sync->uploadDeviceKeys();
+                    if (store) {
+                        store->saveE2eeFlag("keys_published", true);
+                        LOG(LogChannel::E2EE, "E2eeInit: saved keys_published=true");
+                    }
                 });
             } else {
                 LOG(LogChannel::E2EE, "E2eeInit: device keys already published — skipping upload");

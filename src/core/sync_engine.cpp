@@ -277,24 +277,36 @@ void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
 
 // Upload device keys to the server. Call once at login.
 void SyncEngine::uploadDeviceKeys() {
-    if (!client_ || !client_->isLoggedIn()) return;
-    if (!decryptor_.isInitialized()) return;
+    LOG(LogChannel::E2EE, "uploadDeviceKeys: ENTER client=%p isLoggedIn=%d decryptor=%d",
+        (void*)client_.get(),
+        client_ ? client_->isLoggedIn() : 0,
+        decryptor_.isInitialized() ? 1 : 0);
+
+    if (!client_ || !client_->isLoggedIn()) {
+        LOG(LogChannel::E2EE, "uploadDeviceKeys: EXIT — client not ready");
+        return;
+    }
+    if (!decryptor_.isInitialized()) {
+        LOG(LogChannel::E2EE, "uploadDeviceKeys: EXIT — decryptor not initialized");
+        return;
+    }
 
     std::string userId = client_->account().userId;
     std::string deviceId = client_->account().deviceId;
     if (deviceId.empty()) deviceId = "PROGRESSIVE_DESKTOP";
 
-    std::cerr << "[e2ee] uploading device keys for " << userId << "/" << deviceId << "\n";
+    LOG(LogChannel::E2EE, "uploadDeviceKeys: uploading for %s/%s", userId.c_str(), deviceId.c_str());
     std::string body = decryptor_.buildKeysUploadBody(userId, deviceId, 10);
 
-    // Upload synchronously — this is fast (small JSON)
     auto result = client_->uploadKeys(body);
+    LOG(LogChannel::E2EE, "uploadDeviceKeys: result ok=%d httpStatus=%d bodyLen=%zu",
+        result.ok ? 1 : 0, result.httpStatus, body.size());
+
     if (result.ok) {
-        std::cerr << "[e2ee] device keys uploaded. Server response: "
-                  << (result.data.size() > 200 ? result.data.substr(0, 200) + "..." : result.data) << "\n";
+        LOG(LogChannel::E2EE, "uploadDeviceKeys: SUCCESS — response=[%.200s]", result.data.c_str());
         if (store_) store_->saveE2eeFlag("keys_published", true);
     } else {
-        std::cerr << "[e2ee] device key upload FAILED: " << result.error.message << "\n";
+        LOG(LogChannel::E2EE, "uploadDeviceKeys: FAILED — error=%s", result.error.message.c_str());
     }
 }
 

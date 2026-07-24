@@ -21,6 +21,13 @@
 #include "../src/ui/timeline/timeline_delegate.hpp"
 #include "../src/ui/chat/message_edit.hpp"
 #include "../src/ui/shared/image_loader.hpp"
+#include "../src/ui/room/room_store.hpp"
+#include "../src/ui/room/room_data_loader.hpp"
+#include "../src/ui/handlers/auth_handler.hpp"
+#include "../src/ui/handlers/attachment_handler.hpp"
+#include "../src/ui/handlers/thread_handler.hpp"
+#include "../src/core/session_store.hpp"
+#include "../src/core/sync_engine.hpp"
 #include "core/debug_log.hpp"
 #include "fake_client.hpp"
 
@@ -293,6 +300,68 @@ static void test_quickReact_fake() {
     delete model;
 }
 
+static void test_roomStore_smoke() {
+    auto client = std::make_shared<MatrixClient>();
+    RoomStore store(client, nullptr);
+    store.setClient(client);
+    store.setSessionStore(nullptr);
+
+    FastSyncResponse emptyResp;
+    auto update = RoomStore::prepareRoomSyncUpdate(emptyResp, "", "@user:matrix.org");
+    CHECK(update.roomsToUpsert.empty(), "empty sync gives no rooms");
+    CHECK(update.inviteCount == 0, "empty sync gives no invites");
+
+    std::cout << "--- test_roomStore_smoke passed ---\n";
+}
+
+static void test_roomDataLoader_smoke() {
+    auto client = std::make_shared<MatrixClient>();
+    RoomDataLoader loader(client, nullptr);
+    loader.setClient(client);
+
+    auto token = std::make_shared<bool>(true);
+    loader.loadHistory("!test:matrix.org", nullptr, token, nullptr);
+
+    std::cout << "--- test_roomDataLoader_smoke passed ---\n";
+}
+
+static void test_authHandler_smoke() {
+    auto client = std::make_shared<MatrixClient>();
+    auto store = std::make_shared<SessionStore>();
+    SyncEngine sync;
+    sync.setClient(client);
+
+    QLabel userLabel("user");
+    QLabel statusLabel("status");
+    AuthHandler auth(client, store, &sync, &userLabel, &statusLabel);
+    auth.setClient(client);
+
+    CHECK(true, "authHandler constructed");
+    std::cout << "--- test_authHandler_smoke passed ---\n";
+}
+
+static void test_attachmentHandler_smoke() {
+    auto client = std::make_shared<MatrixClient>();
+    TimelineModel timeline;
+    QLabel status("status");
+    AttachmentHandler handler(client, &timeline, &status);
+    handler.setClient(client);
+
+    CHECK(true, "attachmentHandler constructed");
+    std::cout << "--- test_attachmentHandler_smoke passed ---\n";
+}
+
+static void test_threadHandler_smoke() {
+    auto client = std::make_shared<MatrixClient>();
+    TimelineModel timeline;
+    QLabel banner("thread"), status("status");
+    ThreadHandler handler(client, &timeline, &banner, &status, nullptr);
+    handler.setClient(client);
+
+    CHECK(handler.currentThreadRoot().empty(), "no thread open initially");
+    std::cout << "--- test_threadHandler_smoke passed ---\n";
+}
+
 int main(int argc, char** argv) {
     QApplication app(argc, argv);
     std::cout << "=== Progressive Visual Tests ===\n\n";
@@ -304,6 +373,11 @@ int main(int argc, char** argv) {
     test_interaction();
     test_bubbleRendering();
     test_quickReact_fake();
+    test_roomStore_smoke();
+    test_roomDataLoader_smoke();
+    test_authHandler_smoke();
+    test_attachmentHandler_smoke();
+    test_threadHandler_smoke();
 
     std::cout << "\n";
     if (failures == 0) {

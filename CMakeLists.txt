@@ -187,6 +187,7 @@ if(PROGRESSIVE_BUILD_TESTS)
     find_package(Qt6 REQUIRED COMPONENTS Test)
     add_executable(test_visual tests/test_visual.cpp)
     target_link_libraries(test_visual PRIVATE
+        progressive_ui_handlers
         progressive_ui_widgets
         progressive_core
         Qt6::Widgets

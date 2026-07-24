@@ -37,6 +37,32 @@ struct Design {
     static inline QColor rowBgNormal      = QColor(0x1e, 0x1e, 0x1e);
     static inline QColor unreadBadgeColor = QColor(50, 130, 220);
 
+    // Timestamp + muted text
+    static inline QColor mutedTextColor   = QColor("#888");
+    static inline QColor dimTextColor     = QColor("#969696");
+    static inline QColor replyLineColor   = QColor("#555");
+    static inline QColor reactionTextColor = QColor("#e8e8e8");
+
+    // File card
+    static inline QColor fileCardBg       = QColor("#1e1e2e");
+    static inline QColor fileCardBorder   = QColor("#444");
+    static inline QColor fileCardIconText = QColor("#ccc");
+    static inline QColor fileCardFileName = QColor("#ddd");
+    static inline QColor fileAudioBar     = QColor("#4a6");
+    static inline QColor fileFileBar      = QColor("#48a");
+
+    // Image placeholder
+    static inline QColor imgPlaceholderBg   = QColor("#1a1a1a");
+    static inline QColor imgPlaceholderText = QColor("#888");
+
+    // Invite buttons
+    static inline QColor acceptButtonBg = QColor("#2d6a2d");
+    static inline QColor rejectButtonBg = QColor("#6a2d2d");
+    static inline QColor rejectButtonText = QColor("#f66");
+
+    // Emoji picker
+    static inline QColor emojiHoverBg = QColor("#3a3a3a");
+
     // Avatar
     static constexpr int avatarSize    = 36;
     static constexpr int bubbleRadius  = 12;

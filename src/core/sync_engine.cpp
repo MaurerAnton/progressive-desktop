@@ -237,11 +237,15 @@ void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
     for (const auto& evt : resp.toDeviceEventList) {
         if (evt.type == "m.room_key") {
             std::string contentStr(evt.contentJson);
+            LOG(LogChannel::E2EE, "processToDevice: got m.room_key from=%s content=[%.200s]",
+                std::string(evt.senderId).c_str(), contentStr.c_str());
             if (decryptor_.handleRoomKey(contentStr)) {
+                LOG(LogChannel::E2EE, "processToDevice: handleRoomKey OK");
                 stats_.decryptedEvents++;
                 std::cerr << "[e2ee] added megolm session (room_key from "
                           << evt.senderId << ")\n";
             } else {
+                LOG(LogChannel::E2EE, "processToDevice: handleRoomKey FAILED");
                 stats_.decryptErrors++;
                 std::cerr << "[e2ee] failed to add room_key from "
                           << evt.senderId << ": " << contentStr << "\n";

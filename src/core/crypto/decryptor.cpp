@@ -7,6 +7,7 @@
 #include <olm/outbound_group_session.h>
 
 #include "../http_client.hpp"
+#include "../debug_log.hpp"
 #include <simdjson.h>
 #include <string_view>
 #include <algorithm>
@@ -105,6 +106,8 @@ DecryptionResult Decryptor::decryptMegolmEvent(const std::string& roomId,
 
     if (!megolm_->hasSession(roomId, senderKey, sessionId)) {
         r.error = "no megolm session — waiting for room_key";
+        LOG(LogChannel::E2EE, "decryptMegolmEvent: no session room=%.40s eid=%s — saving to pending",
+            roomId.c_str(), eventId.c_str());
         PendingEncryptedEvent p;
         p.roomId = roomId;
         p.senderKey = senderKey;
@@ -135,7 +138,10 @@ bool Decryptor::handleRoomKey(const std::string& contentJson) {
     auto sessionId = extractStr(cv, "session_id");
     auto sessionKey = extractStr(cv, "session_key");
     auto senderKey = extractStr(cv, "sender_key");
+    LOG(LogChannel::E2EE, "handleRoomKey: room=%.40s sid=%.20s sk=%.20s senderKey=%.20s",
+        roomId.c_str(), sessionId.c_str(), sessionKey.c_str(), senderKey.c_str());
     if (roomId.empty() || sessionId.empty() || sessionKey.empty()) {
+        LOG(LogChannel::E2EE, "handleRoomKey: FAILED — missing required fields");
         return false;
     }
     // senderKey may be in the room_key content (some clients include it under "keys")
@@ -146,8 +152,12 @@ bool Decryptor::handleRoomKey(const std::string& contentJson) {
         auto keys = extractStr(cv, "keys");
         if (!keys.empty()) senderKey = extractStr(keys, "curve25519");
     }
-    if (senderKey.empty()) return false;
+    if (senderKey.empty()) {
+        LOG(LogChannel::E2EE, "handleRoomKey: FAILED — no sender_key");
+        return false;
+    }
     bool ok = megolm_->addInboundSession(roomId, senderKey, sessionId, sessionKey);
+    LOG(LogChannel::E2EE, "handleRoomKey: addInboundSession=%d", ok ? 1 : 0);
     if (ok) processPending(roomId, senderKey, sessionId);
     return ok;
 }
@@ -156,12 +166,19 @@ void Decryptor::processPending(const std::string& roomId,
                                const std::string& senderKey,
                                const std::string& sessionId) {
     auto pending = megolm_->takePendingForSession(roomId, senderKey, sessionId);
+    LOG(LogChannel::E2EE, "processPending: %zu pending events for room=%.40s",
+        pending.size(), roomId.c_str());
     if (pending.empty()) return;
 
     std::lock_guard<std::mutex> lk(reDecryptedMtx_);
     for (const auto& p : pending) {
         auto plaintext = megolm_->decrypt(p.roomId, p.senderKey, p.sessionId, p.ciphertext);
-        if (plaintext.empty()) continue;
+        if (!plaintext.empty()) {
+            LOG(LogChannel::E2EE, "processPending: DECRYPTED eid=%s", p.eventId.c_str());
+        } else {
+            LOG(LogChannel::E2EE, "processPending: FAILED eid=%s", p.eventId.c_str());
+            continue;
+        }
         ReDecryptedEvent evt;
         evt.roomId = p.roomId;
         evt.eventId = p.eventId;

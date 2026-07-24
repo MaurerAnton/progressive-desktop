@@ -262,6 +262,7 @@ void RoomStore::batchLoadRoomStates(RoomListModel* model, LifeToken token) {
 void RoomStore::applyDecryptedEvents(TimelineModel* model, Decryptor* decryptor) {
     if (!decryptor) return;
     auto events = decryptor->takeDecryptedEvents();
+    LOG(LogChannel::E2EE, "applyDecryptedEvents: %zu re-decrypted events", events.size());
     for (const auto& evt : events) {
         simdjson::dom::parser p;
         auto doc = p.parse(evt.plaintext);
@@ -286,7 +287,9 @@ void RoomStore::applyDecryptedEvents(TimelineModel* model, Decryptor* decryptor)
         fe.contentJson = de.contentJson;
         fe.originServerTs = evt.originServerTs;
         fastEventToDisplayed(fe, de, evt.roomId, nullptr);
-        model->replaceEvent(evt.eventId, de);
+        bool replaced = model->replaceEvent(evt.eventId, de);
+        LOG(LogChannel::E2EE, "applyDecryptedEvents: replaceEvent eid=%s ok=%d",
+            evt.eventId.c_str(), replaced ? 1 : 0);
     }
 }
 
@@ -303,8 +306,10 @@ static void fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
         de.senderName = (colon != std::string::npos) ? de.senderId.substr(1, colon-1) : de.senderId.substr(1);
     }
     if (de.type == "m.room.encrypted" && decryptor && decryptor->isInitialized()) {
+        LOG(LogChannel::E2EE, "fastEventToDisplayed: decrypting eid=%s", de.eventId.c_str());
         auto result = decryptor->decryptMegolmEvent(currentRoomId, de.senderId, de.contentJson, de.eventId, de.originServerTs);
         if (result.ok) {
+            LOG(LogChannel::E2EE, "fastEventToDisplayed: DECRYPTED eid=%s", de.eventId.c_str());
             simdjson::dom::parser parser;
             auto root = parser.parse(result.plaintext);
             if (root.error() == simdjson::SUCCESS) {
@@ -313,7 +318,14 @@ static void fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
                 auto cr = root.value()["content"];
                 if (cr.error() == simdjson::SUCCESS) de.contentJson = simdjson::to_string(cr.value());
             }
-        } else { de.body = "[encrypted]"; de.msgtype = "m.notice"; }
+        } else {
+            LOG(LogChannel::E2EE, "fastEventToDisplayed: FAILED eid=%s err=%s",
+                de.eventId.c_str(), result.error.c_str());
+            de.body = "[encrypted]"; de.msgtype = "m.notice";
+        }
+    } else if (de.type == "m.room.encrypted") {
+        LOG(LogChannel::E2EE, "fastEventToDisplayed: SKIP decryptor=%p init=%d",
+            (void*)decryptor, decryptor ? decryptor->isInitialized() : 0);
     }
     if (de.type == "m.room.message") {
         // Parse content with simdjson for correct extraction (works for ALL clients)

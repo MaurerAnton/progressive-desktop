@@ -30,6 +30,7 @@ struct RoomData {
     std::string avatarUrl;
     std::string parentId;
     std::vector<std::string> typingUsers;  // users currently typing
+    bool stateLoaded = false;  // m.room.encryption state already fetched for this room
 };
 
 class RoomListModel : public QAbstractListModel {

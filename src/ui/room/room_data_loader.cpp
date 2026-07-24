@@ -217,7 +217,7 @@ void RoomDataLoader::batchLoadRoomStates(RoomListModel* model, LifeToken token) 
     std::vector<std::string> roomIds;
     for (int i = 0; i < model->rowCount(); ++i) {
         auto* rd = model->at(i);
-        if (rd && !rd->isInvite && (rd->name == rd->roomId || rd->avatarUrl.empty()))
+        if (rd && !rd->isInvite && !rd->stateLoaded)
             roomIds.push_back(rd->roomId);
     }
     if (roomIds.empty()) return;
@@ -225,9 +225,10 @@ void RoomDataLoader::batchLoadRoomStates(RoomListModel* model, LifeToken token) 
     QPointer<RoomDataLoader> selfGuard(this);
     ThreadPool::instance().enqueue([selfGuard, c, roomIds, model, token]() {
         for (const auto& roomId : roomIds) {
-            auto nameResp = c->getRoomStateEvent(roomId, "m.room.name");
+            auto nameResp   = c->getRoomStateEvent(roomId, "m.room.name");
             auto avatarResp = c->getRoomStateEvent(roomId, "m.room.avatar");
-            QMetaObject::invokeMethod(selfGuard, [selfGuard, model, roomId, nameResp, avatarResp, token]() {
+            auto encResp    = c->getRoomStateEvent(roomId, "m.room.encryption");
+            QMetaObject::invokeMethod(selfGuard, [selfGuard, model, roomId, nameResp, avatarResp, encResp, token]() {
                 if (selfGuard.isNull() || !token || !*token) return;
                 int row = model->findRowByRoomId(roomId);
                 if (row < 0) return;
@@ -236,12 +237,20 @@ void RoomDataLoader::batchLoadRoomStates(RoomListModel* model, LifeToken token) 
                 bool changed = false;
                 if (nameResp.ok && !nameResp.data.empty()) {
                     auto name = extractStringDec(nameResp.data, "name");
-                    if (!name.empty() && rd->name == roomId) { rd->name = name; changed = true; }
+                    if (!name.empty() && (rd->name == roomId || rd->name.empty())) {
+                        rd->name = name; changed = true;
+                    }
                 }
                 if (avatarResp.ok && !avatarResp.data.empty()) {
                     auto url = extractStringDec(avatarResp.data, "url");
-                    if (!url.empty() && rd->avatarUrl.empty()) { rd->avatarUrl = url; changed = true; }
+                    if (!url.empty() && rd->avatarUrl.empty()) {
+                        rd->avatarUrl = url; changed = true;
+                    }
                 }
+                if (encResp.ok && !encResp.data.empty()) {
+                    if (!rd->isEncrypted) { rd->isEncrypted = true; changed = true; }
+                }
+                rd->stateLoaded = true;
                 if (changed) emit model->dataChanged(model->index(row), model->index(row));
             }, Qt::QueuedConnection);
         }

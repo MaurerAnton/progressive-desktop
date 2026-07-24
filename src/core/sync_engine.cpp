@@ -150,6 +150,8 @@ void SyncEngine::run() {
 
                 // Try refresh token if available
                 if (client_ && !client_->account().refreshToken.empty()) {
+                    LOG(LogChannel::E2EE, "sync /refresh: refreshToken len=%zu",
+                        client_->account().refreshToken.size());
                     std::fprintf(stderr, "[session]   trying /refresh with refresh token...\n");
                     auto refresh = client_->refreshAccessToken(client_->account().refreshToken);
                     if (refresh.ok && !refresh.data.accessToken.empty()) {
@@ -235,6 +237,7 @@ void SyncEngine::run() {
 }
 
 void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
+    LOG(LogChannel::E2EE, "processToDevice: %zu toDevice events", resp.toDeviceEventList.size());
     for (const auto& evt : resp.toDeviceEventList) {
         if (evt.type == "m.room_key") {
             std::string contentStr(evt.contentJson);

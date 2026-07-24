@@ -3,6 +3,7 @@
 #include "chat_logger.hpp"
 #include "message_edit.hpp"
 #include "core/sync_engine.hpp"
+#include "core/debug_log.hpp"
 #include "core/memory_stats.hpp"
 
 #include <QFileDialog>
@@ -135,6 +136,8 @@ void ChatView::doSend(const std::string& body) {
             auto* dec = guard->sync_->decryptor();
             std::string deviceId = client->account().deviceId;
             std::string sessId = dec->getOrCreateOutboundSession(roomId);
+            LOG(LogChannel::E2EE, "doSend: encrypted room=%.30s sessId=%.20s sessIdEmpty=%d",
+                roomId.c_str(), sessId.c_str(), sessId.empty() ? 1 : 0);
             if (sessId.empty()) {
                 std::fprintf(stderr, "[send] FAILED: outbound session creation\n");
                 QMetaObject::invokeMethod(guard, [guard, tempId]() {
@@ -150,6 +153,7 @@ void ChatView::doSend(const std::string& body) {
             }
             std::string inner = "{\"type\":\"m.room.message\",\"content\":{\"msgtype\":\"m.text\",\"body\":\"" + escaped + "\"}}";
             std::string enc = dec->encryptMessage(roomId, deviceId, inner);
+            LOG(LogChannel::E2EE, "doSend: enc size=%zu empty=%d", enc.size(), enc.empty() ? 1 : 0);
             if (enc.empty()) {
                 std::fprintf(stderr, "[send] FAILED: encryption\n");
                 QMetaObject::invokeMethod(guard, [guard, tempId]() {

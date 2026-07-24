@@ -4,6 +4,7 @@
 #include "core/sync_engine.hpp"
 #include "core/memory_stats.hpp"
 #include "core/utils.hpp"
+#include "core/debug_log.hpp"
 #include "../dialogs/prefs_dialog.hpp"
 #include "../shared/image_loader.hpp"
 #include "../timeline/timeline_delegate.hpp"
@@ -54,6 +55,8 @@ void SessionBootstrap::start(const std::shared_ptr<MatrixClient>& client, const 
 
     E2eeInitHandler::init(client.get(), store.get(), sync,
         [=](bool ok, bool keysPublished) {
+            LOG(LogChannel::E2EE, "E2eeInit: ok=%d decryptor isInitialized=%d",
+                ok ? 1 : 0, sync->decryptor()->isInitialized() ? 1 : 0);
             if (!ok) {
                 std::cerr << "[e2ee] init failed — continuing without E2EE\n";
             }
@@ -64,7 +67,11 @@ void SessionBootstrap::start(const std::shared_ptr<MatrixClient>& client, const 
             }
 
             if (!client->account().refreshToken.empty()) {
+                LOG(LogChannel::E2EE, "pre-refresh: trying /refresh refreshToken len=%zu",
+                    client->account().refreshToken.size());
                 auto refresh = client->refreshAccessToken(client->account().refreshToken);
+                LOG(LogChannel::E2EE, "pre-refresh: httpStatus=%d ok=%d accessToken len=%zu",
+                    refresh.httpStatus, refresh.ok ? 1 : 0, refresh.data.accessToken.size());
                 if (refresh.ok && !refresh.data.accessToken.empty()) {
                     AccountInfo acct = client->account();
                     acct.accessToken = refresh.data.accessToken;

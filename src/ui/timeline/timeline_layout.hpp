@@ -4,6 +4,8 @@
 #include <QModelIndex>
 #include <QRect>
 #include <QString>
+#include <QStringList>
+#include <vector>
 
 namespace progressive::desktop::timeline_layout {
 
@@ -21,6 +23,21 @@ inline constexpr int kTimeRowH      = 14;
 inline constexpr int kMaxImageW        = 300;
 inline constexpr int kImageLoadedH     = 200;
 inline constexpr int kImagePlaceholderH = 100;
+
+inline constexpr int kReactionPillPad = 16;
+inline constexpr int kReactionPillH   = 20;
+inline constexpr int kReactionPillGap = 3;
+inline constexpr int kReactionMaxRows = 2;
+
+struct ReactionRow {
+    QRect rect;
+    QString text;
+    bool isOverflow = false;
+};
+
+std::vector<ReactionRow> computeReactionLayout(
+    const QStringList& reactions, int bubbleX, int baseY,
+    int bubbleW, const QFontMetrics& fm);
 
 struct BubbleLayout {
     int nameH        = 0;

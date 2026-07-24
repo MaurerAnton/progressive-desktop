@@ -104,4 +104,32 @@ BubbleLayout computeLayout(const QModelIndex& idx, const QString& myUserId, int 
     return L;
 }
 
+std::vector<ReactionRow> computeReactionLayout(
+    const QStringList& reactions, int bubbleX, int baseY,
+    int bubbleW, const QFontMetrics& fm) {
+    std::vector<ReactionRow> rows;
+    int maxX = bubbleX + bubbleW - kBubblePadding;
+    int rx = bubbleX + kBubblePadding, ry = baseY;
+    int shown = 0, rowNum = 0;
+    for (int i = 0; i < reactions.size(); ++i) {
+        int pw = fm.horizontalAdvance(reactions[i]) + kReactionPillPad;
+        if (rx + pw > maxX && shown > 0) {
+            rx = bubbleX + kBubblePadding; ry += kReactionPillH + kReactionPillGap; rowNum++;
+            if (rowNum >= kReactionMaxRows) {
+                int left = static_cast<int>(reactions.size()) - shown;
+                if (left > 0) {
+                    QString more = "+" + QString::number(left);
+                    int mw = fm.horizontalAdvance(more) + kReactionPillPad;
+                    rows.push_back({QRect(rx, ry, mw, kReactionPillH), more, true});
+                }
+                break;
+            }
+        }
+        if (rx + pw > maxX && shown == 0) pw = maxX - rx;
+        rows.push_back({QRect(rx, ry, pw, kReactionPillH), reactions[i], false});
+        rx += pw + kReactionPillGap; shown++;
+    }
+    return rows;
+}
+
 } // namespace progressive::desktop::timeline_layout

@@ -124,6 +124,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     wireSyncCallbacks();
 
     chatView_ = new ChatView(client_, timelineModel_, messageEdit_, &sync_, this);
+    chatView_->setChatLogger(toolbarHandler_->chatLogger());
     auth_ = new AuthHandler(client_, store_, &sync_, userLabel_, statusLabel_, this);
     roomHandler_ = new RoomHandler(client_, roomStore_, roomModel_, timelineModel_,
         &sync_, imageLoader_, roomList_, timelineView_, statusLabel_, timelinePlaceholder_,

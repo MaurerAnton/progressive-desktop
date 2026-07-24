@@ -10,6 +10,7 @@ namespace progressive::desktop {
 
 class MessageEdit;
 class SyncEngine;
+class ChatLogger;
 
 class ChatView : public QWidget {
     Q_OBJECT
@@ -18,6 +19,7 @@ public:
              SyncEngine* sync, QWidget* parent = nullptr);
 
     void setClient(std::shared_ptr<MatrixClient> c) { client_ = std::move(c); }
+    void setChatLogger(ChatLogger* l) { chatLogger_ = l; }
 
     void setCurrentRoom(const std::string& roomId, const std::string& threadRoot = "",
                         bool isEncrypted = false);
@@ -35,6 +37,7 @@ private:
     TimelineModel* model_;
     MessageEdit* edit_;
     SyncEngine* sync_;
+    ChatLogger* chatLogger_ = nullptr;
     std::string roomId_;
     std::string threadRoot_;
     bool encrypted_ = false;

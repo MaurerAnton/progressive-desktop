@@ -111,7 +111,7 @@ RoomHandler::RoomHandler(std::shared_ptr<MatrixClient> client, RoomStore* roomSt
     contextMenu_ = new RoomContextMenu(client_, timelineModel_, roomModel_,
         roomList_, threadHandler_, statusLabel_, mainWindow_, this);
     connect(contextMenu_, &RoomContextMenu::roomLeft, this, [this](const std::string& roomId) {
-        if (currentRoomIdStr_ == roomId) { chatLogging_ = false; chatLogFile_.reset(); }
+        if (currentRoomIdStr_ == roomId) { }
     });
 }
 
@@ -134,9 +134,7 @@ void RoomHandler::onRoomClicked(const QModelIndex& idx) {
     threadHandler_->clearThreadRoot();
     mainWindow_->threadBanner()->hide();
     currentPrevBatch_.clear();
-    chatLogging_ = false;
     chatLogBtn_->setChecked(false);
-    chatLogFile_.reset();
     mainWindow_->chatView()->setCurrentRoom(r->roomId, threadHandler_->currentThreadRoot(), r->isEncrypted);
     timelineModel_->clear();
     timelinePlaceholder_->hide();

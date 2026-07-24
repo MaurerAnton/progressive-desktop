@@ -14,6 +14,7 @@
 #include "../dialogs/prefs_dialog.hpp"
 #include "../dialogs/network_log_dialog.hpp"
 #include "../shared/image_loader.hpp"
+#include "../chat/chat_logger.hpp"
 
 #include <chrono>
 #include <QInputDialog>
@@ -34,7 +35,8 @@ ToolbarHandler::ToolbarHandler(std::shared_ptr<MatrixClient> client, RoomListMod
                                  QLabel* statusLabel, QWidget* parent)
     : QObject(parent), client_(std::move(client)), roomModel_(roomModel),
       roomStore_(roomStore), timelineModel_(timelineModel),
-      statusLabel_(statusLabel), parentWidget_(parent) {}
+      statusLabel_(statusLabel), parentWidget_(parent),
+      chatLogger_(std::make_unique<ChatLogger>()) {}
 
 QAction* ToolbarHandler::createNewChatAction() {
     auto* action = new QAction("+ New chat", parentWidget_);
@@ -214,39 +216,30 @@ void ToolbarHandler::doFullscreen() {
 
 void ToolbarHandler::onToggleChatLog() {
     if (!roomHandler_ || roomHandler_->currentRoomId().empty()) return;
-    chatLogging_ = !chatLogging_;
 
-    if (chatLogging_) {
-        chatLogBtn_->setChecked(true);
-        chatLogBtn_->setText(" Saving");
-        const char* xdg = getenv("XDG_DATA_HOME");
-        std::string dataPath;
-        if (xdg && xdg[0]) { dataPath = std::string(xdg) + "/progressive-desktop"; }
-        else { const char* home = getenv("HOME"); dataPath = std::string(home ? home : "/tmp") + "/.local/share/progressive-desktop"; }
-        std::string dir = dataPath + "/chatlogs";
-        std::filesystem::create_directories(dir);
-        QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd_HHmm");
-        std::string roomName = roomHandler_->currentRoomId();
-        for (auto& c : roomName) {
-            if (c == '/' || c == '\\' || c == ':' || c == '<' || c == '>' || c == '|' || c == '?') c = '_';
-        }
-        QString filePath = QString::fromStdString(dir + "/" + roomName + "_") + timestamp + ".txt";
-        chatLogFile_ = std::make_unique<std::ofstream>(filePath.toStdString(), std::ios::app);
-        if (chatLogFile_->is_open()) {
-            *chatLogFile_ << "=== Chat log: " << roomName << " ===\n"
-                         << "Started: " << QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss").toStdString() << "\n\n";
-            statusLabel_->setText("Chat log started: " + filePath);
-        } else {
-            chatLogging_ = false;
-            chatLogBtn_->setChecked(false);
-            chatLogBtn_->setText(" Save");
-            statusLabel_->setText("Failed to create log file.");
-        }
-    } else {
+    if (chatLogger_->active()) {
+        chatLogger_->stop();
         chatLogBtn_->setChecked(false);
         chatLogBtn_->setText(" Save");
-        chatLogFile_.reset();
         statusLabel_->setText("Chat log stopped.");
+    } else {
+        std::string roomId = roomHandler_->currentRoomId();
+        std::string roomName = roomId;  // fallback — room list model has display name
+        if (roomModel_) {
+            int row = roomModel_->findRowByRoomId(roomId);
+            if (row >= 0) {
+                auto* rd = roomModel_->at(row);
+                if (rd && !rd->name.empty() && rd->name != rd->roomId) roomName = rd->name;
+            }
+        }
+        chatLogger_->start(roomId, roomName);
+        if (chatLogger_->active()) {
+            chatLogBtn_->setChecked(true);
+            chatLogBtn_->setText(" Saving");
+            statusLabel_->setText("Chat log started.");
+        } else {
+            statusLabel_->setText("Failed to create log file.");
+        }
     }
 }
 

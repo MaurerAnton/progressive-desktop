@@ -88,8 +88,6 @@ private:
     std::string currentRoomIdStr_;
     std::string currentPrevBatch_;
     std::unordered_map<std::string, std::string> memberAvatarCache_;
-    bool chatLogging_ = false;
-    std::unique_ptr<std::ofstream> chatLogFile_;
 };
 
 } // namespace progressive::desktop

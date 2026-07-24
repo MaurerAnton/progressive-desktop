@@ -396,7 +396,6 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
     auto reactionsVar = idx.data(TimelineModel::ReactionsRole);
     QStringList reactions = reactionsVar.value<QStringList>();
     if (!reactions.isEmpty()) {
-        int rx = bubbleX + kBubblePadding;
         int baseY;
         if (L.isLastInGroup) {
             baseY = bubbleY + L.bubbleH + 2;
@@ -404,43 +403,23 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
             baseY = bubbleY + L.bubbleH - kPadBottom - kTimeRowH - L.reactionH;
             if (threadCount > 0) baseY -= L.threadCountH + 2;
         }
-        int ry = baseY;
         QFont pillFont = p->font(); pillFont.setPointSize(ds(9)); p->setFont(pillFont);
         QFontMetrics fm(pillFont);
-        int maxX = bubbleX + bubbleW - kBubblePadding;
-        int rowNum = 0;
-        int shown = 0;
-        for (int i = 0; i < reactions.size(); ++i) {
-            const QString& pill = reactions[i];
-            int pw = fm.horizontalAdvance(pill) + 16;
-            if (rx + pw > maxX && shown > 0) {
-                rx = bubbleX + kBubblePadding;
-                ry += 20;
-                rowNum++;
-                if (rowNum >= 2) {
-                    int left = static_cast<int>(reactions.size()) - shown;
-                    if (left > 0) {
-                        QString more = "+" + QString::number(left);
-                        int mw = fm.horizontalAdvance(more) + 16;
-                        QRect pr(rx, ry, mw, 20);
-                        p->setPen(Design::reactionBorder);
-                        p->setBrush(Design::reactionBg);
-                        p->drawRoundedRect(pr, 8, 8);
-                        p->setPen(QColor("#e8e8e8"));
-                        p->drawText(pr, Qt::AlignCenter, more);
-                    }
-                    break;
-                }
+        auto rows = computeReactionLayout(reactions, bubbleX, baseY, bubbleW, fm);
+        for (const auto& row : rows) {
+            if (row.isOverflow) {
+                p->setPen(Design::reactionBorder);
+                p->setBrush(Design::reactionBg);
+                p->drawRoundedRect(row.rect, 8, 8);
+                p->setPen(QColor("#e8e8e8"));
+                p->drawText(row.rect, Qt::AlignCenter, row.text);
+            } else {
+                p->setPen(QColor("#3a3a3a"));
+                p->setBrush(QColor("#2a2a2a"));
+                p->drawRoundedRect(row.rect, 8, 8);
+                p->setPen(QColor("#e8e8e8"));
+                p->drawText(row.rect, Qt::AlignCenter, row.text);
             }
-            if (rx + pw > maxX && shown == 0) pw = maxX - rx;
-            QRect pr(rx, ry, pw, 20);
-            p->setPen(QColor("#3a3a3a"));
-            p->setBrush(QColor("#2a2a2a"));
-            p->drawRoundedRect(pr, 8, 8);
-            p->setPen(QColor("#e8e8e8"));
-            p->drawText(pr, Qt::AlignCenter, pill);
-            rx += pw + 3;
-            shown++;
         }
     }
 }

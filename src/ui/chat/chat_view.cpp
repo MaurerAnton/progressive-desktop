@@ -1,5 +1,6 @@
 // src/ui/chat_view.cpp — message sending logic extracted from MainWindow.
 #include "chat_view.hpp"
+#include "chat_logger.hpp"
 #include "message_edit.hpp"
 #include "core/sync_engine.hpp"
 #include "core/memory_stats.hpp"
@@ -96,6 +97,7 @@ void ChatView::doSend(const std::string& body) {
     if (!threadRoot_.empty()) { echo.isThreadReply = true; echo.threadRootId = threadRoot_; }
     std::string tempId = echo.eventId;
     model_->appendBack(echo);
+    if (chatLogger_ && chatLogger_->active()) chatLogger_->log(body);
 
     std::string roomId = roomId_;
     std::string threadRoot = threadRoot_;

@@ -82,6 +82,7 @@ add_library(progressive_ui_widgets STATIC
     src/ui/room/room_data_loader.cpp
     src/ui/room_list_model.cpp
     src/ui/room_list_delegate.cpp
+    src/ui/chat/chat_logger.cpp
     src/ui/chat/chat_view.cpp
     src/ui/chat/message_edit.cpp
     src/ui/chat/emoji_picker.cpp

@@ -93,24 +93,19 @@ bool TimelineDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
     int bubbleY = topY + L.nameH;
 
     auto rxns = index.data(TimelineModel::ReactionsRole).value<QStringList>();
+    int threadCount = index.data(TimelineModel::ThreadCountRole).toInt();
     if (!rxns.isEmpty()) {
         int baseY = L.isLastInGroup ? (bubbleY + L.bubbleH + 2)
                                      : (bubbleY + L.bubbleH - kPadBottom - kTimeRowH - L.reactionH);
-        int rx = bubbleX + kBubblePadding, ry = baseY;
+        if (threadCount > 0 && !L.isLastInGroup) baseY -= L.threadCountH + 2;
         QFont pillFont; pillFont.setPointSize(ds(9));
         QFontMetrics fm(pillFont);
-        int maxX = bubbleX + bubbleW - kBubblePadding;
-        int shown = 0, rowNum = 0;
-        for (int i = 0; i < rxns.size(); ++i) {
-            int pw = fm.horizontalAdvance(rxns[i]) + 16;
-            if (rx + pw > maxX && shown > 0) { rx = bubbleX + kBubblePadding; ry += 20; rowNum++; shown = 0; if (rowNum >= 2) break; }
-            if (rx + pw > maxX && shown == 0) pw = maxX - rx;
-            QRect pr(rx, ry, pw, 20);
-            if (pr.contains(me->pos())) {
-                emit reactionClicked(eventId, rxns[i]);
+        auto rows = computeReactionLayout(rxns, bubbleX, baseY, bubbleW, fm);
+        for (const auto& row : rows) {
+            if (!row.isOverflow && row.rect.contains(me->pos())) {
+                emit reactionClicked(eventId, row.text);
                 return true;
             }
-            rx += pw + 3; shown++;
         }
     }
 
@@ -126,7 +121,6 @@ bool TimelineDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
         }
     }
 
-    int threadCount = index.data(TimelineModel::ThreadCountRole).toInt();
     if (threadCount > 0) {
         int tcY = bubbleY + L.bubbleH - kPadBottom - kTimeRowH - L.threadCountH - 2;
         int textX = bubbleX + kBubblePadding;

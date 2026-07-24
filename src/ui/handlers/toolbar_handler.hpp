@@ -5,6 +5,7 @@
 #include <string>
 #include <fstream>
 #include <memory>
+#include "../chat/chat_logger.hpp"
 
 class QLabel;
 class QWidget;
@@ -40,6 +41,7 @@ public:
     void setInterfaceElements(QPushButton* chatLog, QPushButton* threadBtn) {
         chatLogBtn_ = chatLog; threadBtn_ = threadBtn;
     }
+    ChatLogger* chatLogger() const { return chatLogger_.get(); }
 
 signals:
     void fullscreenToggled();
@@ -68,9 +70,8 @@ private:
     RoomHandler* roomHandler_ = nullptr;
     QPushButton* chatLogBtn_ = nullptr;
     QPushButton* threadBtn_ = nullptr;
-    bool chatLogging_ = false;
+    std::unique_ptr<ChatLogger> chatLogger_;
     bool isFullscreen_ = false;
-    std::unique_ptr<std::ofstream> chatLogFile_;
 
     QAction* fullscreenAction_ = nullptr;
 };

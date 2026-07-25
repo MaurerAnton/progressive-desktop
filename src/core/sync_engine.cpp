@@ -246,7 +246,7 @@ void SyncEngine::run() {
 void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
     LOG(LogChannel::E2EE, "processToDevice: %zu toDevice events", resp.toDeviceEventList.size());
     for (const auto& evt : resp.toDeviceEventList) {
-        std::fprintf(stderr, "[E2EE] RAW toDevice type='%s' sender='%s' content='%.200s'\n",
+        std::fprintf(stderr, "[E2EE] RAW toDevice type='%s' sender='%s' content='%s'\n",
             std::string(evt.type).c_str(), std::string(evt.senderId).c_str(),
             std::string(evt.contentJson).c_str());
         if (evt.type == "m.room_key") {

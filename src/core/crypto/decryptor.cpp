@@ -250,21 +250,41 @@ std::string Decryptor::buildKeysUploadBody(const std::string& userId,
         if (obj.error() == simdjson::SUCCESS) {
             for (auto field : obj.value()) {
                 std::string_view key(field.key);
-                auto valStr = field.value.get_string();
-                if (valStr.error() != simdjson::SUCCESS) continue;
 
-                // Sign the key object: {"key":"<value>"}
-                std::string keyObj = "{\"key\":\"" + std::string(valStr.value()) + "\"}";
-                std::string sig = signCanonicalJson(keyObj);
+                auto innerObj = field.value.get_object();
+                if (innerObj.error() == simdjson::SUCCESS) {
+                    // Nested format: {"curve25519":{"AAAAqg":"<key>","AAAAqQ":"<key>"}}
+                    // This is what libolm returns since the JSON retrieval fix.
+                    for (auto innerField : innerObj.value()) {
+                        std::string innerKey(innerField.key);
+                        auto innerVal = innerField.value.get_string();
+                        if (innerVal.error() != simdjson::SUCCESS) continue;
 
-                // Rename curve25519: → signed_curve25519:
-                std::string signedKey = "signed_curve25519:" + std::string(key).substr(key.find(':') + 1);
-                if (!firstOtk) otkSigned << ",";
-                firstOtk = false;
-                otkSigned << "\"" << signedKey << "\":"
-                          << "{\"key\":\"" << std::string(valStr.value()) << "\","
-                          << "\"signatures\":{\""
-                          << userId << "\":{\"ed25519:" << deviceId << "\":\"" << sig << "\"}}}";
+                        std::string keyObj = "{\"key\":\"" + std::string(innerVal.value()) + "\"}";
+                        std::string sig = signCanonicalJson(keyObj);
+                        std::string signedKey = "signed_curve25519:" + innerKey;
+                        if (!firstOtk) otkSigned << ",";
+                        firstOtk = false;
+                        otkSigned << "\"" << signedKey << "\":"
+                                  << "{\"key\":\"" << std::string(innerVal.value()) << "\","
+                                  << "\"signatures\":{\""
+                                  << userId << "\":{\"ed25519:" << deviceId << "\":\"" << sig << "\"}}}";
+                    }
+                } else {
+                    // Legacy flat format: {"curve25519:AAAAqg":"<key>","curve25519:BBBB":"<key>"}
+                    auto valStr = field.value.get_string();
+                    if (valStr.error() != simdjson::SUCCESS) continue;
+
+                    std::string keyObj = "{\"key\":\"" + std::string(valStr.value()) + "\"}";
+                    std::string sig = signCanonicalJson(keyObj);
+                    std::string signedKey = "signed_curve25519:" + std::string(key).substr(key.find(':') + 1);
+                    if (!firstOtk) otkSigned << ",";
+                    firstOtk = false;
+                    otkSigned << "\"" << signedKey << "\":"
+                              << "{\"key\":\"" << std::string(valStr.value()) << "\","
+                              << "\"signatures\":{\""
+                              << userId << "\":{\"ed25519:" << deviceId << "\":\"" << sig << "\"}}}";
+                }
             }
         }
     }

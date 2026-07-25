@@ -416,7 +416,9 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
     if (!plaintext.empty()) {
         std::string_view pv(plaintext);
         auto innerType = extractStr(pv, "type");
-        if (innerType == "m.room_key") {
+            if (innerType == "m.room_key") {
+            std::fprintf(stderr, "[E2EE] Olm plaintext: size=%zu full='%.400s'\n",
+                plaintext.size(), plaintext.c_str());
             LOG(LogChannel::E2EE, "Olm: inner type=m.room_key — calling handleRoomKey");
             auto innerContentStart = plaintext.find("\"content\":");
             if (innerContentStart != std::string::npos) {
@@ -427,6 +429,8 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
                     if (plaintext[braceEnd] == '{') d++;
                     else if (plaintext[braceEnd] == '}') { d--; if (d == 0) { braceEnd++; break; } }
                 }
+                std::fprintf(stderr, "[E2EE] Olm braceMatch: start=%zu end=%zu diff=%zd\n",
+                    braceStart, braceEnd, (std::ptrdiff_t)(braceEnd - braceStart));
                 std::string innerContent = plaintext.substr(braceStart, braceEnd - braceStart);
                 // Add the senderKey from the outer event for the megolm session
                 // The room_key content may or may not have sender_key. We inject it.

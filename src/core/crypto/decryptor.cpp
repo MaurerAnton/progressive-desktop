@@ -226,6 +226,12 @@ std::string Decryptor::buildKeysUploadBody(const std::string& userId,
     // 3. Sign the device_keys canonical JSON
     std::string signature = signCanonicalJson(deviceKeysCanonical);
 
+    // Insert signatures into device_keys before the closing }
+    std::string deviceKeysSigned = deviceKeysCanonical;
+    deviceKeysSigned.pop_back();  // remove trailing }
+    deviceKeysSigned += ",\"signatures\":{\""
+        + userId + "\":{\"ed25519:" + deviceId + "\":\"" + signature + "\"}}}";
+
     // 4. Parse the one-time keys JSON and sign each one.
     // The oneTimeKeysJson from progressive::OlmAccount looks like:
     //   {"curve25519:AAAA":"<key>","curve25519:BBBB":"<key>"}
@@ -265,9 +271,7 @@ std::string Decryptor::buildKeysUploadBody(const std::string& userId,
 
     // 5. Assemble the full /keys/upload body
     std::ostringstream body;
-    body << "{\"device_keys\":" << deviceKeysCanonical
-         << ",\"signatures\":{\""
-         << userId << "\":{\"ed25519:" << deviceId << "\":\"" << signature << "\"}}"
+    body << "{\"device_keys\":" << deviceKeysSigned
          << ",\"one_time_keys\":" << otkSigned.str()
          << "}";
     return body.str();

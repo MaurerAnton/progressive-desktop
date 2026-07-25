@@ -87,23 +87,34 @@ DecryptionResult Decryptor::decryptMegolmEvent(const std::string& roomId,
                                                   const std::string& eventId,
                                                   int64_t originServerTs) {
     DecryptionResult r;
-    // Parse the m.room.encrypted content:
-    // {"algorithm":"m.megolm.v1.aes-sha2","ciphertext":"...","sender_key":"...",
-    //  "device_id":"...","session_id":"..."}
-    std::string_view cv(contentJson);
-    auto algorithm = extractStr(cv, "algorithm");
+    simdjson::dom::parser mp;
+    auto doc = mp.parse(contentJson);
+    if (doc.error() != simdjson::SUCCESS) {
+        r.error = "failed to parse megolm encrypted content";
+        return r;
+    }
+    auto val = doc.value();
+    auto algoStr = val["algorithm"].get_string();
+    if (algoStr.error() != simdjson::SUCCESS) {
+        r.error = "missing algorithm";
+        return r;
+    }
+    std::string algorithm(algoStr.value());
     if (algorithm != "m.megolm.v1.aes-sha2" && algorithm != "m.megolm.v2.aes-sha2") {
-        // Could be m.olm.v1.curve25519-aes-sha2 (1:1) — not handled here
         r.error = "unsupported algorithm: " + algorithm;
         return r;
     }
-    auto senderKey = extractStr(cv, "sender_key");
-    auto sessionId = extractStr(cv, "session_id");
-    auto ciphertext = extractStr(cv, "ciphertext");
-    if (senderKey.empty() || sessionId.empty() || ciphertext.empty()) {
+    auto sk = val["sender_key"].get_string();
+    auto sid = val["session_id"].get_string();
+    auto ct = val["ciphertext"].get_string();
+    if (sk.error() != simdjson::SUCCESS || sid.error() != simdjson::SUCCESS ||
+        ct.error() != simdjson::SUCCESS) {
         r.error = "missing sender_key/session_id/ciphertext";
         return r;
     }
+    std::string senderKey(sk.value());
+    std::string sessionId(sid.value());
+    std::string ciphertext(ct.value());
 
     if (!megolm_->hasSession(roomId, senderKey, sessionId)) {
         r.error = "no megolm session — waiting for room_key";
@@ -132,27 +143,42 @@ DecryptionResult Decryptor::decryptMegolmEvent(const std::string& roomId,
 }
 
 bool Decryptor::handleRoomKey(const std::string& contentJson) {
-    // m.room_key content: {"algorithm":"m.megolm.v1.aes-sha2",
-    //   "room_id":"!...","session_id":"...","session_key":"...","keys":{}}
-    std::string_view cv(contentJson);
-    auto roomId = extractStr(cv, "room_id");
-    auto sessionId = extractStr(cv, "session_id");
-    auto sessionKey = extractStr(cv, "session_key");
-    auto senderKey = extractStr(cv, "sender_key");
-    LOG(LogChannel::E2EE, "handleRoomKey: room=%.40s sid=%.20s sk=%.20s senderKey=%.20s",
-        roomId.c_str(), sessionId.c_str(), sessionKey.c_str(), senderKey.c_str());
-    if (roomId.empty() || sessionId.empty() || sessionKey.empty()) {
+    simdjson::dom::parser rp;
+    auto doc = rp.parse(contentJson);
+    if (doc.error() != simdjson::SUCCESS) return false;
+    auto val = doc.value();
+
+    auto rid = val["room_id"].get_string();
+    auto sid = val["session_id"].get_string();
+    auto skey = val["session_key"].get_string();
+    if (rid.error() != simdjson::SUCCESS || sid.error() != simdjson::SUCCESS ||
+        skey.error() != simdjson::SUCCESS) {
         LOG(LogChannel::E2EE, "handleRoomKey: FAILED — missing required fields");
         return false;
     }
-    // senderKey may be in the room_key content (some clients include it under "keys")
-    // or in the outer to-device event's sender_key. Caller should pass via content.
-    // We try the content first; if absent, we cannot add the session.
-    if (senderKey.empty()) {
-        // Try the keys.ed25519 or keys.curve25519 pattern
-        auto keys = extractStr(cv, "keys");
-        if (!keys.empty()) senderKey = extractStr(keys, "curve25519");
+    std::string roomId(rid.value());
+    std::string sessionId(sid.value());
+    std::string sessionKey(skey.value());
+
+    auto sk = val["sender_key"].get_string();
+    std::string senderKey;
+    if (sk.error() == simdjson::SUCCESS) {
+        senderKey = std::string(sk.value());
+    } else {
+        auto keys = val["keys"].get_object();
+        if (keys.error() == simdjson::SUCCESS) {
+            for (auto [k, v] : keys.value()) {
+                std::string kStr(k);
+                if (kStr.find("curve25519") != std::string::npos) {
+                    auto kv = v.get_string();
+                    if (kv.error() == simdjson::SUCCESS) senderKey = std::string(kv.value());
+                    break;
+                }
+            }
+        }
     }
+    LOG(LogChannel::E2EE, "handleRoomKey: room=%.40s sid=%.20s sk=%.20s senderKey=%.20s",
+        roomId.c_str(), sessionId.c_str(), sessionKey.c_str(), senderKey.c_str());
     if (senderKey.empty()) {
         LOG(LogChannel::E2EE, "handleRoomKey: FAILED — no sender_key");
         return false;
@@ -309,55 +335,55 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
     // m.room.encrypted to-device content (Olm 1:1):
     //   {"algorithm":"m.olm.v1.curve25519-aes-sha2","ciphertext":
     //    {"<our_curve25519>":{"body":"<base64>","type":0}},"sender_key":"<their_curve25519>"}
-    std::string_view cv(contentJson);
-    auto algorithm = extractStr(cv, "algorithm");
-    if (algorithm != "m.olm.v1.curve25519-aes-sha2") {
-        LOG(LogChannel::E2EE, "Olm: wrong algorithm=%s", algorithm.c_str());
+    simdjson::dom::parser op;
+    auto doc = op.parse(contentJson);
+    if (doc.error() != simdjson::SUCCESS) return {};
+    auto val = doc.value();
+
+    auto algoStr = val["algorithm"].get_string();
+    if (algoStr.error() != simdjson::SUCCESS ||
+        std::string(algoStr.value()) != "m.olm.v1.curve25519-aes-sha2") {
+        LOG(LogChannel::E2EE, "Olm: wrong algorithm");
         return {};
     }
 
-    auto senderKey = extractStr(cv, "sender_key");
-    if (senderKey.empty()) {
-        LOG(LogChannel::E2EE, "Olm: no sender_key in content");
+    auto sk = val["sender_key"].get_string();
+    if (sk.error() != simdjson::SUCCESS) {
+        LOG(LogChannel::E2EE, "Olm: no sender_key");
         return {};
     }
+    std::string senderKey(sk.value());
 
-    // Find the ciphertext entry for our curve25519 key
     std::string ourCurve = account_->curve25519Key();
     if (ourCurve.empty()) {
         LOG(LogChannel::E2EE, "Olm: no our curve25519 key");
         return {};
     }
 
-    // The ciphertext is an object keyed by our curve25519. Find it.
-    std::string needle = "\"" + ourCurve + "\":";
-    auto pos = contentJson.find(needle);
-    if (pos == std::string::npos) {
-        LOG(LogChannel::E2EE, "Olm: our key=%s not found in ciphertext keys", ourCurve.c_str());
+    auto ct = val["ciphertext"];
+    if (ct.error() != simdjson::SUCCESS) {
+        LOG(LogChannel::E2EE, "Olm: no ciphertext");
         return {};
     }
-    // Skip to the opening brace of the inner object
-    pos = contentJson.find('{', pos);
-    if (pos == std::string::npos) return {};
-    // Find matching close brace
-    int depth = 0;
-    size_t endPos = pos;
-    for (; endPos < contentJson.size(); ++endPos) {
-        if (contentJson[endPos] == '{') depth++;
-        else if (contentJson[endPos] == '}') { depth--; if (depth == 0) { endPos++; break; } }
+    auto ourEntry = ct.value()[ourCurve];
+    if (ourEntry.error() != simdjson::SUCCESS) {
+        LOG(LogChannel::E2EE, "Olm: our key not found in ciphertext");
+        return {};
     }
-    std::fprintf(stderr, "[E2EE] Olm cipherObj: pos=%zu endPos=%zu diff=%zd contentSize=%zu depth=%d\n",
-        pos, endPos, (std::ptrdiff_t)(endPos - pos), contentJson.size(), depth);
-    std::string cipherObj = contentJson.substr(pos, endPos - pos);
-    std::fprintf(stderr, "[E2EE] DBG1: cipherObj size=%zu\n", cipherObj.size());
 
-    auto body = extractStr(cipherObj, "body");
+    auto bodyStr = ourEntry.value()["body"].get_string();
+    auto typeNum = ourEntry.value()["type"].get_int64();
+    if (bodyStr.error() != simdjson::SUCCESS) {
+        LOG(LogChannel::E2EE, "Olm: empty body");
+        return {};
+    }
+    std::string body(bodyStr.value());
+    int msgType = (typeNum.error() == simdjson::SUCCESS) ? static_cast<int>(typeNum.value()) : 0;
+
+    std::fprintf(stderr, "[E2EE] Olm cipherObj: parsed via simdjson\n");
+    std::fprintf(stderr, "[E2EE] DBG1: body size=%zu\n", body.size());
     std::fprintf(stderr, "[E2EE] DBG2: body size=%zu empty=%d\n", body.size(), body.empty() ? 1 : 0);
-
-    auto typeStr = extractStr(cipherObj, "type");
-    std::fprintf(stderr, "[E2EE] DBG3: typeStr='%s'\n", typeStr.c_str());
-
-    int msgType = typeStr.empty() ? 0 : std::stoi(typeStr);
+    std::fprintf(stderr, "[E2EE] DBG3: typeStr='%d'\n", msgType);
     std::fprintf(stderr, "[E2EE] DBG4: msgType=%d\n", msgType);
 
     if (body.empty()) {

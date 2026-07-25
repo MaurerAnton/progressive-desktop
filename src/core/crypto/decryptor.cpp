@@ -349,9 +349,16 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
     std::fprintf(stderr, "[E2EE] Olm cipherObj: pos=%zu endPos=%zu diff=%zd contentSize=%zu depth=%d\n",
         pos, endPos, (std::ptrdiff_t)(endPos - pos), contentJson.size(), depth);
     std::string cipherObj = contentJson.substr(pos, endPos - pos);
+    std::fprintf(stderr, "[E2EE] DBG1: cipherObj size=%zu\n", cipherObj.size());
+
     auto body = extractStr(cipherObj, "body");
+    std::fprintf(stderr, "[E2EE] DBG2: body size=%zu empty=%d\n", body.size(), body.empty() ? 1 : 0);
+
     auto typeStr = extractStr(cipherObj, "type");
+    std::fprintf(stderr, "[E2EE] DBG3: typeStr='%s'\n", typeStr.c_str());
+
     int msgType = typeStr.empty() ? 0 : std::stoi(typeStr);
+    std::fprintf(stderr, "[E2EE] DBG4: msgType=%d\n", msgType);
 
     if (body.empty()) {
         LOG(LogChannel::E2EE, "Olm: empty body in ciphertext object");
@@ -360,28 +367,40 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
 
     // Try to find an existing OlmSession for this sender.
     // If none, create one from the pre-key message (type 0).
+    std::fprintf(stderr, "[E2EE] DBG5: entering lock\n");
     std::lock_guard<std::mutex> lk(olmMtx_);
+    std::fprintf(stderr, "[E2EE] DBG6: lock acquired\n");
     std::string plaintext;
 
     progressive::OlmSession session;
     auto* underlyingAccount = static_cast<progressive::OlmAccount*>(account_->rawAccount());
+    std::fprintf(stderr, "[E2EE] DBG7: account ready\n");
 
     if (msgType == 0) {
         // Pre-key message — create inbound session, then decrypt
+        std::fprintf(stderr, "[E2EE] DBG8: pre-key branch, calling createInbound bodySize=%zu\n", body.size());
         auto result = session.createInbound(*underlyingAccount, body);
+        std::fprintf(stderr, "[E2EE] DBG9: createInbound success=%d\n", result.success ? 1 : 0);
         if (!result.success) {
             LOG(LogChannel::E2EE, "Olm: createInbound Olm session FAILED");
             return {};
         }
         // After createInbound, decrypt the message body
+        std::fprintf(stderr, "[E2EE] DBG10: calling decrypt type 0\n");
         auto decResult = session.decrypt(body, 0);
+        std::fprintf(stderr, "[E2EE] DBG11: decrypt success=%d dataSize=%zu\n",
+            decResult.success ? 1 : 0, decResult.data.size());
         if (!decResult.success) {
             LOG(LogChannel::E2EE, "Olm: decrypt after createInbound FAILED");
             return {};
         }
         plaintext = decResult.data;
+        std::fprintf(stderr, "[E2EE] DBG12: plaintext copied size=%zu\n", plaintext.size());
 
+        std::fprintf(stderr, "[E2EE] DBG13: calling pickle\n");
         auto pickleResult = session.pickle("");
+        std::fprintf(stderr, "[E2EE] DBG14: pickle success=%d size=%zu\n",
+            pickleResult.success ? 1 : 0, pickleResult.data.size());
         if (pickleResult.success) {
             olmSessions_[senderKey] = pickleResult.data;
             LOG(LogChannel::E2EE, "Olm: saved session pickle for sender=%s", senderKey.c_str());

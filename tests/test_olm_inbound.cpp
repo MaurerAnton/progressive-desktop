@@ -37,6 +37,22 @@ static void fill_random(uint8_t* buf, size_t len) {
     for (size_t i = 0; i < len; ++i) buf[i] = (uint8_t)(my_rand() & 0xff);
 }
 
+static std::string extractFirstOTK(const std::string& json) {
+    auto pos = json.find("\"AAAAAA\":\"");
+    if (pos == std::string::npos) {
+        pos = json.find("\"curve25519\":{");
+        if (pos == std::string::npos) return "";
+        pos = json.find("\":\"", pos);
+        if (pos == std::string::npos) return "";
+        pos += 3;
+    } else {
+        pos += 10;
+    }
+    auto end = json.find('"', pos);
+    if (end == std::string::npos) return "";
+    return json.substr(pos, end - pos);
+}
+
 static void test_olm_roundtrip() {
     // Bob: create account
     std::vector<uint8_t> bob_acct_buf(::olm_account_size());
@@ -175,40 +191,58 @@ static void test_olm_roundtrip() {
     std::cout << "--- test_olm_roundtrip PASSED ---\n";
 }
 
-static void test_real_account(const std::string& pickleB64, const std::string& pickleKey,
-                               const std::string& bodyB64) {
-    std::cout << "\n--- test_real_account ---\n";
+static void test_real_account_roundtrip(const std::string& pickleRaw, const std::string& pickleKey) {
+    std::cout << "\n--- test_real_account_roundtrip ---\n";
 
-    // Step 1: Load real Bob account from pickle
-    std::string pickleRaw = progressive::desktop::base64Decode(pickleB64);
+    // Step 1: Load Bob's real account from session.db
     std::cout << "  pickle raw size=" << pickleRaw.size() << " key=" << pickleKey << "\n";
 
     progressive::OlmAccount bob;
     auto up = bob.unpickle(pickleKey, pickleRaw);
-    CHECK(up.success, "Unpickle Bob's real account from session.db");
+    CHECK(up.success, "Unpickle Bob's real account");
 
-    auto bobCurve = bob.curve25519Key();
-    CHECK(bobCurve.success, "Got Bob's real curve25519");
-    std::cout << "  Bob real curve25519: " << bobCurve.data.substr(0, 8) << "...\n";
+    std::string bobCurveB64 = bob.curve25519Key().data;
+    CHECK(!bobCurveB64.empty(), "Got Bob's real curve25519");
+    std::cout << "  Bob real curve25519: " << bobCurveB64.substr(0, 8) << "...\n";
 
-    // Step 2: Decode body from RAW toDevice log
-    std::string bodyRaw = progressive::desktop::base64Decode(bodyB64);
-    std::cout << "  body raw size=" << bodyRaw.size() << " first 8 bytes: ";
-    for (int i = 0; i < 8 && i < (int)bodyRaw.size(); ++i)
-        std::printf("%02x ", (unsigned char)bodyRaw[i]);
-    std::cout << "\n";
+    // Step 2: Generate FRESH one-time keys for Bob's real account
+    auto otk = bob.generateOneTimeKeys(5);
+    CHECK(otk.success, "Bob real account generated fresh OTKs");
+    std::string otkJson = otk.data;
+    CHECK(!otkJson.empty(), "Fresh OTK JSON not empty");
 
-    // Step 3: createInbound
+    std::string b64Key = extractFirstOTK(otkJson);
+    CHECK(!b64Key.empty(), "Extracted first fresh OTK");
+    std::cout << "  Bob fresh OTK: " << b64Key.substr(0, 8) << "...\n";
+
+    // Step 3: Alice creates outbound session using Bob's fresh OTK
+    progressive::OlmAccount aliceAccount;
+    auto a = aliceAccount.create();
+    CHECK(a.success, "Alice account created");
+
+    progressive::OlmSession aliceSession;
+    auto out = aliceSession.createOutbound(aliceAccount, bobCurveB64, b64Key);
+    CHECK(out.success, "Alice createOutbound with Bob's real account + fresh OTK");
+
+    std::string original = "Hello from Alice to the real Bob!";
+    auto enc = aliceSession.encrypt(original);
+    CHECK(enc.success, "Alice encrypt");
+    CHECK_EQ(enc.messageType, 0, "Pre-key message type is 0");
+
+    // Step 4: Bob's real account receives and decrypts
+    // createInbound mutates the pre-key buffer — copy before, restore before decrypt
+    std::string encCopy = enc.data;
     progressive::OlmSession bobSession;
-    auto in = bobSession.createInbound(bob, bodyRaw);
-    CHECK(in.success, "createInbound with real account + real body");
+    auto in = bobSession.createInbound(bob, encCopy);
+    CHECK(in.success, "Bob real account createInbound");
 
-    // Step 4: decrypt
-    auto dec = bobSession.decrypt(bodyRaw, 0);
-    CHECK(dec.success, "decrypt with real account + real body");
-    std::cout << "  decrypted plaintext: " << dec.data.substr(0, 80) << "...\n";
+    encCopy = enc.data;  // restore original
+    auto dec = bobSession.decrypt(encCopy, 0);
+    CHECK(dec.success, "Bob real account decrypt");
 
-    std::cout << "--- test_real_account PASSED ---\n";
+    CHECK_EQ(dec.data, original, "Plaintext matches with real account!");
+
+    std::cout << "--- test_real_account_roundtrip PASSED ---\n";
 }
 
 int main(int argc, char** argv) {
@@ -217,15 +251,14 @@ int main(int argc, char** argv) {
     // Always run the synthetic roundtrip
     test_olm_roundtrip();
 
-    // If pickle + body provided, also test with real account
-    if (argc >= 4) {
-        std::string pickleB64 = argv[1];
+    // If pickle + key provided, test real account roundtrip
+    if (argc >= 3) {
+        std::string pickleRaw = argv[1];
         std::string pickleKey = argv[2];
-        std::string bodyB64 = argv[3];
-        test_real_account(pickleB64, pickleKey, bodyB64);
+        test_real_account_roundtrip(pickleRaw, pickleKey);
     } else {
         std::cout << "\nUsage for real account test:\n";
-        std::cout << "  " << argv[0] << " <pickle_b64> <pickle_key> <body_b64>\n";
+        std::cout << "  " << argv[0] << " <pickle_raw> <pickle_key>\n";
     }
 
     if (failures == 0) { std::cout << "\nALL TESTS PASSED\n"; return 0; }

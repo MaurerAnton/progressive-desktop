@@ -130,7 +130,7 @@ std::string OlmAccountStore::generateOneTimeKeys(int count) {
 void OlmAccountStore::markOneTimeKeysPublished() {
     auto* acc = static_cast<progressive::OlmAccount*>(account_);
     if (!acc) return;
-    acc->generateOneTimeKeys(0);
+    acc->markKeysAsPublished();
 }
 
 } // namespace progressive::desktop

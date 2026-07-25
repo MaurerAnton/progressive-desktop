@@ -310,8 +310,12 @@ void SyncEngine::uploadDeviceKeys(bool force) {
     // (MAX_ONE_TIME_KEYS=100), which would break createInbound for messages
     // encrypted with those old OTKs.
     if (!force && store_ && store_->loadE2eeFlag("otk_uploaded_once").value_or(false)) {
-        LOG(LogChannel::E2EE, "uploadDeviceKeys: OTKs already uploaded — skipping");
-        return;
+        if (store_->loadE2eeFlag("otk_persisted").value_or(false)) {
+            LOG(LogChannel::E2EE, "uploadDeviceKeys: OTKs already uploaded and persisted — skipping");
+            return;
+        }
+        LOG(LogChannel::E2EE, "uploadDeviceKeys: otk_uploaded_once=true but otk_persisted=false — regenerating (bug #9 migration)");
+        // fall through to regenerate + upload + save
     }
 
     std::string userId = client_->account().userId;
@@ -335,6 +339,21 @@ void SyncEngine::uploadDeviceKeys(bool force) {
 
     if (result.ok) {
         LOG(LogChannel::E2EE, "uploadDeviceKeys: SUCCESS — response=[%.200s]", result.data.c_str());
+
+        // Mark OTKs as published — they remain usable by olm_create_inbound_session
+        // but won't be returned by olm_account_one_time_keys (prevents re-upload).
+        decryptor_.markOneTimeKeysPublished();
+
+        // Re-pickle and save account with OTKs (fixes bug #9: pickle was saved
+        // before OTK generation in e2ee_init_handler, so it had zero OTKs →
+        // BAD_MESSAGE_KEY_ID on restart).
+        std::string pickleKey = userId + "/" + deviceId;
+        std::string newPickle = decryptor_.saveAccountPickle(pickleKey);
+        if (!newPickle.empty() && store_) {
+            store_->saveOlmAccount(newPickle, pickleKey);
+            store_->saveE2eeFlag("otk_persisted", true);
+            LOG(LogChannel::E2EE, "uploadDeviceKeys: OTKs marked published, account pickle saved (with OTKs)");
+        }
     } else {
         LOG(LogChannel::E2EE, "uploadDeviceKeys: FAILED — error=%s", result.error.message.c_str());
     }

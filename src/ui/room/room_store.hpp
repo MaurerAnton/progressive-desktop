@@ -72,7 +72,8 @@ public:
                      TimelineModel* model,
                      LifeToken token,
                      std::function<void(int eventCount,
-                                         const std::string& prevBatch)> callback);
+                                         const std::string& prevBatch)> callback,
+                     Decryptor* decryptor = nullptr);
 
     void loadMembers(const std::string& roomId,
                      LifeToken token,

@@ -2,8 +2,10 @@
 #include "room_data_loader.hpp"
 #include "core/matrix_client.hpp"
 #include "core/session_store.hpp"
+#include "core/crypto/decryptor.hpp"
 #include "core/thread_pool.hpp"
 #include "../room/room_store.hpp"
+#include "../room/event_body_parser.hpp"
 #include "../timeline/timeline_model.hpp"
 #include "../room_list_model.hpp"
 #include "../profile/room_members_dialog.hpp"
@@ -19,13 +21,14 @@ RoomDataLoader::RoomDataLoader(std::shared_ptr<MatrixClient> client, std::shared
 
 void RoomDataLoader::loadHistory(const std::string& roomId, TimelineModel* model,
                                    LifeToken token,
-                                   std::function<void(int, const std::string&)> callback) {
+                                   std::function<void(int, const std::string&)> callback,
+                                   Decryptor* decryptor) {
     if (!client_ || !client_->isLoggedIn()) { if (callback) callback(0, ""); return; }
     auto c = client_;
     QPointer<RoomDataLoader> selfGuard(this);
-    ThreadPool::instance().enqueue([selfGuard, c, roomId, model, callback, token]() {
+    ThreadPool::instance().enqueue([selfGuard, c, roomId, model, callback, token, decryptor]() {
         auto result = c->getMessages(roomId, "", 30);
-        QMetaObject::invokeMethod(selfGuard, [selfGuard, result, model, callback, token]() {
+        QMetaObject::invokeMethod(selfGuard, [selfGuard, result, model, callback, token, roomId, decryptor]() {
             if (selfGuard.isNull() || !token || !*token) return;
             if (!result.ok) { if (callback) callback(0, ""); return; }
             simdjson::dom::parser parser;
@@ -120,6 +123,20 @@ void RoomDataLoader::loadHistory(const std::string& roomId, TimelineModel* model
                 if (de.type == "m.room.message") {
                     de.msgtype = msgType(de.contentJson);
                     de.body = msgBody(de.contentJson);
+                } else if (de.type == "m.room.encrypted" && decryptor && decryptor->isInitialized()) {
+                    auto result = decryptor->decryptMegolmEvent(roomId, de.senderId,
+                                                                 de.contentJson, de.eventId,
+                                                                 de.originServerTs);
+                    if (result.ok && !result.plaintext.empty()) {
+                        if (parsePlaintextBody(result.plaintext, de.type, de.contentJson)) {
+                            de.msgtype = msgType(de.contentJson);
+                            de.body = msgBody(de.contentJson);
+                        } else {
+                            de.body = "[encrypted]"; de.msgtype = "m.notice";
+                        }
+                    } else {
+                        de.body = "[encrypted]"; de.msgtype = "m.notice";
+                    }
                 }
                 events.push_back(std::move(de));
             }

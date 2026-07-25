@@ -1,6 +1,7 @@
 // src/ui/room/room_store.cpp — room operations extracted from MainWindow.
 #include "room_store.hpp"
 #include "room_data_loader.hpp"
+#include "event_body_parser.hpp"
 #include "../../core/session_store.hpp"
 #include "../../core/fast_sync.hpp"
 #include "../../core/crypto/decryptor.hpp"
@@ -245,8 +246,9 @@ void RoomStore::applyRoomSyncUpdate(RoomSyncUpdate& syncUpdate,
 
 void RoomStore::loadHistory(const std::string& roomId, TimelineModel* model,
                               LifeToken token,
-                              std::function<void(int, const std::string&)> callback) {
-    dataLoader_->loadHistory(roomId, model, token, callback);
+                              std::function<void(int, const std::string&)> callback,
+                              Decryptor* decryptor) {
+    dataLoader_->loadHistory(roomId, model, token, callback, decryptor);
 }
 
 void RoomStore::loadMembers(const std::string& roomId, LifeToken token,
@@ -310,14 +312,7 @@ static void fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
         auto result = decryptor->decryptMegolmEvent(currentRoomId, de.senderId, de.contentJson, de.eventId, de.originServerTs);
         if (result.ok) {
             LOG(LogChannel::E2EE, "fastEventToDisplayed: DECRYPTED eid=%s", de.eventId.c_str());
-            simdjson::dom::parser parser;
-            auto root = parser.parse(result.plaintext);
-            if (root.error() == simdjson::SUCCESS) {
-                auto t = root.value()["type"].get_string();
-                if (t.error() == simdjson::SUCCESS) de.type = std::string(t.value());
-                auto cr = root.value()["content"];
-                if (cr.error() == simdjson::SUCCESS) de.contentJson = simdjson::to_string(cr.value());
-            }
+            parsePlaintextBody(result.plaintext, de.type, de.contentJson);
         } else {
             LOG(LogChannel::E2EE, "fastEventToDisplayed: FAILED eid=%s err=%s",
                 de.eventId.c_str(), result.error.c_str());

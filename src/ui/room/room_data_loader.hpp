@@ -15,6 +15,7 @@ class SessionStore;
 class RoomListModel;
 class TimelineModel;
 struct MemberInfo;
+class Decryptor;
 
 class RoomDataLoader : public QObject {
     Q_OBJECT
@@ -26,7 +27,8 @@ public:
     void setSessionStore(std::shared_ptr<SessionStore> s) { store_ = std::move(s); }
 
     void loadHistory(const std::string& roomId, TimelineModel* model,
-                     LifeToken token, std::function<void(int, const std::string&)> callback);
+                     LifeToken token, std::function<void(int, const std::string&)> callback,
+                     Decryptor* decryptor = nullptr);
 
     void loadMembers(const std::string& roomId, LifeToken token,
                      const std::vector<std::string>& userIds,

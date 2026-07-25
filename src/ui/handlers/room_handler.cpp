@@ -208,7 +208,7 @@ void RoomHandler::onRoomClicked(const QModelIndex& idx) {
                 timelineView_->scrollToBottom();
                 statusLabel_->setText(QString("Loaded %1 messages.").arg(count));
             }
-        });
+        }, sync_ ? sync_->decryptor() : nullptr);
 }
 
 void RoomHandler::onRoomListContextMenu(const QPoint& pos) {
@@ -346,7 +346,7 @@ void RoomHandler::closeThreadView() {
                     if (!pb.empty() && loadMoreBtn_) loadMoreBtn_->show();
                     timelineView_->scrollToBottom();
                 }
-            });
+            }, sync_ ? sync_->decryptor() : nullptr);
     }
 }
 

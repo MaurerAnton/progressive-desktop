@@ -1,9 +1,12 @@
 #include <olm/olm.h>
+#include <progressive/olm.hpp>
+#include "core/crypto/olm_account.hpp"
 #include <iostream>
 #include <string>
 #include <cstring>
 #include <vector>
 #include <cstdint>
+#include <cstdio>
 
 static int failures = 0;
 #define CHECK(cond, msg) do { \
@@ -172,9 +175,59 @@ static void test_olm_roundtrip() {
     std::cout << "--- test_olm_roundtrip PASSED ---\n";
 }
 
-int main() {
+static void test_real_account(const std::string& pickleB64, const std::string& pickleKey,
+                               const std::string& bodyB64) {
+    std::cout << "\n--- test_real_account ---\n";
+
+    // Step 1: Load real Bob account from pickle
+    std::string pickleRaw = progressive::desktop::base64Decode(pickleB64);
+    std::cout << "  pickle raw size=" << pickleRaw.size() << " key=" << pickleKey << "\n";
+
+    progressive::OlmAccount bob;
+    auto up = bob.unpickle(pickleKey, pickleRaw);
+    CHECK(up.success, "Unpickle Bob's real account from session.db");
+
+    auto bobCurve = bob.curve25519Key();
+    CHECK(bobCurve.success, "Got Bob's real curve25519");
+    std::cout << "  Bob real curve25519: " << bobCurve.data.substr(0, 8) << "...\n";
+
+    // Step 2: Decode body from RAW toDevice log
+    std::string bodyRaw = progressive::desktop::base64Decode(bodyB64);
+    std::cout << "  body raw size=" << bodyRaw.size() << " first 8 bytes: ";
+    for (int i = 0; i < 8 && i < (int)bodyRaw.size(); ++i)
+        std::printf("%02x ", (unsigned char)bodyRaw[i]);
+    std::cout << "\n";
+
+    // Step 3: createInbound
+    progressive::OlmSession bobSession;
+    auto in = bobSession.createInbound(bob, bodyRaw);
+    CHECK(in.success, "createInbound with real account + real body");
+
+    // Step 4: decrypt
+    auto dec = bobSession.decrypt(bodyRaw, 0);
+    CHECK(dec.success, "decrypt with real account + real body");
+    std::cout << "  decrypted plaintext: " << dec.data.substr(0, 80) << "...\n";
+
+    std::cout << "--- test_real_account PASSED ---\n";
+}
+
+int main(int argc, char** argv) {
     std::cout << "=== Olm Inbound Test (raw C API) ===\n\n";
+
+    // Always run the synthetic roundtrip
     test_olm_roundtrip();
+
+    // If pickle + body provided, also test with real account
+    if (argc >= 4) {
+        std::string pickleB64 = argv[1];
+        std::string pickleKey = argv[2];
+        std::string bodyB64 = argv[3];
+        test_real_account(pickleB64, pickleKey, bodyB64);
+    } else {
+        std::cout << "\nUsage for real account test:\n";
+        std::cout << "  " << argv[0] << " <pickle_b64> <pickle_key> <body_b64>\n";
+    }
+
     if (failures == 0) { std::cout << "\nALL TESTS PASSED\n"; return 0; }
     std::cerr << failures << " FAILURE(S)\n"; return 1;
 }

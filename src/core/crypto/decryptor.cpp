@@ -555,7 +555,7 @@ std::string Decryptor::encryptMessage(const std::string& roomId,
         return {};  // no session — caller should call getOrCreateOutboundSession first
     }
 
-    auto* olmSession = olm_outbound_group_session(it->second.session);
+    auto* olmSession = static_cast<::OlmOutboundGroupSession*>(it->second.session);
     // libolm overwrites the message buffer — copy plaintext
     size_t ciphertextLen = olm_group_encrypt_message_length(olmSession, plaintextEventJson.size());
     std::vector<uint8_t> ciphertext(ciphertextLen);
@@ -566,8 +566,7 @@ std::string Decryptor::encryptMessage(const std::string& roomId,
     if (ret == olm_error()) return {};
 
     // Build m.room.encrypted content
-    std::string ciphertextB64 = base64Encode(
-        std::string(ciphertext.begin(), ciphertext.begin() + ret));
+    std::string ciphertextB64(ciphertext.begin(), ciphertext.begin() + ret);
     auto senderKey = account_->curve25519Key();
 
     std::ostringstream out;

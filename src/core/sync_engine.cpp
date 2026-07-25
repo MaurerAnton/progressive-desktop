@@ -311,6 +311,10 @@ void SyncEngine::uploadDeviceKeys() {
 
     if (result.ok) {
         LOG(LogChannel::E2EE, "uploadDeviceKeys: SUCCESS — response=[%.200s]", result.data.c_str());
+        if (decryptor_.isInitialized()) {
+            decryptor_.markOneTimeKeysPublished();
+            LOG(LogChannel::E2EE, "uploadDeviceKeys: marked keys as published");
+        }
     } else {
         LOG(LogChannel::E2EE, "uploadDeviceKeys: FAILED — error=%s", result.error.message.c_str());
     }

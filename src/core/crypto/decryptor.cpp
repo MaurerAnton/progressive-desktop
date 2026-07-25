@@ -298,6 +298,10 @@ std::string Decryptor::buildKeysUploadBody(const std::string& userId,
     return body.str();
 }
 
+void Decryptor::markOneTimeKeysPublished() {
+    if (account_) account_->markOneTimeKeysPublished();
+}
+
 // ---- Olm 1:1 inbound session management ----
 
 std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
@@ -374,12 +378,36 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
             return {};
         }
         plaintext = decResult.data;
+
+        auto pickleResult = session.pickle("");
+        if (pickleResult.success) {
+            olmSessions_[senderKey] = pickleResult.data;
+            LOG(LogChannel::E2EE, "Olm: saved session pickle for sender=%s", senderKey.c_str());
+        }
     } else {
-        // Regular message — use existing session
-        std::fprintf(stderr, "[e2ee] Olm 1:1 regular message from %s — not yet "
-                             "implemented (needs session pickle management)\n", senderId.c_str());
-        LOG(LogChannel::E2EE, "Olm: regular msg type=%d not implemented (need session management)", msgType);
-        return {};
+        auto it = olmSessions_.find(senderKey);
+        if (it == olmSessions_.end()) {
+            LOG(LogChannel::E2EE, "Olm: no saved session for sender=%s — cannot decrypt type %d",
+                senderKey.c_str(), msgType);
+            return {};
+        }
+        auto unpickleResult = session.unpickle("", it->second);
+        if (!unpickleResult.success) {
+            LOG(LogChannel::E2EE, "Olm: unpickle failed for sender=%s", senderKey.c_str());
+            olmSessions_.erase(it);
+            return {};
+        }
+        auto decResult = session.decrypt(body, 1);
+        if (!decResult.success) {
+            LOG(LogChannel::E2EE, "Olm: decrypt type %d FAILED for sender=%s", msgType, senderKey.c_str());
+            olmSessions_.erase(it);
+            return {};
+        }
+        plaintext = decResult.data;
+        auto rePickle = session.pickle("");
+        if (rePickle.success) {
+            olmSessions_[senderKey] = rePickle.data;
+        }
     }
 
     // If we got plaintext, it's a JSON object like:

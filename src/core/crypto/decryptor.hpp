@@ -66,6 +66,10 @@ public:
                                       const std::string& deviceId,
                                       int oneTimeKeyCount = 10);
 
+    // Mark current one-time keys as published (call after /keys/upload success).
+    // Tells libolm to discard used keys so next generateOneTimeKeys produces fresh ones.
+    void markOneTimeKeysPublished();
+
     // ---- Inbound Megolm (room message decryption) ----
     // Decrypts a m.room.encrypted event (Megolm algorithm).
     // eventId + originServerTs are preserved for the pending queue (re-decryption).

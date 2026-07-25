@@ -174,6 +174,12 @@ if(PROGRESSIVE_BUILD_TESTS)
         -include "${CMAKE_CURRENT_SOURCE_DIR}/third_party/android_shim/progressive_compat.h")
     # Not registered with ctest — needs network for --record, fixture for bench
 
+    add_executable(test_olm_inbound tests/test_olm_inbound.cpp)
+    target_link_libraries(test_olm_inbound PRIVATE progressive_core)
+    target_compile_options(test_olm_inbound PRIVATE
+        -include "${CMAKE_CURRENT_SOURCE_DIR}/third_party/android_shim/progressive_compat.h")
+    add_test(NAME olm_inbound COMMAND test_olm_inbound)
+
     add_executable(test_phase4 tests/test_phase4.cpp)
     add_test(NAME phase4 COMMAND test_phase4)
 

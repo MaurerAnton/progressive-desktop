@@ -270,6 +270,8 @@ void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
             std::string contentStr(evt.contentJson);
             std::string innerPlaintext = decryptor_.handleOlmEncryptedToDevice(
                 std::string(evt.senderId), contentStr);
+            std::fprintf(stderr, "[E2EE] Olm result: size=%zu first200='%.200s'\n",
+                innerPlaintext.size(), innerPlaintext.empty() ? "(empty)" : innerPlaintext.c_str());
             if (!innerPlaintext.empty()) {
                 LOG(LogChannel::E2EE, "processToDevice: Olm decrypt OK — inner type should be m.room_key");
                 stats_.decryptedEvents++;

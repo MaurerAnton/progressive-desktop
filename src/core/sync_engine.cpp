@@ -321,13 +321,20 @@ void SyncEngine::uploadDeviceKeys(bool force) {
     LOG(LogChannel::E2EE, "uploadDeviceKeys: uploading for %s/%s", userId.c_str(), deviceId.c_str());
     std::string body = decryptor_.buildKeysUploadBody(userId, deviceId, 10);
 
+    // OTKs are now in libolm's bounded list. Save flag BEFORE HTTP upload —
+    // even if upload fails (401 race with pre-refresh), OTKs persist and
+    // next startup won't regenerate them (preventing bounded-list eviction).
+    if (store_ && !force) {
+        store_->saveE2eeFlag("otk_uploaded_once", true);
+        LOG(LogChannel::E2EE, "uploadDeviceKeys: saved otk_uploaded_once=true (OTKs generated)");
+    }
+
     auto result = client_->uploadKeys(body);
     LOG(LogChannel::E2EE, "uploadDeviceKeys: result ok=%d httpStatus=%d bodyLen=%zu",
         result.ok ? 1 : 0, result.httpStatus, body.size());
 
     if (result.ok) {
         LOG(LogChannel::E2EE, "uploadDeviceKeys: SUCCESS — response=[%.200s]", result.data.c_str());
-        if (store_) store_->saveE2eeFlag("otk_uploaded_once", true);
     } else {
         LOG(LogChannel::E2EE, "uploadDeviceKeys: FAILED — error=%s", result.error.message.c_str());
     }

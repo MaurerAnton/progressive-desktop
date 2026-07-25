@@ -419,6 +419,9 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
         std::fprintf(stderr, "[E2EE] DBG9: createInbound success=%d\n", result.success ? 1 : 0);
         if (!result.success) {
             LOG(LogChannel::E2EE, "Olm: createInbound Olm session FAILED");
+            auto* raw = static_cast<::OlmSession*>(session.rawSession());
+            std::fprintf(stderr, "[E2EE] createInbound libolm error: %s\n",
+                ::olm_session_last_error(raw) ? ::olm_session_last_error(raw) : "(null)");
             return {};
         }
         // After createInbound, decrypt the ORIGINAL message body

@@ -379,6 +379,7 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
         return {};
     }
     std::string body(bodyStr.value());
+    std::fprintf(stderr, "[E2EE] OLMBODY: %s\n", body.c_str());
     body = base64Decode(body);  // libolm expects raw bytes, JSON stores base64
     int msgType = (typeNum.error() == simdjson::SUCCESS) ? static_cast<int>(typeNum.value()) : 0;
 

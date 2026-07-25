@@ -407,14 +407,17 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
 
     if (msgType == 0) {
         // Pre-key message — create inbound session, then decrypt
-        std::fprintf(stderr, "[E2EE] DBG8: pre-key branch, calling createInbound bodySize=%zu\n", body.size());
-        auto result = session.createInbound(*underlyingAccount, body);
+        // createInbound mutates the buffer via (void*) cast in olm.cpp:226.
+        // Must pass a copy so the original body remains intact for decrypt.
+        std::string msgCopy = body;
+        std::fprintf(stderr, "[E2EE] DBG8: pre-key branch, calling createInbound bodySize=%zu\n", msgCopy.size());
+        auto result = session.createInbound(*underlyingAccount, msgCopy);
         std::fprintf(stderr, "[E2EE] DBG9: createInbound success=%d\n", result.success ? 1 : 0);
         if (!result.success) {
             LOG(LogChannel::E2EE, "Olm: createInbound Olm session FAILED");
             return {};
         }
-        // After createInbound, decrypt the message body
+        // After createInbound, decrypt the ORIGINAL message body
         std::fprintf(stderr, "[E2EE] DBG10: calling decrypt type 0\n");
         auto decResult = session.decrypt(body, 0);
         std::fprintf(stderr, "[E2EE] DBG11: decrypt success=%d dataSize=%zu\n",

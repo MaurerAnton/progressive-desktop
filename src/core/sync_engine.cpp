@@ -234,7 +234,7 @@ void SyncEngine::run() {
         if (result.data.signedCurve25519Count >= 0 && result.data.signedCurve25519Count < 5) {
             LOG(LogChannel::E2EE, "sync: OTK count=%d (<5) — uploading fresh keys",
                 result.data.signedCurve25519Count);
-            uploadDeviceKeys();
+            uploadDeviceKeys(true);
         }
 
         setState(SyncEngineState::Running);
@@ -288,11 +288,13 @@ void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
 }
 
 // Upload device keys to the server. Call once at login.
-void SyncEngine::uploadDeviceKeys() {
-    LOG(LogChannel::E2EE, "uploadDeviceKeys: ENTER client=%p isLoggedIn=%d decryptor=%d",
+// force=true: bypass otk_uploaded_once flag (used by auto-refresh when count<5).
+void SyncEngine::uploadDeviceKeys(bool force) {
+    LOG(LogChannel::E2EE, "uploadDeviceKeys: ENTER client=%p isLoggedIn=%d decryptor=%d force=%d",
         (void*)client_.get(),
         client_ ? client_->isLoggedIn() : 0,
-        decryptor_.isInitialized() ? 1 : 0);
+        decryptor_.isInitialized() ? 1 : 0,
+        force ? 1 : 0);
 
     if (!client_ || !client_->isLoggedIn()) {
         LOG(LogChannel::E2EE, "uploadDeviceKeys: EXIT — client not ready");
@@ -300,6 +302,15 @@ void SyncEngine::uploadDeviceKeys() {
     }
     if (!decryptor_.isInitialized()) {
         LOG(LogChannel::E2EE, "uploadDeviceKeys: EXIT — decryptor not initialized");
+        return;
+    }
+
+    // Skip if OTKs already uploaded from a previous session — prevents
+    // generateOneTimeKeys(10) from displacing old OTKs in libolm's bounded list
+    // (MAX_ONE_TIME_KEYS=100), which would break createInbound for messages
+    // encrypted with those old OTKs.
+    if (!force && store_ && store_->loadE2eeFlag("otk_uploaded_once").value_or(false)) {
+        LOG(LogChannel::E2EE, "uploadDeviceKeys: OTKs already uploaded — skipping");
         return;
     }
 
@@ -316,10 +327,7 @@ void SyncEngine::uploadDeviceKeys() {
 
     if (result.ok) {
         LOG(LogChannel::E2EE, "uploadDeviceKeys: SUCCESS — response=[%.200s]", result.data.c_str());
-        if (decryptor_.isInitialized()) {
-            decryptor_.markOneTimeKeysPublished();
-            LOG(LogChannel::E2EE, "uploadDeviceKeys: marked keys as published");
-        }
+        if (store_) store_->saveE2eeFlag("otk_uploaded_once", true);
     } else {
         LOG(LogChannel::E2EE, "uploadDeviceKeys: FAILED — error=%s", result.error.message.c_str());
     }

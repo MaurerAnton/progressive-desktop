@@ -91,7 +91,11 @@ void E2eeInitHandler::persistCrypto(MatrixClient* client, SessionStore* store,
 
     std::string pickleKey = client->account().userId + "/" + client->account().deviceId;
     auto megolmPickle = sync->decryptor()->megolm()->pickleAll(pickleKey);
-    if (!megolmPickle.empty()) store->saveMegolmSessions(megolmPickle);
+    if (!megolmPickle.empty()) {
+        store->saveMegolmSessions(megolmPickle);
+        std::fprintf(stderr, "[e2ee] persistCrypto: saved %d megolm sessions\n",
+            sync->decryptor()->megolm()->sessionCount());
+    }
     auto olmSessionsPickle = sync->decryptor()->pickleOlmSessions(pickleKey);
     if (!olmSessionsPickle.empty()) store->saveOlmSessions(olmSessionsPickle);
 }

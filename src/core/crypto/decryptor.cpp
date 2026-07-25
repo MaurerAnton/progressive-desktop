@@ -196,7 +196,11 @@ void Decryptor::processPending(const std::string& roomId,
     auto pending = megolm_->takePendingForSession(roomId, senderKey, sessionId);
     LOG(LogChannel::E2EE, "processPending: %zu pending events for room=%.40s",
         pending.size(), roomId.c_str());
-    if (pending.empty()) return;
+    if (pending.empty()) {
+        std::fprintf(stderr, "[E2EE] processPending: NO MATCH for room=%.40s sid=%.20s sk=%.20s\n",
+            roomId.c_str(), sessionId.c_str(), senderKey.c_str());
+        return;
+    }
 
     std::lock_guard<std::mutex> lk(reDecryptedMtx_);
     for (const auto& p : pending) {
@@ -467,32 +471,24 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
     //   {"type":"m.room_key","content":{...}}
     // If type == "m.room_key", call handleRoomKey.
     if (!plaintext.empty()) {
-        std::string_view pv(plaintext);
-        auto innerType = extractStr(pv, "type");
-            if (innerType == "m.room_key") {
-            std::fprintf(stderr, "[E2EE] Olm plaintext: size=%zu full='%.400s'\n",
-                plaintext.size(), plaintext.c_str());
-            LOG(LogChannel::E2EE, "Olm: inner type=m.room_key — calling handleRoomKey");
-            auto innerContentStart = plaintext.find("\"content\":");
-            if (innerContentStart != std::string::npos) {
-                auto braceStart = plaintext.find('{', innerContentStart);
-                int d = 0;
-                size_t braceEnd = braceStart;
-                for (; braceEnd < plaintext.size(); ++braceEnd) {
-                    if (plaintext[braceEnd] == '{') d++;
-                    else if (plaintext[braceEnd] == '}') { d--; if (d == 0) { braceEnd++; break; } }
+        simdjson::dom::parser pp;
+        auto pd = pp.parse(plaintext);
+        if (pd.error() == simdjson::SUCCESS) {
+            auto t = pd.value()["type"].get_string();
+            if (t.error() == simdjson::SUCCESS &&
+                std::string_view(t.value()) == "m.room_key") {
+                std::fprintf(stderr, "[E2EE] Olm plaintext: size=%zu full='%.400s'\n",
+                    plaintext.size(), plaintext.c_str());
+                LOG(LogChannel::E2EE, "Olm: inner type=m.room_key — calling handleRoomKey (simdjson)");
+                auto cr = pd.value()["content"];
+                if (cr.error() == simdjson::SUCCESS) {
+                    std::string innerContent = simdjson::to_string(cr.value());
+                    if (innerContent.find("\"sender_key\"") == std::string::npos) {
+                        innerContent.insert(innerContent.size() - 1,
+                            ",\"sender_key\":\"" + senderKey + "\"");
+                    }
+                    handleRoomKey(innerContent);
                 }
-                std::fprintf(stderr, "[E2EE] Olm braceMatch: start=%zu end=%zu diff=%zd\n",
-                    braceStart, braceEnd, (std::ptrdiff_t)(braceEnd - braceStart));
-                std::string innerContent = plaintext.substr(braceStart, braceEnd - braceStart);
-                // Add the senderKey from the outer event for the megolm session
-                // The room_key content may or may not have sender_key. We inject it.
-                if (innerContent.find("\"sender_key\"") == std::string::npos) {
-                    // Insert before closing }
-                    innerContent.insert(innerContent.size() - 1,
-                        ",\"sender_key\":\"" + senderKey + "\"");
-                }
-                handleRoomKey(innerContent);
             }
         }
         return plaintext;

@@ -65,7 +65,7 @@ public:
 
     // Upload device keys + one-time keys to the server.
     // Call once after init() + login. Non-blocking (spawns a thread).
-    void uploadDeviceKeys();
+    void uploadDeviceKeys(bool force = false);
 
     const SyncEngineStats& stats() const { return stats_; }
 

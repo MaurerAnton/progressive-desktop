@@ -1,6 +1,7 @@
 // src/core/crypto/decryptor.cpp — E2EE coordinator (Olm + Megolm).
 
 #include "decryptor.hpp"
+#include "olm_account.hpp"
 
 #include <progressive/olm.hpp>
 #include <olm/olm.h>
@@ -378,6 +379,7 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
         return {};
     }
     std::string body(bodyStr.value());
+    body = base64Decode(body);  // libolm expects raw bytes, JSON stores base64
     int msgType = (typeNum.error() == simdjson::SUCCESS) ? static_cast<int>(typeNum.value()) : 0;
 
     std::fprintf(stderr, "[E2EE] Olm cipherObj: parsed via simdjson\n");

@@ -71,18 +71,11 @@ void E2eeInitHandler::init(MatrixClient* client, SessionStore* store,
                 }
             }
 
-            bool published = store ? store->loadE2eeFlag("keys_published").value_or(false) : false;
-            LOG(LogChannel::E2EE, "E2eeInit: keys_published flag=%d", published ? 1 : 0);
-            keysPublished = published;
-            if (!published) {
-                LOG(LogChannel::E2EE, "E2eeInit: publishing device keys (not published yet)");
-                ThreadPool::instance().enqueue([sync]() {
-                    sync->uploadDeviceKeys();
-                });
-            } else {
-                LOG(LogChannel::E2EE, "E2eeInit: device keys already published — skipping upload");
-                std::cerr << "[e2ee] device keys already published — skipping upload\n";
-            }
+            LOG(LogChannel::E2EE, "E2eeInit: scheduling device keys upload");
+            keysPublished = true;
+            ThreadPool::instance().enqueue([sync]() {
+                sync->uploadDeviceKeys();
+            });
         }
     } catch (const std::exception& e) {
         std::cerr << "[e2ee] init failed: " << e.what() << "\n";

@@ -233,6 +233,16 @@ FastSyncResponse parseSyncResponseFast(std::string json, std::string& errorMessa
         LOG(LogChannel::E2EE, "fastSync: no to_device section in sync response");
     }
 
+    auto otkCountResult = root["device_one_time_keys_count"];
+    if (otkCountResult.error() == simdjson::SUCCESS) {
+        auto count = otkCountResult.value()["signed_curve25519"].get_int64();
+        if (count.error() == simdjson::SUCCESS) {
+            resp.signedCurve25519Count = static_cast<int>(count.value());
+            LOG(LogChannel::E2EE, "fastSync: signed_curve25519 count=%d",
+                resp.signedCurve25519Count);
+        }
+    }
+
     resp.buffer = std::make_shared<std::string>(std::move(json));
     resp.parser = parser;
     resp.ownedContentStrings = ownedStrings;

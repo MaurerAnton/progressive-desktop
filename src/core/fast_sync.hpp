@@ -88,6 +88,7 @@ struct FastSyncResponse {
     std::vector<std::string_view> leftRoomIds;
     int totalTimelineEvents = 0;
     int toDeviceEvents = 0;
+    int signedCurve25519Count = 0;
 
     // To-device events (Phase 4 E2EE). Each entry is a serialized JSON
     // string stored in ownedContentStrings — string_views point into the deque.

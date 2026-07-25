@@ -230,6 +230,13 @@ void SyncEngine::run() {
         // Emit to UI thread.
         if (syncCb_) syncCb_(result.data);
 
+        // Auto-upload one-time keys if running low
+        if (result.data.signedCurve25519Count >= 0 && result.data.signedCurve25519Count < 5) {
+            LOG(LogChannel::E2EE, "sync: OTK count=%d (<5) — uploading fresh keys",
+                result.data.signedCurve25519Count);
+            uploadDeviceKeys();
+        }
+
         setState(SyncEngineState::Running);
     }
 
@@ -304,10 +311,6 @@ void SyncEngine::uploadDeviceKeys() {
 
     if (result.ok) {
         LOG(LogChannel::E2EE, "uploadDeviceKeys: SUCCESS — response=[%.200s]", result.data.c_str());
-        if (store_) {
-            store_->saveE2eeFlag("keys_published", true);
-            LOG(LogChannel::E2EE, "uploadDeviceKeys: saved keys_published=true");
-        }
     } else {
         LOG(LogChannel::E2EE, "uploadDeviceKeys: FAILED — error=%s", result.error.message.c_str());
     }

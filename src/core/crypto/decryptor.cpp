@@ -20,31 +20,6 @@
 
 namespace progressive::desktop {
 
-namespace {
-
-// Extract a string field from a JSON string_view (handles both "k":"v" and "k": "v").
-// Returns empty on not found. Does NOT decode escapes (we expect olm keys
-// to be base64, no escapes).
-std::string extractStr(std::string_view json, std::string_view key) {
-    std::string pat1 = std::string("\"") + std::string(key) + "\":\"";
-    auto pos = json.find(pat1);
-    if (pos != std::string_view::npos) {
-        pos += pat1.size();
-        auto end = json.find('"', pos);
-        if (end != std::string_view::npos) return std::string(json.substr(pos, end - pos));
-    }
-    std::string pat2 = std::string("\"") + std::string(key) + "\": \"";
-    pos = json.find(pat2);
-    if (pos != std::string_view::npos) {
-        pos += pat2.size();
-        auto end = json.find('"', pos);
-        if (end != std::string_view::npos) return std::string(json.substr(pos, end - pos));
-    }
-    return {};
-}
-
-} // namespace
-
 Decryptor::Decryptor()
     : account_(std::make_unique<OlmAccountStore>()),
       megolm_(std::make_unique<MegolmStore>()) {}
@@ -943,24 +918,29 @@ bool Decryptor::unpickleOlmSessions(const std::string& key, const std::string& d
     std::lock_guard<std::mutex> lk(olmMtx_);
     if (data.empty() || data == "[]") return true;
     (void)key;
-    size_t pos = data.find('{');
-    while (pos != std::string::npos) {
-        size_t end = data.find("}}", pos);
-        if (end == std::string::npos) end = data.find('}', data.find('}', pos + 1) + 1);
-        if (end == std::string::npos) break;
-        std::string obj = data.substr(pos, end - pos + 2);
-        // Extract senderKey and value (hex-encoded pickle)
-        auto k = extractStr(obj, "k");
-        auto v = extractStr(obj, "v");
-        if (!k.empty() && !v.empty() && v.size() % 2 == 0) {
-            std::string pickle;
-            for (size_t i = 0; i < v.size(); i += 2) {
-                char h = (char)strtol(v.substr(i, 2).c_str(), nullptr, 16);
-                pickle += h;
-            }
-            olmSessions_[k] = pickle;
+    // Parse JSON array with simdjson (fixes bug #11: manual brace-matching
+    // parser used find("}}") which never matched single-} object endings,
+    // causing only the first Olm session to be loaded)
+    simdjson::dom::parser parser;
+    auto root = parser.parse(data);
+    if (root.error() != simdjson::SUCCESS) return true;
+    auto arr = root.value().get_array();
+    if (arr.error() != simdjson::SUCCESS) return true;
+    for (auto elem : arr.value()) {
+        auto obj = elem.get_object();
+        if (obj.error() != simdjson::SUCCESS) continue;
+        auto k = obj.value()["k"].get_string();
+        auto v = obj.value()["v"].get_string();
+        if (k.error() != simdjson::SUCCESS || v.error() != simdjson::SUCCESS) continue;
+        std::string senderKey(k.value());
+        std::string hexPickle(v.value());
+        if (hexPickle.size() % 2 != 0) continue;
+        std::string pickle;
+        for (size_t i = 0; i < hexPickle.size(); i += 2) {
+            char h = (char)strtol(hexPickle.substr(i, 2).c_str(), nullptr, 16);
+            pickle += h;
         }
-        pos = data.find('{', end + 2);
+        olmSessions_[senderKey] = pickle;
     }
     return true;
 }

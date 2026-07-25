@@ -7,21 +7,9 @@
 
 #include <algorithm>
 #include <sstream>
-#include <string_view>
+#include <simdjson.h>
 
 namespace progressive::desktop {
-
-namespace {
-std::string mgExtractStr(std::string_view json, std::string_view key) {
-    std::string pat = "\"" + std::string(key) + "\":\"";
-    auto pos = json.find(pat);
-    if (pos == std::string_view::npos) return {};
-    pos += pat.size();
-    auto end = json.find('"', pos);
-    if (end == std::string_view::npos) return {};
-    return std::string(json.substr(pos, end - pos));
-}
-}
 
 struct SessionParams {
     std::string roomId;
@@ -132,25 +120,32 @@ bool MegolmStore::unpickleAll(const std::string& key, const std::string& data) {
         for (size_t i = 0; i < raw.size(); ++i)
             raw[i] ^= key[i % key.size()];
     }
-    // Parse JSON array
-    size_t pos = raw.find('{');
-    while (pos != std::string::npos) {
-        size_t end = raw.find("}}", pos);
-        if (end == std::string::npos) end = raw.find('}', raw.find('}', pos + 1) + 1);
-        if (end == std::string::npos) break;
-        std::string obj = raw.substr(pos, end - pos + 2);
-        auto r = mgExtractStr(obj, "r");
-        auto k = mgExtractStr(obj, "k");
-        auto s = mgExtractStr(obj, "s");
-        auto d = mgExtractStr(obj, "d");
-        if (!r.empty() && !k.empty() && !s.empty() && !d.empty()) {
-            // Dedup: skip if session already exists
-            if (!impl_->mgr.findSession(r, k, s)) {
-                impl_->mgr.addSession(r, k, s, d);
-                impl_->params.push_back({r, k, s, d});
-            }
+    // Parse JSON array with simdjson (fixes bug #11: manual brace-matching
+    // parser used find("}}") which never matched single-} object endings,
+    // causing only the first session to be loaded)
+    simdjson::dom::parser parser;
+    auto root = parser.parse(raw);
+    if (root.error() != simdjson::SUCCESS) return true;
+    auto arr = root.value().get_array();
+    if (arr.error() != simdjson::SUCCESS) return true;
+    for (auto elem : arr.value()) {
+        auto obj = elem.get_object();
+        if (obj.error() != simdjson::SUCCESS) continue;
+        auto r = obj.value()["r"].get_string();
+        auto k = obj.value()["k"].get_string();
+        auto s = obj.value()["s"].get_string();
+        auto d = obj.value()["d"].get_string();
+        if (r.error() != simdjson::SUCCESS || k.error() != simdjson::SUCCESS ||
+            s.error() != simdjson::SUCCESS || d.error() != simdjson::SUCCESS) continue;
+        std::string roomId(r.value());
+        std::string senderKey(k.value());
+        std::string sessionId(s.value());
+        std::string sessionKey(d.value());
+        // Dedup: skip if session already exists
+        if (!impl_->mgr.findSession(roomId, senderKey, sessionId)) {
+            impl_->mgr.addSession(roomId, senderKey, sessionId, sessionKey);
+            impl_->params.push_back({roomId, senderKey, sessionId, sessionKey});
         }
-        pos = raw.find('{', end + 2);
     }
     return true;
 }

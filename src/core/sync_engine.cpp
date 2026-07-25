@@ -339,23 +339,27 @@ void SyncEngine::uploadDeviceKeys(bool force) {
 
     if (result.ok) {
         LOG(LogChannel::E2EE, "uploadDeviceKeys: SUCCESS — response=[%.200s]", result.data.c_str());
-
         // Mark OTKs as published — they remain usable by olm_create_inbound_session
         // but won't be returned by olm_account_one_time_keys (prevents re-upload).
         decryptor_.markOneTimeKeysPublished();
+    } else {
+        LOG(LogChannel::E2EE, "uploadDeviceKeys: FAILED — error=%s (OTKs persisted, will retry via auto-refresh)",
+            result.error.message.c_str());
+    }
 
-        // Re-pickle and save account with OTKs (fixes bug #9: pickle was saved
-        // before OTK generation in e2ee_init_handler, so it had zero OTKs →
-        // BAD_MESSAGE_KEY_ID on restart).
+    // Save pickle regardless of upload success — OTKs are in memory now and must
+    // be persisted for createInbound to work on restart. (fixes bug #12: 401 race
+    // prevented otk_persisted from being set, causing infinite regeneration every
+    // restart and eventual OTK eviction from libolm's MAX-100 bounded list)
+    {
         std::string pickleKey = userId + "/" + deviceId;
         std::string newPickle = decryptor_.saveAccountPickle(pickleKey);
         if (!newPickle.empty() && store_) {
             store_->saveOlmAccount(newPickle, pickleKey);
             store_->saveE2eeFlag("otk_persisted", true);
-            LOG(LogChannel::E2EE, "uploadDeviceKeys: OTKs marked published, account pickle saved (with OTKs)");
+            LOG(LogChannel::E2EE, "uploadDeviceKeys: account pickle saved (otk_persisted=true, published=%d)",
+                result.ok ? 1 : 0);
         }
-    } else {
-        LOG(LogChannel::E2EE, "uploadDeviceKeys: FAILED — error=%s", result.error.message.c_str());
     }
 }
 

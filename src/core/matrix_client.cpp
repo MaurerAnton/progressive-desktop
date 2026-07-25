@@ -930,7 +930,12 @@ void MatrixClient::setAccount(const AccountInfo& acct) {
 }
 
 bool MatrixClient::persistSession() {
-    if (!sessionStore_) return false;
+    LOG(LogChannel::E2EE, "persistSession: ENTER store=%p isLoggedIn=%d",
+        (void*)sessionStore_, isLoggedIn() ? 1 : 0);
+    if (!sessionStore_) {
+        LOG(LogChannel::E2EE, "persistSession: FAIL — sessionStore_ is NULL");
+        return false;
+    }
     return sessionStore_->saveAccount(account());
 }
 

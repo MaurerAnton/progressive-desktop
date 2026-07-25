@@ -81,7 +81,11 @@ void SessionStore::checkpoint() {
 }
 
 bool SessionStore::saveAccount(const AccountInfo& a) {
-    if (!db_) return false;
+    LOG(LogChannel::E2EE, "saveAccount: ENTER db=%p", (void*)db_);
+    if (!db_) {
+        LOG(LogChannel::E2EE, "saveAccount: FAIL — db_ is NULL");
+        return false;
+    }
     const char* sql =
         "INSERT INTO account (user_id, device_id, homeserver_url, access_token, refresh_token) "
         "VALUES (?, ?, ?, ?, ?) "

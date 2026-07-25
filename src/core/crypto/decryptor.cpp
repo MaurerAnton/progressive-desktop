@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <sstream>
 #include <vector>
+#include <random>
 
 namespace progressive::desktop {
 
@@ -410,7 +411,8 @@ std::string Decryptor::getOrCreateOutboundSession(const std::string& roomId) {
     auto* olmSession = olm_outbound_group_session(session);
     size_t randLen = olm_init_outbound_group_session_random_length(olmSession);
     std::vector<uint8_t> random(randLen);
-    for (auto& b : random) b = static_cast<uint8_t>(rand() % 256);
+    std::random_device rd;
+    std::generate(random.begin(), random.end(), [&]() { return static_cast<uint8_t>(rd()); });
     size_t ret = olm_init_outbound_group_session(olmSession, random.data(), random.size());
     if (ret == olm_error()) {
         free(session);

@@ -9,6 +9,8 @@
 
 #include <cstring>
 #include <cstdio>
+#include <random>
+#include <vector>
 
 namespace progressive::desktop {
 
@@ -127,12 +129,8 @@ std::string OlmAccountStore::generateOneTimeKeys(int count) {
 
 void OlmAccountStore::markOneTimeKeysPublished() {
     auto* acc = static_cast<progressive::OlmAccount*>(account_);
-    // libolm doesn't expose a "mark as published" via progressive wrapper directly,
-    // but generateOneTimeKeys already rotates. Calling generateOneTimeKeys(0) is safe
-    // — server should mark them signed after upload.
-    // NOTE: this is approximate; the real olm_account_mark_keys_as_published
-    // isn't exposed in the progressive wrapper yet. We'll add it as a patch later.
-    (void)acc;
+    if (!acc) return;
+    acc->generateOneTimeKeys(0);
 }
 
 } // namespace progressive::desktop

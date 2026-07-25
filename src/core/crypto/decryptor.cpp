@@ -346,6 +346,8 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
         if (contentJson[endPos] == '{') depth++;
         else if (contentJson[endPos] == '}') { depth--; if (depth == 0) { endPos++; break; } }
     }
+    std::fprintf(stderr, "[E2EE] Olm cipherObj: pos=%zu endPos=%zu diff=%zd contentSize=%zu depth=%d\n",
+        pos, endPos, (std::ptrdiff_t)(endPos - pos), contentJson.size(), depth);
     std::string cipherObj = contentJson.substr(pos, endPos - pos);
     auto body = extractStr(cipherObj, "body");
     auto typeStr = extractStr(cipherObj, "type");

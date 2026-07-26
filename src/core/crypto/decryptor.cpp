@@ -917,6 +917,11 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
     return true;
 }
 
+size_t Decryptor::olmSessionCount() {
+    std::lock_guard<std::mutex> lk(olmMtx_);
+    return olmSessions_.size();
+}
+
 std::string Decryptor::pickleOlmSessions(const std::string& key) {
     std::lock_guard<std::mutex> lk(olmMtx_);
     if (olmSessions_.empty()) return "[]";
@@ -969,7 +974,10 @@ bool Decryptor::unpickleOlmSessions(const std::string& key, const std::string& d
             pickle += h;
         }
         olmSessions_[senderKey] = pickle;
+        std::fprintf(stderr, "[e2ee] olm: loaded session %.30s (pickleLen=%zu)\n",
+                     senderKey.c_str(), pickle.size());
     }
+    std::fprintf(stderr, "[e2ee] loaded %zu olm session pickles\n", olmSessions_.size());
     return true;
 }
 

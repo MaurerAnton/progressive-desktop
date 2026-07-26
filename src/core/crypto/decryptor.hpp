@@ -149,6 +149,7 @@ public:
     // Olm 1:1 session persistence.
     std::string pickleOlmSessions(const std::string& key);
     bool unpickleOlmSessions(const std::string& key, const std::string& data);
+    size_t olmSessionCount();
 
 private:
     std::unique_ptr<OlmAccountStore> account_;

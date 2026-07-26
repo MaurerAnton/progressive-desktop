@@ -67,7 +67,8 @@ void E2eeInitHandler::init(MatrixClient* client, SessionStore* store,
                 auto olmSessionsData = store->loadOlmSessions();
                 if (olmSessionsData && !olmSessionsData->empty()) {
                     sync->decryptor()->unpickleOlmSessions(pickleKey, *olmSessionsData);
-                    std::cerr << "[e2ee] loaded olm session pickles\n";
+                    std::cerr << "[e2ee] loaded olm sessions: "
+                              << sync->decryptor()->olmSessionCount() << "\n";
                 }
             }
 
@@ -97,6 +98,8 @@ void E2eeInitHandler::persistCrypto(MatrixClient* client, SessionStore* store,
             sync->decryptor()->megolm()->sessionCount());
     }
     auto olmSessionsPickle = sync->decryptor()->pickleOlmSessions(pickleKey);
+    std::fprintf(stderr, "[e2ee] persistCrypto: saving %zu olm sessions\n",
+                 sync->decryptor()->olmSessionCount());
     if (!olmSessionsPickle.empty()) store->saveOlmSessions(olmSessionsPickle);
 }
 

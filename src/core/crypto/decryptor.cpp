@@ -416,30 +416,47 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
         std::fprintf(stderr, "[E2EE] DBG14: pickle success=%d size=%zu\n",
             pickleResult.success ? 1 : 0, pickleResult.data.size());
         if (pickleResult.success) {
-            olmSessions_[senderKey] = pickleResult.data;
-            LOG(LogChannel::E2EE, "Olm: saved session pickle for sender=%s", senderKey.c_str());
+            auto& vec = olmSessions_[senderKey];
+            bool dup = false;
+            for (const auto& existing : vec) {
+                if (existing == pickleResult.data) { dup = true; break; }
+            }
+            if (!dup) vec.push_back(pickleResult.data);
+            LOG(LogChannel::E2EE, "Olm: saved session pickle for sender=%s (total=%zu)",
+                senderKey.c_str(), vec.size());
         }
     } else {
         auto it = olmSessions_.find(senderKey);
-        if (it == olmSessions_.end()) {
+        if (it == olmSessions_.end() || it->second.empty()) {
             LOG(LogChannel::E2EE, "Olm: no saved session for sender=%s — cannot decrypt type %d",
                 senderKey.c_str(), msgType);
             return {};
         }
-        auto unpickleResult = session.unpickle("", it->second);
-        if (!unpickleResult.success) {
-            LOG(LogChannel::E2EE, "Olm: unpickle failed for sender=%s (keeping entry)", senderKey.c_str());
-            return {};
+        bool decrypted = false;
+        for (size_t i = 0; i < it->second.size(); ++i) {
+            progressive::OlmSession sess;
+            auto unpickleResult = sess.unpickle("", it->second[i]);
+            if (!unpickleResult.success) {
+                LOG(LogChannel::E2EE, "Olm: unpickle failed for sender=%s idx=%zu (keeping entry)",
+                    senderKey.c_str(), i);
+                continue;
+            }
+            auto decResult = sess.decrypt(body, 1);
+            if (!decResult.success) {
+                continue;
+            }
+            plaintext = decResult.data;
+            auto rePickle = sess.pickle("");
+            if (rePickle.success) {
+                it->second[i] = rePickle.data;
+            }
+            decrypted = true;
+            break;
         }
-        auto decResult = session.decrypt(body, 1);
-        if (!decResult.success) {
-            LOG(LogChannel::E2EE, "Olm: decrypt type %d FAILED for sender=%s (keeping session)", msgType, senderKey.c_str());
+        if (!decrypted) {
+            LOG(LogChannel::E2EE, "Olm: decrypt type %d FAILED for sender=%s (tried %zu sessions, keeping all)",
+                msgType, senderKey.c_str(), it->second.size());
             return {};
-        }
-        plaintext = decResult.data;
-        auto rePickle = session.pickle("");
-        if (rePickle.success) {
-            olmSessions_[senderKey] = rePickle.data;
         }
     }
 
@@ -918,7 +935,9 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
 
 size_t Decryptor::olmSessionCount() {
     std::lock_guard<std::mutex> lk(olmMtx_);
-    return olmSessions_.size();
+    size_t total = 0;
+    for (const auto& [k, v] : olmSessions_) total += v.size();
+    return total;
 }
 
 void Decryptor::setCryptoContext(const std::string& ourUserId, const std::string& ourDeviceId,
@@ -968,7 +987,8 @@ void Decryptor::forceNewOlmSession(const std::string& senderId, const std::strin
     }
     {
         std::lock_guard<std::mutex> lk(olmMtx_);
-        if (olmSessions_.count(senderKey)) return;
+        auto it = olmSessions_.find(senderKey);
+        if (it != olmSessions_.end() && !it->second.empty()) return;
     }
 
     auto hdrs = makeAuthHeaders(ctxToken_);
@@ -1083,7 +1103,12 @@ void Decryptor::forceNewOlmSession(const std::string& senderId, const std::strin
     auto pickleResult = session.pickle("");
     if (pickleResult.success) {
         std::lock_guard<std::mutex> lk(olmMtx_);
-        olmSessions_[senderKey] = pickleResult.data;
+        auto& vec = olmSessions_[senderKey];
+        bool dup = false;
+        for (const auto& existing : vec) {
+            if (existing == pickleResult.data) { dup = true; break; }
+        }
+        if (!dup) vec.push_back(pickleResult.data);
         std::fprintf(stderr, "[e2ee] forceNewOlmSession: stored outbound session for senderKey=%.20s\n",
                      senderKey.c_str());
     }
@@ -1111,20 +1136,17 @@ std::string Decryptor::pickleOlmSessions(const std::string& key) {
     std::ostringstream os;
     os << "[";
     bool first = true;
-    for (const auto& [senderKey, pickle] : olmSessions_) {
-        if (!first) os << ",";
-        first = false;
-        // Build an OlmSession, unpickle with existing data, re-pickle with the key
-        // Actually, we don't need to unpickle — we just store the existing pickle
-        // along with the senderKey. The pickle was already encrypted with the
-        // session key, not the user's pickle key. For now, store as-is.
-        os << "{\"k\":\"" << senderKey << "\",\"v\":\"";
-        // Base64-encode the pickle to avoid JSON issues
-        for (unsigned char c : pickle) {
-            static const char hex[] = "0123456789abcdef";
-            os << hex[c >> 4] << hex[c & 15];
+    for (const auto& [senderKey, pickles] : olmSessions_) {
+        for (const auto& pickle : pickles) {
+            if (!first) os << ",";
+            first = false;
+            os << "{\"k\":\"" << senderKey << "\",\"v\":\"";
+            for (unsigned char c : pickle) {
+                static const char hex[] = "0123456789abcdef";
+                os << hex[c >> 4] << hex[c & 15];
+            }
+            os << "\"}";
         }
-        os << "\"}";
     }
     os << "]";
     return os.str();
@@ -1156,11 +1178,13 @@ bool Decryptor::unpickleOlmSessions(const std::string& key, const std::string& d
             char h = (char)strtol(hexPickle.substr(i, 2).c_str(), nullptr, 16);
             pickle += h;
         }
-        olmSessions_[senderKey] = pickle;
+        olmSessions_[senderKey].push_back(pickle);
         std::fprintf(stderr, "[e2ee] olm: loaded session %.30s (pickleLen=%zu)\n",
                      senderKey.c_str(), pickle.size());
     }
-    std::fprintf(stderr, "[e2ee] loaded %zu olm session pickles\n", olmSessions_.size());
+    size_t total = 0;
+    for (const auto& [k, v] : olmSessions_) total += v.size();
+    std::fprintf(stderr, "[e2ee] loaded %zu olm session pickles (%zu senders)\n", total, olmSessions_.size());
     return true;
 }
 

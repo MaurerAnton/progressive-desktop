@@ -12,6 +12,7 @@
 #include "megolm_store.hpp"
 #include <memory>
 #include <string>
+#include <vector>
 #include <unordered_map>
 #include <mutex>
 #include <unordered_set>
@@ -174,7 +175,8 @@ private:
     std::mutex outboundMtx_;
     // Inbound Olm 1:1 sessions, keyed by (senderCurve25519).
     // We store them as pickled strings; created on-demand from pre-key messages.
-    std::unordered_map<std::string, std::string> olmSessions_;
+    // DEBT: no GC on old Olm sessions — cap at ~20 per sender if growth becomes an issue
+    std::unordered_map<std::string, std::vector<std::string>> olmSessions_;
     std::mutex olmMtx_;
     // Credentials for to-device HTTP calls (set once at E2EE init).
     std::string ctxUserId_, ctxDeviceId_, ctxHomeserver_, ctxToken_;

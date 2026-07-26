@@ -637,6 +637,9 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
 
     auto hdrs = makeAuthHeaders(accessToken);
 
+    std::fprintf(stderr, "[e2ee] shareRoomKey: room=%.30s users=%zu\n",
+                 roomId.c_str(), userIds.size());
+
     // Step 1: Query device keys for all room members.
     std::ostringstream queryBody;
     queryBody << "{\"device_keys\":{";
@@ -713,6 +716,8 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
             }
         }
     }
+
+    std::fprintf(stderr, "[e2ee] shareRoomKey: keys/query ok devices=%zu\n", devices.size());
 
     if (devices.empty()) {
         std::fprintf(stderr, "[e2ee] no devices to share room_key with\n");
@@ -824,6 +829,11 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
             }
         }
         if (theirCurve.empty()) continue;
+        if (theirEd.empty()) {
+            std::fprintf(stderr, "[e2ee] shareRoomKey: no ed25519 for %s/%s — skipping\n",
+                         ck.userId.c_str(), ck.deviceId.c_str());
+            continue;
+        }
 
         // Create OlmSession outbound
         progressive::OlmSession session;
@@ -845,7 +855,14 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
         // Wrap it as a to-device event JSON:
         // {"type":"m.room_key","content":{...},"sender":"<our_user_id>","keys":{"ed25519":"<our_ed>"}}
         std::string plaintext = "{\"type\":\"m.room_key\",\"content\":" + roomKeyContent +
-            ",\"sender\":\"" + ourUserId + "\",\"keys\":{\"ed25519\":\"" + ourEd + "\"}}";
+            ",\"sender\":\"" + ourUserId + "\""
+            ",\"recipient\":\"" + ck.userId + "\""
+            ",\"keys\":{\"ed25519\":\"" + ourEd + "\"}"
+            ",\"recipient_keys\":{\"ed25519\":\"" + theirEd + "\"}"
+            ",\"sender_device_keys\":{\"user_id\":\"" + ourUserId + "\",\"device_id\":\""
+            + ourDeviceId + "\",\"algorithms\":[\"m.olm.v1.curve25519-aes-sha2\",\"m.megolm.v1.aes-sha2\"],"
+            + "\"keys\":{\"curve25519:" + ourDeviceId + "\":\"" + ourCurve + "\","
+            + "\"ed25519:" + ourDeviceId + "\":\"" + ourEd + "\"}}}";
 
         // Encrypt with OlmSession
         auto encResult = session.encrypt(plaintext);
@@ -883,6 +900,8 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
         std::fprintf(stderr, "[e2ee] sendToDevice failed: %s\n", sendResp.errorMessage.c_str());
         return false;
     }
+
+    std::fprintf(stderr, "[e2ee] shareRoomKey: sendToDevice ok shared=%d\n", shared);
 
     std::fprintf(stderr, "[e2ee] shared room_key with %d device(s) for room %s\n",
                  shared, roomId.c_str());

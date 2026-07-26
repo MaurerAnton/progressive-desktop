@@ -502,14 +502,14 @@ std::string Decryptor::getOrCreateOutboundSession(const std::string& roomId) {
     std::vector<uint8_t> idBuf(idLen);
     ret = olm_outbound_group_session_id(olmSession, idBuf.data(), idLen);
     if (ret == olm_error()) { free(session); return {}; }
-    std::string sessionId(idBuf.begin(), idBuf.begin() + ret);
+    std::string sessionId(idBuf.begin(), idBuf.end());
 
     // Get session key (for sharing with other devices)
     size_t keyLen = olm_outbound_group_session_key_length(olmSession);
     std::vector<uint8_t> keyBuf(keyLen);
     ret = olm_outbound_group_session_key(olmSession, keyBuf.data(), keyLen);
     if (ret == olm_error()) { free(session); return {}; }
-    std::string sessionKey(keyBuf.begin(), keyBuf.begin() + ret);
+    std::string sessionKey(keyBuf.begin(), keyBuf.end());
 
     OutboundMegolmSession s;
     s.session = session;

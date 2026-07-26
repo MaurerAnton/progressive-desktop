@@ -805,7 +805,7 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
     // Step 3: For each claimed key, create OlmSession outbound + encrypt m.room_key.
     // Build the /sendToDevice/m.room.encrypted body:
     //   {"messages":{"@user:server":{"device_id":{"algorithm":"m.olm.v1.curve25519-aes-sha2",
-    //    "ciphertext":{"<our_curve>":{"body":"<base64>","type":0}},
+    //    "ciphertext":{"<their_curve>":{"body":"<base64>","type":0}},
     //    "sender_key":"<our_curve>"}}}}
     std::ostringstream sendBody;
     sendBody << "{\"messages\":{";
@@ -878,7 +878,7 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
         sendBody << "\"" << ck.userId << "\":{"
                  << "\"" << ck.deviceId << "\":{"
                  << "\"algorithm\":\"m.olm.v1.curve25519-aes-sha2\","
-                 << "\"ciphertext\":{\"" << ourCurve << "\":{"
+                 << "\"ciphertext\":{\"" << theirCurve << "\":{"
                  << "\"body\":\"" << encResult.data << "\","
                  << "\"type\":0}},"
                  << "\"sender_key\":\"" << ourCurve << "\""

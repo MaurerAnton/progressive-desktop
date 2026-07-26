@@ -11,6 +11,7 @@ namespace progressive::desktop {
 class MessageEdit;
 class SyncEngine;
 class ChatLogger;
+class RoomListModel;
 
 class ChatView : public QWidget {
     Q_OBJECT
@@ -23,6 +24,7 @@ public:
 
     void setCurrentRoom(const std::string& roomId, const std::string& threadRoot = "",
                         bool isEncrypted = false);
+    void setRoomListModel(RoomListModel* m) { roomListModel_ = m; }
     void clear();
 
 signals:
@@ -41,6 +43,7 @@ private:
     std::string roomId_;
     std::string threadRoot_;
     bool encrypted_ = false;
+    RoomListModel* roomListModel_ = nullptr;
 };
 
 } // namespace progressive::desktop

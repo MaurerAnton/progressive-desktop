@@ -5,6 +5,7 @@
 #include "core/sync_engine.hpp"
 #include "core/debug_log.hpp"
 #include "core/memory_stats.hpp"
+#include "../room_list_model.hpp"
 
 #include <QFileDialog>
 #include <QPointer>
@@ -41,6 +42,7 @@ ChatView::ChatView(std::shared_ptr<MatrixClient> client, TimelineModel* model, M
             echo.body = args;
             echo.originServerTs = static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
             model_->appendBack(echo);
+            // DEBT(E2EE): /me emote bypasses encryption — never checks room state
             ThreadPool::instance().enqueue([client = client_, roomId = roomId_, body = args]() {
                 client->sendMessage(roomId, body, "m.emote");
             });
@@ -106,7 +108,15 @@ void ChatView::doSend(const std::string& body) {
     QString myUserId = QString::fromStdString(client->account().userId);
     QPointer<ChatView> guard(this);
 
-    ThreadPool::instance().enqueue([guard, client, roomId, body, tempId, myUserId, threadRoot, encrypted = encrypted_]() {
+    bool encrypted = encrypted_;
+    if (!encrypted && roomListModel_) {
+        int row = roomListModel_->findRowByRoomId(roomId);
+        if (row >= 0) {
+            auto* rd = roomListModel_->at(row);
+            if (rd) encrypted = rd->isEncrypted;
+        }
+    }
+    ThreadPool::instance().enqueue([guard, client, roomId, body, tempId, myUserId, threadRoot, encrypted]() {
         // Thread reply (unencrypted)
         if (!threadRoot.empty() && !encrypted) {
             auto r = client->sendThreadReply(roomId, body, threadRoot);
@@ -264,6 +274,7 @@ void ChatView::doAttachFile(const QString& filePath) {
         else if (isVideo) body << R"({"msgtype":"m.video","body":")" << fn << R"(","url":")" << upload.data << R"("})";
         else if (isAudio) body << R"({"msgtype":"m.audio","body":")" << fn << R"(","url":")" << upload.data << R"("})";
         else body << R"({"msgtype":"m.file","body":")" << fn << R"(","url":")" << upload.data << R"("})";
+        // DEBT(E2EE): file attachments bypass encryption — never checks room state
         auto r = client->sendMessageEvent(roomId, "m.room.message", body.str());
         if (!r.ok) std::fprintf(stderr, "[send] FAILED file: %s\n", r.error.message.c_str());
         QMetaObject::invokeMethod(guard, [guard, r, fn, isImage, isVideo, isAudio, mxc = upload.data]() {

@@ -502,14 +502,14 @@ std::string Decryptor::getOrCreateOutboundSession(const std::string& roomId) {
     std::vector<uint8_t> idBuf(idLen);
     ret = olm_outbound_group_session_id(olmSession, idBuf.data(), idLen);
     if (ret == olm_error()) { free(session); return {}; }
-    std::string sessionId(idBuf.begin(), idBuf.end());
+    std::string sessionId(idBuf.begin(), idBuf.begin() + ret);
 
     // Get session key (for sharing with other devices)
     size_t keyLen = olm_outbound_group_session_key_length(olmSession);
     std::vector<uint8_t> keyBuf(keyLen);
     ret = olm_outbound_group_session_key(olmSession, keyBuf.data(), keyLen);
     if (ret == olm_error()) { free(session); return {}; }
-    std::string sessionKey(keyBuf.begin(), keyBuf.end());
+    std::string sessionKey(keyBuf.begin(), keyBuf.begin() + ret);
 
     OutboundMegolmSession s;
     s.session = session;
@@ -852,6 +852,9 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
             "\"session_key\":\"" + sessionKey + "\","
             "\"sender_key\":\"" + ourCurve + "\"}";
 
+        std::fprintf(stderr, "[e2ee] shareRoomKey: roomKeyContent=%s\n",
+                     roomKeyContent.c_str());
+
         // Wrap it as a to-device event JSON:
         // {"type":"m.room_key","content":{...},"sender":"<our_user_id>","keys":{"ed25519":"<our_ed>"}}
         std::string plaintext = "{\"type\":\"m.room_key\",\"content\":" + roomKeyContent +
@@ -872,6 +875,9 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
             continue;
         }
 
+        std::fprintf(stderr, "[e2ee] shareRoomKey: encBody=%.200s\n",
+                     encResult.data.c_str());
+
         // Build the per-device ciphertext entry
         if (!first) sendBody << ",";
         first = false;
@@ -886,6 +892,9 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
         shared++;
     }
     sendBody << "}}";
+
+    std::fprintf(stderr, "[e2ee] shareRoomKey: sendBody=%.600s\n",
+                 sendBody.str().c_str());
 
     if (shared == 0) {
         std::fprintf(stderr, "[e2ee] failed to encrypt room_key for any device\n");

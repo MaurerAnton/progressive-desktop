@@ -435,7 +435,9 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
         bool decrypted = false;
         for (size_t i = 0; i < it->second.size(); ++i) {
             progressive::OlmSession sess;
-            auto unpickleResult = sess.unpickle("", it->second[i]);
+            // libolm mutates the pickle buffer in-place via (void*) cast — pass a copy
+            std::string pickleCopy = it->second[i];
+            auto unpickleResult = sess.unpickle("", pickleCopy);
             if (!unpickleResult.success) {
                 LOG(LogChannel::E2EE, "Olm: unpickle failed for sender=%s idx=%zu (keeping entry)",
                     senderKey.c_str(), i);
@@ -967,6 +969,7 @@ void Decryptor::requestRoomKey(const std::string& roomId, const std::string& sen
          << "\"session_id\":\"" << sessionId << "\"},"
          << "\"request_id\":\"" << reqId << "\","
          << "\"requesting_device_id\":\"" << ctxDeviceId_ << "\"}}}}";
+    forceNewOlmSession(senderId, senderKey);  // MUST be first — establishes new Olm session before requesting re-share
     auto hdrs = makeAuthHeaders(ctxToken_);
     std::string url = ctxHomeserver_ + "/_matrix/client/v3/sendToDevice/m.room_key_request/" + reqId;
     auto resp = httpPut(url, body.str(), hdrs, 15000);
@@ -976,7 +979,6 @@ void Decryptor::requestRoomKey(const std::string& roomId, const std::string& sen
     std::fprintf(stderr, "[e2ee] requestRoomKey: room=%.40s sid=%.20s sender=%s ok=%d status=%d err=%s\n",
                  roomId.c_str(), sessionId.c_str(), senderId.c_str(), resp.success ? 1 : 0,
                  resp.statusCode, resp.errorMessage.c_str());
-    forceNewOlmSession(senderId, senderKey);
 }
 
 void Decryptor::forceNewOlmSession(const std::string& senderId, const std::string& senderKey) {
@@ -986,11 +988,6 @@ void Decryptor::forceNewOlmSession(const std::string& senderId, const std::strin
         std::lock_guard<std::mutex> lk(requestMtx_);
         if (forcedOlm_.count(senderKey)) return;
         forcedOlm_.insert(senderKey);
-    }
-    {
-        std::lock_guard<std::mutex> lk(olmMtx_);
-        auto it = olmSessions_.find(senderKey);
-        if (it != olmSessions_.end() && !it->second.empty()) return;
     }
 
     auto hdrs = makeAuthHeaders(ctxToken_);

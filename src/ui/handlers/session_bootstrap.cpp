@@ -82,6 +82,8 @@ void SessionBootstrap::start(const std::shared_ptr<MatrixClient>& client, const 
                     if (!refresh.data.refreshToken.empty())
                         acct.refreshToken = refresh.data.refreshToken;
                     client->setAccount(acct);
+                    sync->decryptor()->setCryptoContext(acct.userId, acct.deviceId,
+                                                          acct.homeserverUrl, acct.accessToken);
                     client->persistSession();
                     std::fprintf(stderr, "[session] pre-refresh OK — token updated\n");
                 } else {

@@ -161,6 +161,8 @@ void SyncEngine::run() {
                         if (!refresh.data.refreshToken.empty())
                             newAcct.refreshToken = refresh.data.refreshToken;
                         client_->setAccount(newAcct);
+                        decryptor_.setCryptoContext(newAcct.userId, newAcct.deviceId,
+                                                      newAcct.homeserverUrl, newAcct.accessToken);
                     client_->persistSession();
                     continue;  // retry sync with new token
                     }

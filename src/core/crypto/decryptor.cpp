@@ -970,10 +970,12 @@ void Decryptor::requestRoomKey(const std::string& roomId, const std::string& sen
     auto hdrs = makeAuthHeaders(ctxToken_);
     std::string url = ctxHomeserver_ + "/_matrix/client/v3/sendToDevice/m.room_key_request/" + reqId;
     auto resp = httpPut(url, body.str(), hdrs, 15000);
-    LOG(LogChannel::E2EE, "requestRoomKey: sent for room=%.40s sid=%.20s sender=%s ok=%d",
-        roomId.c_str(), sessionId.c_str(), senderId.c_str(), resp.success ? 1 : 0);
-    std::fprintf(stderr, "[e2ee] requestRoomKey: room=%.40s sid=%.20s sender=%s ok=%d\n",
-                 roomId.c_str(), sessionId.c_str(), senderId.c_str(), resp.success ? 1 : 0);
+    LOG(LogChannel::E2EE, "requestRoomKey: sent for room=%.40s sid=%.20s sender=%s ok=%d status=%d err=%s",
+        roomId.c_str(), sessionId.c_str(), senderId.c_str(), resp.success ? 1 : 0,
+        resp.statusCode, resp.errorMessage.c_str());
+    std::fprintf(stderr, "[e2ee] requestRoomKey: room=%.40s sid=%.20s sender=%s ok=%d status=%d err=%s\n",
+                 roomId.c_str(), sessionId.c_str(), senderId.c_str(), resp.success ? 1 : 0,
+                 resp.statusCode, resp.errorMessage.c_str());
     forceNewOlmSession(senderId, senderKey);
 }
 
@@ -999,7 +1001,8 @@ void Decryptor::forceNewOlmSession(const std::string& senderId, const std::strin
     auto queryResp = httpPost(ctxHomeserver_ + "/_matrix/client/v3/keys/query",
                                queryBody, hdrs, 30000);
     if (!queryResp.success) {
-        std::fprintf(stderr, "[e2ee] forceNewOlmSession: keys/query failed for %s\n", senderId.c_str());
+        std::fprintf(stderr, "[e2ee] forceNewOlmSession: keys/query failed for %s status=%d err=%s\n",
+                     senderId.c_str(), queryResp.statusCode, queryResp.errorMessage.c_str());
         return;
     }
     simdjson::dom::parser parser;

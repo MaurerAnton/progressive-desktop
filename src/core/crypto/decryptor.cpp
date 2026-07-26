@@ -1124,13 +1124,15 @@ void Decryptor::forceNewOlmSession(const std::string& senderId, const std::strin
              << "\"ciphertext\":{\"" << senderKey << "\":{"
              << "\"body\":\"" << encResult.data << "\","
              << "\"type\":0}},"
-             << "\"sender_key\":\"" << ourCurve << "\"}}}";
+             << "\"sender_key\":\"" << ourCurve << "\"}}}}";
     std::string url = ctxHomeserver_ + "/_matrix/client/v3/sendToDevice/m.room.encrypted/" + txnId;
     auto sendResp = httpPut(url, sendBody.str(), hdrs, 15000);
-    std::fprintf(stderr, "[e2ee] forceNewOlmSession: sent m.dummy to %s/%s ok=%d\n",
-                 senderId.c_str(), theirDeviceId.c_str(), sendResp.success ? 1 : 0);
-    LOG(LogChannel::E2EE, "forceNewOlmSession: sent m.dummy to %s/%s ok=%d",
-        senderId.c_str(), theirDeviceId.c_str(), sendResp.success ? 1 : 0);
+    std::fprintf(stderr, "[e2ee] forceNewOlmSession: sent m.dummy to %s/%s ok=%d status=%d err=%s\n",
+                 senderId.c_str(), theirDeviceId.c_str(), sendResp.success ? 1 : 0,
+                 sendResp.statusCode, sendResp.errorMessage.c_str());
+    LOG(LogChannel::E2EE, "forceNewOlmSession: sent m.dummy to %s/%s ok=%d status=%d err=%s",
+        senderId.c_str(), theirDeviceId.c_str(), sendResp.success ? 1 : 0,
+        sendResp.statusCode, sendResp.errorMessage.c_str());
 }
 
 std::string Decryptor::pickleOlmSessions(const std::string& key) {

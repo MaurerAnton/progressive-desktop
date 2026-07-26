@@ -14,6 +14,7 @@
 #include <string>
 #include <unordered_map>
 #include <mutex>
+#include <unordered_set>
 
 namespace progressive::desktop {
 
@@ -151,6 +152,20 @@ public:
     bool unpickleOlmSessions(const std::string& key, const std::string& data);
     size_t olmSessionCount();
 
+    // Set credentials for to-device HTTP calls (called once at E2EE init).
+    void setCryptoContext(const std::string& ourUserId, const std::string& ourDeviceId,
+                          const std::string& homeserverUrl, const std::string& accessToken);
+
+    // Request re-sharing of a megolm room key (m.room_key_request to-device).
+    // Throttled: one request per (room, session, senderKey) per run.
+    void requestRoomKey(const std::string& roomId, const std::string& senderId,
+                        const std::string& senderKey, const std::string& sessionId);
+
+    // Force a new Olm session with a sender by sending m.dummy (to-device).
+    // Creates an outbound Olm session, pickles+stores it so we can decrypt
+    // the sender's reply. Called when we have no Olm session for the sender.
+    void forceNewOlmSession(const std::string& senderId, const std::string& senderKey);
+
 private:
     std::unique_ptr<OlmAccountStore> account_;
     std::unique_ptr<MegolmStore> megolm_;
@@ -161,6 +176,11 @@ private:
     // We store them as pickled strings; created on-demand from pre-key messages.
     std::unordered_map<std::string, std::string> olmSessions_;
     std::mutex olmMtx_;
+    // Credentials for to-device HTTP calls (set once at E2EE init).
+    std::string ctxUserId_, ctxDeviceId_, ctxHomeserver_, ctxToken_;
+    std::unordered_set<std::string> requestedKeys_;
+    std::unordered_set<std::string> forcedOlm_;  // throttle: one m.dummy per senderKey per run
+    std::mutex requestMtx_;
     // Track which rooms have had their key shared for current outbound session
     std::unordered_map<std::string, bool> roomKeysShared_;
 

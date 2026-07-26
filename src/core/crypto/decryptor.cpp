@@ -105,6 +105,7 @@ DecryptionResult Decryptor::decryptMegolmEvent(const std::string& roomId,
         p.eventId = eventId;
         p.originServerTs = originServerTs;
         megolm_->addPending(p);
+        requestRoomKey(roomId, senderId, senderKey, sessionId);
         return r;
     }
 
@@ -427,14 +428,12 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
         }
         auto unpickleResult = session.unpickle("", it->second);
         if (!unpickleResult.success) {
-            LOG(LogChannel::E2EE, "Olm: unpickle failed for sender=%s", senderKey.c_str());
-            olmSessions_.erase(it);
+            LOG(LogChannel::E2EE, "Olm: unpickle failed for sender=%s (keeping entry)", senderKey.c_str());
             return {};
         }
         auto decResult = session.decrypt(body, 1);
         if (!decResult.success) {
-            LOG(LogChannel::E2EE, "Olm: decrypt type %d FAILED for sender=%s", msgType, senderKey.c_str());
-            olmSessions_.erase(it);
+            LOG(LogChannel::E2EE, "Olm: decrypt type %d FAILED for sender=%s (keeping session)", msgType, senderKey.c_str());
             return {};
         }
         plaintext = decResult.data;
@@ -920,6 +919,190 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
 size_t Decryptor::olmSessionCount() {
     std::lock_guard<std::mutex> lk(olmMtx_);
     return olmSessions_.size();
+}
+
+void Decryptor::setCryptoContext(const std::string& ourUserId, const std::string& ourDeviceId,
+                                  const std::string& homeserverUrl, const std::string& accessToken) {
+    ctxUserId_ = ourUserId;
+    ctxDeviceId_ = ourDeviceId;
+    ctxHomeserver_ = homeserverUrl;
+    ctxToken_ = accessToken;
+}
+
+void Decryptor::requestRoomKey(const std::string& roomId, const std::string& senderId,
+                                const std::string& senderKey, const std::string& sessionId) {
+    if (ctxHomeserver_.empty() || ctxToken_.empty() || senderId.empty()) return;
+    std::string key = roomId + "|" + sessionId + "|" + senderKey;
+    {
+        std::lock_guard<std::mutex> lk(requestMtx_);
+        if (requestedKeys_.count(key)) return;
+        requestedKeys_.insert(key);
+    }
+    std::string reqId = "pdrkr" + std::to_string(std::time(nullptr) * 1000 + (rand() % 1000));
+    std::ostringstream body;
+    body << "{\"messages\":{\""
+         << senderId << "\":{\"*\":{\"action\":\"request\","
+         << "\"body\":{\"algorithm\":\"m.megolm.v1.aes-sha2\","
+         << "\"room_id\":\"" << roomId << "\","
+         << "\"sender_key\":\"" << senderKey << "\","
+         << "\"session_id\":\"" << sessionId << "\"},"
+         << "\"request_id\":\"" << reqId << "\","
+         << "\"requesting_device_id\":\"" << ctxDeviceId_ << "\"}}}}";
+    auto hdrs = makeAuthHeaders(ctxToken_);
+    std::string url = ctxHomeserver_ + "/_matrix/client/v3/sendToDevice/m.room_key_request/" + reqId;
+    auto resp = httpPut(url, body.str(), hdrs, 15000);
+    LOG(LogChannel::E2EE, "requestRoomKey: sent for room=%.40s sid=%.20s sender=%s ok=%d",
+        roomId.c_str(), sessionId.c_str(), senderId.c_str(), resp.success ? 1 : 0);
+    std::fprintf(stderr, "[e2ee] requestRoomKey: room=%.40s sid=%.20s sender=%s ok=%d\n",
+                 roomId.c_str(), sessionId.c_str(), senderId.c_str(), resp.success ? 1 : 0);
+    forceNewOlmSession(senderId, senderKey);
+}
+
+void Decryptor::forceNewOlmSession(const std::string& senderId, const std::string& senderKey) {
+    if (ctxHomeserver_.empty() || ctxToken_.empty()) return;
+
+    {
+        std::lock_guard<std::mutex> lk(requestMtx_);
+        if (forcedOlm_.count(senderKey)) return;
+        forcedOlm_.insert(senderKey);
+    }
+    {
+        std::lock_guard<std::mutex> lk(olmMtx_);
+        if (olmSessions_.count(senderKey)) return;
+    }
+
+    auto hdrs = makeAuthHeaders(ctxToken_);
+    auto ourCurve = curve25519Key();
+    auto ourEd = ed25519Key();
+
+    std::string queryBody = "{\"device_keys\":{\"" + senderId + "\":[]}}";
+    auto queryResp = httpPost(ctxHomeserver_ + "/_matrix/client/v3/keys/query",
+                               queryBody, hdrs, 30000);
+    if (!queryResp.success) {
+        std::fprintf(stderr, "[e2ee] forceNewOlmSession: keys/query failed for %s\n", senderId.c_str());
+        return;
+    }
+    simdjson::dom::parser parser;
+    auto root = parser.parse(queryResp.body);
+    if (root.error() != simdjson::SUCCESS) return;
+    std::string theirDeviceId, theirEd;
+    auto dkResult = root.value()["device_keys"].get_object();
+    if (dkResult.error() == simdjson::SUCCESS) {
+        for (auto userField : dkResult.value()) {
+            auto userDevices = userField.value.get_object();
+            if (userDevices.error() != simdjson::SUCCESS) continue;
+            for (auto devField : userDevices.value()) {
+                std::string devId(devField.key);
+                if (devId == ctxDeviceId_) continue;
+                auto keysResult = devField.value["keys"].get_object();
+                if (keysResult.error() != simdjson::SUCCESS) continue;
+                std::string devCurve, devEd;
+                for (auto k : keysResult.value()) {
+                    std::string kKey(k.key);
+                    if (kKey.find("curve25519") != std::string::npos) {
+                        auto v = k.value.get_string();
+                        if (v.error() == simdjson::SUCCESS) devCurve = std::string(v.value());
+                    }
+                    if (kKey.find("ed25519") != std::string::npos) {
+                        auto v = k.value.get_string();
+                        if (v.error() == simdjson::SUCCESS) devEd = std::string(v.value());
+                    }
+                }
+                if (devCurve == senderKey) {
+                    theirDeviceId = devId;
+                    theirEd = devEd;
+                    break;
+                }
+            }
+        }
+    }
+    if (theirDeviceId.empty() || theirEd.empty()) {
+        std::fprintf(stderr, "[e2ee] forceNewOlmSession: no device found for senderKey=%.20s\n",
+                     senderKey.c_str());
+        return;
+    }
+
+    std::string claimBody = "{\"one_time_keys\":{\""
+        + senderId + "\":{\"" + theirDeviceId + "\":\"signed_curve25519\"}}}";
+    auto claimResp = httpPost(ctxHomeserver_ + "/_matrix/client/v3/keys/claim",
+                               claimBody, hdrs, 15000);
+    if (!claimResp.success) {
+        std::fprintf(stderr, "[e2ee] forceNewOlmSession: keys/claim failed\n");
+        return;
+    }
+    std::string oneTimeKey;
+    auto claimRoot = parser.parse(claimResp.body);
+    if (claimRoot.error() == simdjson::SUCCESS) {
+        auto otkResult = claimRoot.value()["one_time_keys"].get_object();
+        if (otkResult.error() == simdjson::SUCCESS) {
+            for (auto userField : otkResult.value()) {
+                auto userDevs = userField.value.get_object();
+                if (userDevs.error() != simdjson::SUCCESS) continue;
+                for (auto devField : userDevs.value()) {
+                    auto keyObj = devField.value.get_object();
+                    if (keyObj.error() != simdjson::SUCCESS) continue;
+                    for (auto k : keyObj.value()) {
+                        oneTimeKey = domGetString(k.value, "key");
+                        if (oneTimeKey.empty()) {
+                            auto keyStr = k.value.get_string();
+                            if (keyStr.error() == simdjson::SUCCESS)
+                                oneTimeKey = std::string(keyStr.value());
+                        }
+                        if (!oneTimeKey.empty()) break;
+                    }
+                }
+            }
+        }
+    }
+    if (oneTimeKey.empty()) {
+        std::fprintf(stderr, "[e2ee] forceNewOlmSession: no OTK claimed for %s/%s\n",
+                     senderId.c_str(), theirDeviceId.c_str());
+        return;
+    }
+
+    progressive::OlmSession session;
+    auto* underlyingAccount = static_cast<progressive::OlmAccount*>(account_->rawAccount());
+    auto sessResult = session.createOutbound(*underlyingAccount, senderKey, oneTimeKey);
+    if (!sessResult.success) {
+        std::fprintf(stderr, "[e2ee] forceNewOlmSession: createOutbound failed\n");
+        return;
+    }
+
+    std::string plaintext = "{\"type\":\"m.dummy\",\"content\":{},"
+        "\"sender\":\"" + ctxUserId_ + "\","
+        "\"recipient\":\"" + senderId + "\","
+        "\"keys\":{\"ed25519\":\"" + ourEd + "\"},"
+        "\"recipient_keys\":{\"ed25519\":\"" + theirEd + "\"}}";
+
+    auto encResult = session.encrypt(plaintext);
+    if (!encResult.success || encResult.data.empty()) {
+        std::fprintf(stderr, "[e2ee] forceNewOlmSession: Olm encrypt failed\n");
+        return;
+    }
+
+    auto pickleResult = session.pickle("");
+    if (pickleResult.success) {
+        std::lock_guard<std::mutex> lk(olmMtx_);
+        olmSessions_[senderKey] = pickleResult.data;
+        std::fprintf(stderr, "[e2ee] forceNewOlmSession: stored outbound session for senderKey=%.20s\n",
+                     senderKey.c_str());
+    }
+
+    std::string txnId = "pddmy" + std::to_string(std::time(nullptr) * 1000 + (rand() % 1000));
+    std::ostringstream sendBody;
+    sendBody << "{\"messages\":{\""
+             << senderId << "\":{\""
+             << theirDeviceId << "\":{\"algorithm\":\"m.olm.v1.curve25519-aes-sha2\","
+             << "\"ciphertext\":{\"" << senderKey << "\":{"
+             << "\"body\":\"" << encResult.data << "\","
+             << "\"type\":0}},"
+             << "\"sender_key\":\"" << ourCurve << "\"}}}";
+    std::string url = ctxHomeserver_ + "/_matrix/client/v3/sendToDevice/m.room.encrypted/" + txnId;
+    auto sendResp = httpPut(url, sendBody.str(), hdrs, 15000);
+    std::fprintf(stderr, "[e2ee] forceNewOlmSession: sent m.dummy to %s/%s ok=%d\n",
+                 senderId.c_str(), theirDeviceId.c_str(), sendResp.success ? 1 : 0);
+    LOG(LogChannel::E2EE, "forceNewOlmSession: sent m.dummy to %s/%s ok=%d",
+        senderId.c_str(), theirDeviceId.c_str(), sendResp.success ? 1 : 0);
 }
 
 std::string Decryptor::pickleOlmSessions(const std::string& key) {

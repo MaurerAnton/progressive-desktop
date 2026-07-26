@@ -52,6 +52,9 @@ void E2eeInitHandler::init(MatrixClient* client, SessionStore* store,
             std::cerr << "[e2ee] olm account ready: curve25519=" << keys.curve25519
                       << " ed25519=" << keys.ed25519 << "\n";
 
+            sync->decryptor()->setCryptoContext(acct.userId, acct.deviceId,
+                                                  acct.homeserverUrl, acct.accessToken);
+
             std::string newPickle = sync->decryptor()->saveAccountPickle(pickleKey);
             if (!newPickle.empty() && store) {
                 store->saveOlmAccount(newPickle, pickleKey);

@@ -483,6 +483,8 @@ ApiResult<bool> MatrixClient::leaveRoom(const std::string& roomId) {
                          "{}", authHeaders(), 15000);
     r.httpStatus = resp.statusCode; r.ok = resp.success; r.data = resp.success;
     if (!resp.success && !resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+    LOG(LogChannel::NET, "leaveRoom: room=%s ok=%d http=%d body=%.200s",
+        roomId.c_str(), r.ok ? 1 : 0, r.httpStatus, resp.body.c_str());
     return r;
 }
 

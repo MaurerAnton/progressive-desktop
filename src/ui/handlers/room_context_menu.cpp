@@ -1,6 +1,7 @@
 // src/ui/handlers/room_context_menu.cpp — room context menu management.
 #include "room_context_menu.hpp"
 #include "thread_handler.hpp"
+#include "core/debug_log.hpp"
 #include "core/matrix_client.hpp"
 #include "core/thread_pool.hpp"
 #include "../timeline/timeline_model.hpp"
@@ -38,6 +39,7 @@ void RoomContextMenu::onRoomListContextMenu(const QPoint& pos, const std::string
     auto* acceptAction = menu.addAction("Accept invite");
     auto* rejectAction = menu.addAction("Reject invite");
     auto* forgetAction = menu.addAction("Forget room");
+    auto* hideAction = menu.addAction("Hide from list");
     if (r->isInvite) {
         leaveAction->setVisible(false);
         forgetAction->setVisible(false);
@@ -132,22 +134,48 @@ void RoomContextMenu::onRoomListContextMenu(const QPoint& pos, const std::string
         std::string rid = r->roomId;
         QPointer<MainWindow> guard(mw_);
         QPointer<RoomContextMenu> self(this);
-        statusLabel_->setText("Forgetting room...");
+        statusLabel_->setText("Leaving + forgetting room...");
         ThreadPool::instance().enqueue([guard, self, rid]() {
-            auto res = self->client_->forgetRoom(rid);
-            QMetaObject::invokeMethod(guard, [guard, self, res, rid]() {
+            // Chain: leave first, then forget (spec requires prior leave)
+            auto lr = self->client_->leaveRoom(rid);
+            LOG(LogChannel::NET, "forget flow leave: room=%s ok=%d http=%d",
+                rid.c_str(), lr.ok ? 1 : 0, lr.httpStatus);
+            if (!lr.ok) {
+                QMetaObject::invokeMethod(guard, [guard, self, lr, rid]() {
+                    if (guard.isNull() || self.isNull()) return;
+                    std::string err = lr.error.message;
+                    if (!lr.error.code.empty()) err = "[" + lr.error.code + "] " + err;
+                    self->statusLabel_->setText("Leave failed: " + QString::fromStdString(err));
+                }, Qt::QueuedConnection);
+                return;
+            }
+            auto fr = self->client_->forgetRoom(rid);
+            LOG(LogChannel::NET, "forget flow forget: room=%s ok=%d http=%d",
+                rid.c_str(), fr.ok ? 1 : 0, fr.httpStatus);
+            QMetaObject::invokeMethod(guard, [guard, self, fr, rid]() {
                 if (guard.isNull() || self.isNull()) return;
-                if (res.ok) {
+                if (fr.ok) {
                     self->statusLabel_->setText("Room forgotten.");
                     self->roomModel_->removeRoom(rid);
                     self->roomModel_->refreshHeader();
                 } else {
-                    std::string err = res.error.message;
-                    if (!res.error.code.empty()) err = "[" + res.error.code + "] " + err;
-                    self->statusLabel_->setText("Failed: " + QString::fromStdString(err));
+                    std::string err = fr.error.message;
+                    if (!fr.error.code.empty()) err = "[" + fr.error.code + "] " + err;
+                    self->statusLabel_->setText("Left but forget failed: " + QString::fromStdString(err)
+                        + " (hidden from list)");
+                    self->roomModel_->removeRoom(rid);
+                    self->roomModel_->refreshHeader();
                 }
             }, Qt::QueuedConnection);
         });
+    } else if (selected == hideAction) {
+        // Local-only hide — for rooms where server refuses leave/reject/forget.
+        std::string rid = r->roomId;
+        roomModel_->removeRoom(rid);
+        roomModel_->refreshHeader();
+        statusLabel_->setText("Hidden from list (server state unchanged).");
+        LOG(LogChannel::GUI, "hideFromList: room=%s (local only, no server call)",
+            rid.c_str());
     }
 }
 

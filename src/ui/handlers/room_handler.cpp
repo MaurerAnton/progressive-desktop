@@ -3,6 +3,7 @@
 #include "thread_handler.hpp"
 #include "room_context_menu.hpp"
 #include "../main_window.hpp"
+#include "core/debug_log.hpp"
 #include "../room/room_store.hpp"
 #include "../room_list_model.hpp"
 #include "../timeline/timeline_model.hpp"
@@ -316,6 +317,9 @@ void RoomHandler::acceptInvite(const QString& roomId) {
                 std::string err = r.error.message;
                 if (!r.error.code.empty()) err = "[" + r.error.code + "] " + err;
                 self->statusLabel_->setText("Failed: " + QString::fromStdString(err));
+                LOG(LogChannel::NET, "acceptInvite FAILED: room=%s http=%d errcode=%s msg=%s",
+                    roomId.toStdString().c_str(), r.httpStatus,
+                    r.error.code.c_str(), r.error.message.c_str());
             }
         }, Qt::QueuedConnection);
     });
@@ -342,6 +346,9 @@ void RoomHandler::rejectInvite(const QString& roomId) {
                 std::string err = r.error.message;
                 if (!r.error.code.empty()) err = "[" + r.error.code + "] " + err;
                 self->statusLabel_->setText("Failed: " + QString::fromStdString(err));
+                LOG(LogChannel::NET, "rejectInvite FAILED: room=%s http=%d errcode=%s msg=%s",
+                    roomId.toStdString().c_str(), r.httpStatus,
+                    r.error.code.c_str(), r.error.message.c_str());
             }
         }, Qt::QueuedConnection);
     });

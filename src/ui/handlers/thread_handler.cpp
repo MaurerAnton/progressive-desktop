@@ -176,7 +176,12 @@ void ThreadHandler::sendThreadReply(const std::string& roomId,
     QPointer<MainWindow> guard(mw_);
     QPointer<ThreadHandler> self(this);
     ThreadPool::instance().enqueue([guard, self, roomId, effectiveRoot, text]() {
+        LOG(LogChannel::GUI, "sendThreadReply: room=%.30s root=%.30s textLen=%zu",
+            roomId.c_str(), effectiveRoot.c_str(), text.size());
         auto r = self->client_->sendThreadReply(roomId, text, effectiveRoot);
+        LOG(LogChannel::GUI, "sendThreadReply: http ok=%d httpStatus=%d data=%s err=%s",
+            r.ok ? 1 : 0, r.httpStatus, r.data.c_str(),
+            r.error.message.c_str());
         QMetaObject::invokeMethod(guard, [guard, self, r, effectiveRoot, text]() {
             if (guard.isNull() || self.isNull()) return;
             if (r.ok) {
@@ -196,6 +201,8 @@ void ThreadHandler::sendThreadReply(const std::string& roomId,
                 echo.isThreadReply = true;
                 echo.threadRootId = effectiveRoot;
                 self->timelineModel_->appendBack(echo);
+                LOG(LogChannel::GUI, "sendThreadReply: echo appended eventId=%s",
+                    echo.eventId.c_str());
                 int rootRow = self->timelineModel_->findRow(effectiveRoot);
                 if (rootRow >= 0) {
                     auto* rootEvt = self->timelineModel_->at(rootRow);

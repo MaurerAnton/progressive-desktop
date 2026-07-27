@@ -869,8 +869,7 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
         std::string roomKeyContent = "{\"algorithm\":\"m.megolm.v1.aes-sha2\","
             "\"room_id\":\"" + roomId + "\","
             "\"session_id\":\"" + sessionId + "\","
-            "\"session_key\":\"" + sessionKey + "\","
-            "\"sender_key\":\"" + ourCurve + "\"}";
+            "\"session_key\":\"" + sessionKey + "\"}";
 
         std::fprintf(stderr, "[e2ee] shareRoomKey: roomKeyContent=%s\n",
                      roomKeyContent.c_str());
@@ -881,11 +880,7 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
             ",\"sender\":\"" + ourUserId + "\""
             ",\"recipient\":\"" + ck.userId + "\""
             ",\"keys\":{\"ed25519\":\"" + ourEd + "\"}"
-            ",\"recipient_keys\":{\"ed25519\":\"" + theirEd + "\"}"
-            ",\"sender_device_keys\":{\"user_id\":\"" + ourUserId + "\",\"device_id\":\""
-            + ourDeviceId + "\",\"algorithms\":[\"m.olm.v1.curve25519-aes-sha2\",\"m.megolm.v1.aes-sha2\"],"
-            + "\"keys\":{\"curve25519:" + ourDeviceId + "\":\"" + ourCurve + "\","
-            + "\"ed25519:" + ourDeviceId + "\":\"" + ourEd + "\"}}}";
+            ",\"recipient_keys\":{\"ed25519\":\"" + theirEd + "\"}}";
 
         // Encrypt with OlmSession
         auto encResult = session.encrypt(plaintext);

@@ -5,6 +5,7 @@
 #include "../timeline/timeline_model.hpp"
 #include "../room/room_store.hpp"
 #include "../main_window.hpp"
+#include "core/debug_log.hpp"
 
 #include <QInputDialog>
 #include <QLabel>
@@ -49,7 +50,7 @@ void ThreadHandler::openThreadView(const QString& rootEventId, const std::string
 
     ThreadPool::instance().enqueue([guard, self, roomId, rootEid, rootSnapshot, hasRootSnapshot]() {
         auto r = self->client_->getThreadReplies(roomId, rootEid);
-        QMetaObject::invokeMethod(guard, [guard, self, r, rootEid]() {
+        QMetaObject::invokeMethod(guard, [guard, self, r, rootEid, rootSnapshot, hasRootSnapshot]() {
             if (guard.isNull() || self.isNull()) return;
             if (!r.ok) {
                 self->statusLabel_->setText("Failed to load thread: " + QString::fromStdString(r.error.message));

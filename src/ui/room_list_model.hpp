@@ -53,6 +53,12 @@ public:
     const RoomData* at(int row) const;
     int findRowByRoomId(const std::string& roomId) const;
     void updateHeader(QLabel* header, QLabel* inviteHeader) const;
+    void setHeaderLabels(QLabel* chats, QLabel* invites) {
+        chatsHeader_ = chats; inviteHeader_ = invites;
+    }
+    void refreshHeader() const {
+        if (chatsHeader_ && inviteHeader_) updateHeader(chatsHeader_, inviteHeader_);
+    }
 
     enum Roles {
         NameRole = Qt::DisplayRole,
@@ -73,6 +79,8 @@ public:
 private:
     std::vector<RoomData> rooms_;
     std::unordered_map<std::string, int> index_;  // roomId → row, O(1) lookup
+    QLabel* chatsHeader_ = nullptr;
+    QLabel* inviteHeader_ = nullptr;
 };
 
 } // namespace progressive::desktop

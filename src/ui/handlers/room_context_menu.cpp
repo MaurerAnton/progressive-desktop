@@ -88,6 +88,7 @@ void RoomContextMenu::onRoomListContextMenu(const QPoint& pos, const std::string
                         int row = self->roomModel_->findRowByRoomId(rid);
                         if (row >= 0) emit self->roomModel_->dataChanged(
                             self->roomModel_->index(row), self->roomModel_->index(row));
+                        self->roomModel_->refreshHeader();
                     }
                 } else {
                     self->statusLabel_->setText("Failed to join: " + QString::fromStdString(res.error.message));
@@ -106,6 +107,7 @@ void RoomContextMenu::onRoomListContextMenu(const QPoint& pos, const std::string
                 if (res.ok) {
                     self->statusLabel_->setText("Invite rejected.");
                     self->roomModel_->removeRoom(rid);
+                    self->roomModel_->refreshHeader();
                 } else {
                     self->statusLabel_->setText("Failed to reject: " + QString::fromStdString(res.error.message));
                 }

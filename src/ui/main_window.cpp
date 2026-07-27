@@ -100,6 +100,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     splitter_ = ui.splitter;
     roomListHeader_ = ui.roomListHeader;
 
+    roomModel_->setHeaderLabels(roomListHeader_, inviteHeader_);
+
     toolbarHandler_ = new ToolbarHandler(client_, roomModel_, roomStore_,
         timelineModel_, statusLabel_, this);
     toolbar_->addAction(toolbarHandler_->createNewChatAction());

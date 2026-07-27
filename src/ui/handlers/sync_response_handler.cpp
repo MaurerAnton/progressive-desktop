@@ -73,13 +73,7 @@ void SyncResponseHandler::handle(FastSyncResponse resp) {
                 }
             }
 
-            if (syncUpdate.inviteCount > 0) {
-                guard->inviteHeader_->setText(syncUpdate.inviteText);
-                guard->inviteHeader_->show();
-            } else {
-                guard->inviteHeader_->hide();
-            }
-            guard->roomModel_->updateHeader(rlh, guard->inviteHeader_);
+            guard->roomModel_->refreshHeader();
             logMemorySnapshot("after-rebuildRoomList");
 
             for (auto& rd : syncUpdate.roomsToUpsert) {

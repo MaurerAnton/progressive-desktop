@@ -351,6 +351,7 @@ void RoomHandler::acceptInvite(const QString& roomId) {
                         emit self->roomModel_->dataChanged(
                             self->roomModel_->index(row), self->roomModel_->index(row));
                         self->onRoomClicked(self->roomModel_->index(row));
+                        self->roomModel_->refreshHeader();
                     }
                 }
                 self->statusLabel_->setText("Joined room.");

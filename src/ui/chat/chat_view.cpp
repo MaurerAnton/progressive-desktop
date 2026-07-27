@@ -172,25 +172,9 @@ void ChatView::doSend(const std::string& body) {
                 }, Qt::QueuedConnection);
                 return;
             }
-            auto r = client->sendEncryptedEvent(roomId, enc, "pd" + std::to_string(std::time(nullptr)));
-            if (!r.ok) {
-                std::fprintf(stderr, "[send] FAILED encrypted: %s\n", r.error.message.c_str());
-                QMetaObject::invokeMethod(guard, [guard, r, tempId]() {
-                    if (guard.isNull()) return;
-                    guard->model_->replaceEcho(tempId, {.msgtype = "m.notice", .body = "❌ " + r.error.message});
-                }, Qt::QueuedConnection);
-                return;
-            }
-            QMetaObject::invokeMethod(guard, [guard, r, tempId, body, myUserId]() {
-                if (guard.isNull() || !r.ok) return;
-                DisplayedEvent real;
-                real.eventId = r.data; real.senderId = myUserId.toStdString();
-                real.senderName = "you"; real.type = "m.room.message";
-                real.msgtype = "m.text"; real.body = body;
-                real.originServerTs = static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
-                guard->model_->replaceEcho(tempId, real);
-            }, Qt::QueuedConnection);
-            // Share room key ONCE per session
+            // Share room key ONCE per session — BEFORE sending the encrypted message
+            // so the recipient's /sync processes the to-device room_key before the room event,
+            // and the message decrypts immediately instead of showing 'Unable to decrypt'.
             if (!dec->roomKeyShared(roomId)) {
                 std::string ourUserId = client->account().userId;
                 std::string ourDeviceId = client->account().deviceId;
@@ -220,6 +204,24 @@ void ChatView::doSend(const std::string& body) {
                     }
                 }
             }
+            auto r = client->sendEncryptedEvent(roomId, enc, "pd" + std::to_string(std::time(nullptr)));
+            if (!r.ok) {
+                std::fprintf(stderr, "[send] FAILED encrypted: %s\n", r.error.message.c_str());
+                QMetaObject::invokeMethod(guard, [guard, r, tempId]() {
+                    if (guard.isNull()) return;
+                    guard->model_->replaceEcho(tempId, {.msgtype = "m.notice", .body = "❌ " + r.error.message});
+                }, Qt::QueuedConnection);
+                return;
+            }
+            QMetaObject::invokeMethod(guard, [guard, r, tempId, body, myUserId]() {
+                if (guard.isNull() || !r.ok) return;
+                DisplayedEvent real;
+                real.eventId = r.data; real.senderId = myUserId.toStdString();
+                real.senderName = "you"; real.type = "m.room.message";
+                real.msgtype = "m.text"; real.body = body;
+                real.originServerTs = static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+                guard->model_->replaceEcho(tempId, real);
+            }, Qt::QueuedConnection);
         } else {
             auto r = client->sendMessage(roomId, body);
             if (!r.ok) {

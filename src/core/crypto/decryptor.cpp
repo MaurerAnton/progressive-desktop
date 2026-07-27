@@ -533,6 +533,8 @@ std::string Decryptor::getOrCreateOutboundSession(const std::string& roomId) {
     s.session = session;
     s.sessionId = sessionId;
     s.sessionKey = sessionKey;
+    // Import outbound session as inbound so we can decrypt our own message echoes.
+    megolm_->addInboundSession(roomId, curve25519Key(), sessionId, sessionKey);
     s.messageIndex = 0;
     outboundSessions_[roomId] = std::move(s);
     roomKeysShared_[roomId] = false;

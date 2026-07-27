@@ -12,6 +12,7 @@
 #include <QMetaObject>
 #include <QPointer>
 #include <simdjson.h>
+#include <chrono>
 
 namespace progressive::desktop {
 
@@ -52,6 +53,7 @@ void ThreadHandler::openThreadView(const QString& rootEventId, const std::string
             }
 
             auto origResult = rootResult.value()["original_event"];
+            std::fprintf(stderr, "[thread] origResult error=%d\n", (int)origResult.error());
             if (origResult.error() == simdjson::SUCCESS) {
                 DisplayedEvent root;
                 auto t = origResult.value()["type"].get_string();
@@ -76,9 +78,22 @@ void ThreadHandler::openThreadView(const QString& rootEventId, const std::string
                     if (root.msgtype == "m.image" || root.msgtype == "m.video") {
                         root.mxcUrl = extractStringDec(root.contentJson, "url");
                     }
+                } else if (root.type == "m.room.encrypted") {
+                    int row = self->timelineModel_->findRow(root.eventId);
+                    if (row >= 0) {
+                        auto* local = self->timelineModel_->at(row);
+                        if (local) { root.body = local->body; root.msgtype = local->msgtype; }
+                    }
                 }
                 root.isThreadRoot = true;
                 self->timelineModel_->appendBack(root);
+            } else {
+                int row = self->timelineModel_->findRow(rootEid);
+                if (row >= 0) {
+                    auto* local = self->timelineModel_->at(row);
+                    if (local) { DisplayedEvent root = *local; root.isThreadRoot = true;
+                                  self->timelineModel_->appendBack(root); }
+                }
             }
 
             auto chunkResult = rootResult.value()["chunk"].get_array();
@@ -153,9 +168,27 @@ void ThreadHandler::sendThreadReply(const std::string& roomId,
     QPointer<ThreadHandler> self(this);
     ThreadPool::instance().enqueue([guard, self, roomId, effectiveRoot, text]() {
         auto r = self->client_->sendThreadReply(roomId, text, effectiveRoot);
-        QMetaObject::invokeMethod(guard, [guard, self, r, effectiveRoot]() {
+        QMetaObject::invokeMethod(guard, [guard, self, r, effectiveRoot, text]() {
             if (guard.isNull() || self.isNull()) return;
             if (r.ok) {
+                DisplayedEvent echo;
+                echo.eventId = "thread-" + std::to_string(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count());
+                echo.senderId = self->client_->account().userId;
+                if (!echo.senderId.empty() && echo.senderId[0] == '@') {
+                    auto colon = echo.senderId.find(':');
+                    echo.senderName = (colon != std::string::npos) ? echo.senderId.substr(1, colon - 1) : echo.senderId.substr(1);
+                }
+                echo.originServerTs = static_cast<int64_t>(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count());
+                echo.type = "m.room.message";
+                echo.msgtype = "m.text";
+                echo.body = text;
+                echo.isThreadReply = true;
+                echo.threadRootId = effectiveRoot;
+                self->timelineModel_->appendBack(echo);
                 int rootRow = self->timelineModel_->findRow(effectiveRoot);
                 if (rootRow >= 0) {
                     auto* rootEvt = self->timelineModel_->at(rootRow);

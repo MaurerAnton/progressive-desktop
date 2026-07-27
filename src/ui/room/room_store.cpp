@@ -47,21 +47,16 @@ static void appendTimelineForRoom(const std::string& roomId,
     Decryptor* decryptor = nullptr);
 
 std::string threadRootId(std::string_view json) {
-    auto p = json.find("\"m.relates_to\"");
-    if (p == std::string_view::npos) return {};
-    auto s = json.find('{', p); if (s == std::string_view::npos) return {};
-    int d = 0; size_t e = s;
-    for (; e < json.size(); ++e) { if(json[e]=='{')d++; else if(json[e]=='}'){d--;if(d==0){e++;break;}} }
-    auto obj = json.substr(s, e-s);
-    auto rt = obj.find("\"rel_type\":\"m.thread\"");
-    if (rt == std::string_view::npos) rt = obj.find("\"rel_type\": \"m.thread\"");
-    if (rt == std::string_view::npos) return {};
-    auto ei = obj.find("\"event_id\":\""); if (ei == std::string_view::npos) ei = obj.find("\"event_id\": \"");
-    if (ei == std::string_view::npos) return {};
-    ei += (obj[ei+11]=='"' ? 12 : 13);
-    auto ee = obj.find('"', ei);
-    if (ee == std::string_view::npos) return {};
-    return std::string(obj.substr(ei, ee-ei));
+    simdjson::dom::parser p;
+    auto doc = p.parse(json);
+    if (doc.error() != simdjson::SUCCESS) return {};
+    auto rel = doc.value()["m.relates_to"];
+    if (rel.error() != simdjson::SUCCESS) return {};
+    auto rt = rel["rel_type"].get_string();
+    if (rt.error() != simdjson::SUCCESS || std::string_view(rt.value()) != "m.thread") return {};
+    auto eid = rel["event_id"].get_string();
+    if (eid.error() != simdjson::SUCCESS) return {};
+    return std::string(eid.value());
 }
 
 std::string msgType(std::string_view json) { return extractStringDec(json, "msgtype"); }
@@ -430,6 +425,8 @@ static void appendTimelineForRoom(const std::string& roomId,
     const std::string& myUserId,
     Decryptor* decryptor) {
     std::vector<DisplayedEvent> batch;
+    struct PendingReaction { std::string targetId; std::string emoji; std::string sender; };
+    std::vector<PendingReaction> pendingReactions;
     for (const auto& e : events) {
         if (e.type == "m.room.member" && !e.contentJson.empty()) {
             auto ms = extractString(e.contentJson, "membership");
@@ -448,7 +445,7 @@ static void appendTimelineForRoom(const std::string& roomId,
                 auto te = rel["event_id"].get_string();
                 auto key = rel["key"].get_string();
                 if (te.error() == simdjson::SUCCESS && key.error() == simdjson::SUCCESS)
-                    model->addReaction(std::string(te.value()), std::string(key.value()), std::string(e.senderId));
+                    pendingReactions.push_back({std::string(te.value()), std::string(key.value()), std::string(e.senderId)});
             }
             continue;
         }
@@ -479,6 +476,8 @@ static void appendTimelineForRoom(const std::string& roomId,
         }
     }
     model->appendBackBatch(batch);
+    for (const auto& pr : pendingReactions)
+        model->addReaction(pr.targetId, pr.emoji, pr.sender);
 }
 
 } // namespace progressive::desktop

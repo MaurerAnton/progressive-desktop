@@ -31,35 +31,16 @@ namespace {
 
 
 std::string extractThreadRootId(std::string_view contentJson) {
-    auto relPos = contentJson.find("\"m.relates_to\"");
-    if (relPos == std::string_view::npos) return {};
-    auto objStart = contentJson.find('{', relPos);
-    if (objStart == std::string_view::npos) return {};
-    int depth = 0;
-    size_t objEnd = objStart;
-    for (; objEnd < contentJson.size(); ++objEnd) {
-        if (contentJson[objEnd] == '{') depth++;
-        else if (contentJson[objEnd] == '}') { depth--; if (depth == 0) { objEnd++; break; } }
-    }
-    std::string_view relObj = contentJson.substr(objStart, objEnd - objStart);
-
-    auto rtPos = relObj.find("\"rel_type\":\"m.thread\"");
-    if (rtPos == std::string_view::npos) {
-        rtPos = relObj.find("\"rel_type\": \"m.thread\"");
-    }
-    if (rtPos == std::string_view::npos) return {};
-
-    auto eidPos = relObj.find("\"event_id\":\"");
-    if (eidPos == std::string_view::npos) {
-        eidPos = relObj.find("\"event_id\": \"");
-        if (eidPos == std::string_view::npos) return {};
-        eidPos += 13;
-    } else {
-        eidPos += 12;
-    }
-    auto eidEnd = relObj.find('"', eidPos);
-    if (eidEnd == std::string_view::npos) return {};
-    return std::string(relObj.substr(eidPos, eidEnd - eidPos));
+    simdjson::dom::parser p;
+    auto doc = p.parse(contentJson);
+    if (doc.error() != simdjson::SUCCESS) return {};
+    auto rel = doc.value()["m.relates_to"];
+    if (rel.error() != simdjson::SUCCESS) return {};
+    auto rt = rel["rel_type"].get_string();
+    if (rt.error() != simdjson::SUCCESS || std::string_view(rt.value()) != "m.thread") return {};
+    auto eid = rel["event_id"].get_string();
+    if (eid.error() != simdjson::SUCCESS) return {};
+    return std::string(eid.value());
 }
 
 std::string extractReplyToId(std::string_view contentJson) {

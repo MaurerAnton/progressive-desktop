@@ -37,8 +37,10 @@ void RoomContextMenu::onRoomListContextMenu(const QPoint& pos, const std::string
     auto* leaveAction = menu.addAction("Leave room");
     auto* acceptAction = menu.addAction("Accept invite");
     auto* rejectAction = menu.addAction("Reject invite");
+    auto* forgetAction = menu.addAction("Forget room");
     if (r->isInvite) {
         leaveAction->setVisible(false);
+        forgetAction->setVisible(false);
     } else {
         acceptAction->setVisible(false);
         rejectAction->setVisible(false);
@@ -64,9 +66,16 @@ void RoomContextMenu::onRoomListContextMenu(const QPoint& pos, const std::string
                 if (res.ok) {
                     self->statusLabel_->setText("Left room.");
                     self->roomModel_->removeRoom(rid);
+                    self->roomModel_->refreshHeader();
                     emit self->roomLeft(rid);
+                    auto client = self->client_;
+                    ThreadPool::instance().enqueue([client, rid]() {
+                        client->forgetRoom(rid);
+                    });
                 } else {
-                    self->statusLabel_->setText("Failed to leave: " + QString::fromStdString(res.error.message));
+                    std::string err = res.error.message;
+                    if (!res.error.code.empty()) err = "[" + res.error.code + "] " + err;
+                    self->statusLabel_->setText("Failed to leave: " + QString::fromStdString(err));
                 }
             }, Qt::QueuedConnection);
         });
@@ -108,8 +117,34 @@ void RoomContextMenu::onRoomListContextMenu(const QPoint& pos, const std::string
                     self->statusLabel_->setText("Invite rejected.");
                     self->roomModel_->removeRoom(rid);
                     self->roomModel_->refreshHeader();
+                    auto client = self->client_;
+                    ThreadPool::instance().enqueue([client, rid]() {
+                        client->forgetRoom(rid);
+                    });
                 } else {
-                    self->statusLabel_->setText("Failed to reject: " + QString::fromStdString(res.error.message));
+                    std::string err = res.error.message;
+                    if (!res.error.code.empty()) err = "[" + res.error.code + "] " + err;
+                    self->statusLabel_->setText("Failed to reject: " + QString::fromStdString(err));
+                }
+            }, Qt::QueuedConnection);
+        });
+    } else if (selected == forgetAction) {
+        std::string rid = r->roomId;
+        QPointer<MainWindow> guard(mw_);
+        QPointer<RoomContextMenu> self(this);
+        statusLabel_->setText("Forgetting room...");
+        ThreadPool::instance().enqueue([guard, self, rid]() {
+            auto res = self->client_->forgetRoom(rid);
+            QMetaObject::invokeMethod(guard, [guard, self, res, rid]() {
+                if (guard.isNull() || self.isNull()) return;
+                if (res.ok) {
+                    self->statusLabel_->setText("Room forgotten.");
+                    self->roomModel_->removeRoom(rid);
+                    self->roomModel_->refreshHeader();
+                } else {
+                    std::string err = res.error.message;
+                    if (!res.error.code.empty()) err = "[" + res.error.code + "] " + err;
+                    self->statusLabel_->setText("Failed: " + QString::fromStdString(err));
                 }
             }, Qt::QueuedConnection);
         });

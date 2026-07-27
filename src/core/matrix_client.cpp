@@ -486,6 +486,17 @@ ApiResult<bool> MatrixClient::leaveRoom(const std::string& roomId) {
     return r;
 }
 
+ApiResult<bool> MatrixClient::forgetRoom(const std::string& roomId) {
+    ApiResult<bool> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    auto resp = httpPost(account().homeserverUrl + "/_matrix/client/v3/rooms/"
+                         + urlEncodePath(roomId) + "/forget",
+                         "{}", authHeaders(), 15000);
+    r.httpStatus = resp.statusCode; r.ok = resp.success; r.data = resp.success;
+    if (!resp.success && !resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+    return r;
+}
+
 ApiResult<std::string> MatrixClient::sendReaction(const std::string& roomId,
                                                     const std::string& eventId,
                                                     const std::string& emoji) {

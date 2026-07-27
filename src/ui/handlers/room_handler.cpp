@@ -313,7 +313,9 @@ void RoomHandler::acceptInvite(const QString& roomId) {
                 }
                 self->statusLabel_->setText("Joined room.");
             } else {
-                self->statusLabel_->setText("Failed: " + QString::fromStdString(r.error.message));
+                std::string err = r.error.message;
+                if (!r.error.code.empty()) err = "[" + r.error.code + "] " + err;
+                self->statusLabel_->setText("Failed: " + QString::fromStdString(err));
             }
         }, Qt::QueuedConnection);
     });
@@ -330,8 +332,17 @@ void RoomHandler::rejectInvite(const QString& roomId) {
             if (self.isNull()) return;
             if (r.ok) { self->roomModel_->removeRoom(roomId.toStdString());
                 self->roomModel_->refreshHeader();
-                self->statusLabel_->setText("Invite rejected."); }
-            else self->statusLabel_->setText("Failed: " + QString::fromStdString(r.error.message));
+                self->statusLabel_->setText("Invite rejected.");
+                auto client = self->client_;
+                std::string rid = roomId.toStdString();
+                ThreadPool::instance().enqueue([client, rid]() {
+                    client->forgetRoom(rid);
+                });
+            } else {
+                std::string err = r.error.message;
+                if (!r.error.code.empty()) err = "[" + r.error.code + "] " + err;
+                self->statusLabel_->setText("Failed: " + QString::fromStdString(err));
+            }
         }, Qt::QueuedConnection);
     });
 }

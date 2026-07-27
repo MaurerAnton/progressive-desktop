@@ -46,7 +46,7 @@ static void appendTimelineForRoom(const std::string& roomId,
     const std::string& myUserId,
     Decryptor* decryptor = nullptr);
 
-std::string threadRootId(std::string_view json) {
+std::string extractThreadRootId(std::string_view json) {
     simdjson::dom::parser p;
     auto doc = p.parse(json);
     if (doc.error() != simdjson::SUCCESS) return {};
@@ -381,7 +381,7 @@ static void fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
             LOG(LogChannel::DBG, "sync-empty-body: m.room.message sender=%s content=[%.300s]",
                 de.senderId.c_str(), de.contentJson.c_str());
         }
-        auto thRoot = threadRootId(de.contentJson);
+        auto thRoot = extractThreadRootId(de.contentJson);
         if (!thRoot.empty()) { de.isThreadReply = true; de.threadRootId = thRoot; }
     }
     if (de.type == "m.room.encrypted") {

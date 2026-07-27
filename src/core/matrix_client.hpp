@@ -140,6 +140,9 @@ public:
     // POST /_matrix/client/v3/rooms/{roomId}/leave
     ApiResult<bool> leaveRoom(const std::string& roomId);
 
+    // POST /_matrix/client/v3/rooms/{roomId}/forget
+    ApiResult<bool> forgetRoom(const std::string& roomId);
+
     // ---- Reactions ----
 
     // POST /_matrix/client/v3/rooms/{roomId}/send/m.reaction/{txnId}

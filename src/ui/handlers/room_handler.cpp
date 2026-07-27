@@ -372,6 +372,7 @@ void RoomHandler::rejectInvite(const QString& roomId) {
         QMetaObject::invokeMethod(self, [self, r, roomId]() {
             if (self.isNull()) return;
             if (r.ok) { self->roomModel_->removeRoom(roomId.toStdString());
+                self->roomModel_->refreshHeader();
                 self->statusLabel_->setText("Invite rejected."); }
             else self->statusLabel_->setText("Failed: " + QString::fromStdString(r.error.message));
         }, Qt::QueuedConnection);

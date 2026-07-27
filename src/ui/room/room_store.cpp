@@ -109,10 +109,11 @@ RoomMeta RoomStore::extractRoomMeta(const FastRoom& room, const std::string& myU
 std::string RoomStore::extractLastMessageBody(const std::vector<FastEvent>& events) {
     for (auto it = events.rbegin(); it != events.rend(); ++it) {
         if (it->type == "m.room.message" && !it->contentJson.empty()) {
-            auto pos = it->contentJson.find("\"body\":\"");
-            if (pos != std::string_view::npos) { pos += 8; size_t end = pos;
-                while (end < it->contentJson.size()) { if (it->contentJson[end]=='\\'&&end+1<it->contentJson.size()){end+=2;continue;} if (it->contentJson[end]=='"')break; ++end; }
-                if (end < it->contentJson.size()) return std::string(it->contentJson.substr(pos, end-pos)); }
+            simdjson::dom::parser p;
+            auto doc = p.parse(it->contentJson);
+            if (doc.error() != simdjson::SUCCESS) continue;
+            auto b = doc.value()["body"].get_string();
+            if (b.error() == simdjson::SUCCESS) return std::string(b.value());
         }
     }
     return {};

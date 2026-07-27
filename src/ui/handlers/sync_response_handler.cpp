@@ -47,13 +47,12 @@ void SyncResponseHandler::handle(FastSyncResponse resp) {
     std::string curRoomId = roomHandler_ ? roomHandler_->currentRoomId() : "";
     QPointer<RoomHandler> rmh(roomHandler_);
     DesktopNotifier* notifier = notifier_;
-    QLabel* rlh = roomListHeader_;
 
-    ThreadPool::instance().enqueue([guard, rmh, resp = std::move(resp), myUserId, curRoomId, notifier, rlh]() mutable {
+    ThreadPool::instance().enqueue([guard, rmh, resp = std::move(resp), myUserId, curRoomId, notifier]() mutable {
         auto keepAlive = std::make_shared<FastSyncResponse>(std::move(resp));
         auto syncUpdate = RoomStore::prepareRoomSyncUpdate(*keepAlive, curRoomId, myUserId);
 
-        QMetaObject::invokeMethod(guard, [guard, rmh, syncUpdate = std::move(syncUpdate), notifier, rlh, keepAlive]() mutable {
+        QMetaObject::invokeMethod(guard, [guard, rmh, syncUpdate = std::move(syncUpdate), notifier, keepAlive]() mutable {
             if (guard.isNull()) return;
             guard->roomStore_->applyRoomSyncUpdate(syncUpdate,
                 guard->roomModel_, guard->timelineModel_, guard->decryptor_);

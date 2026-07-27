@@ -29,6 +29,16 @@ void ThreadHandler::openThreadView(const QString& rootEventId, const std::string
     if (mw_.isNull()) return;
 
     currentThreadRoot_ = rootEventId.toStdString();
+
+    // Snapshot root before clear() so fallback branches in the async callback
+    // can find the decrypted body/msgtype from the local timeline.
+    DisplayedEvent rootSnapshot;
+    bool hasRootSnapshot = false;
+    int rootRow = timelineModel_->findRow(rootEventId.toStdString());
+    if (rootRow >= 0) {
+        auto* local = timelineModel_->at(rootRow);
+        if (local) { rootSnapshot = *local; hasRootSnapshot = true; }
+    }
     timelineModel_->clear();
     threadBanner_->show();
     statusLabel_->setText("Loading thread...");
@@ -37,7 +47,7 @@ void ThreadHandler::openThreadView(const QString& rootEventId, const std::string
     QPointer<MainWindow> guard(mw_);
     QPointer<ThreadHandler> self(this);
 
-    ThreadPool::instance().enqueue([guard, self, roomId, rootEid]() {
+    ThreadPool::instance().enqueue([guard, self, roomId, rootEid, rootSnapshot, hasRootSnapshot]() {
         auto r = self->client_->getThreadReplies(roomId, rootEid);
         QMetaObject::invokeMethod(guard, [guard, self, r, rootEid]() {
             if (guard.isNull() || self.isNull()) return;
@@ -53,7 +63,7 @@ void ThreadHandler::openThreadView(const QString& rootEventId, const std::string
             }
 
             auto origResult = rootResult.value()["original_event"];
-            std::fprintf(stderr, "[thread] origResult error=%d\n", (int)origResult.error());
+            LOG(LogChannel::E2EE, "thread: origResult error=%d", (int)origResult.error());
             if (origResult.error() == simdjson::SUCCESS) {
                 DisplayedEvent root;
                 auto t = origResult.value()["type"].get_string();
@@ -79,20 +89,18 @@ void ThreadHandler::openThreadView(const QString& rootEventId, const std::string
                         root.mxcUrl = extractStringDec(root.contentJson, "url");
                     }
                 } else if (root.type == "m.room.encrypted") {
-                    int row = self->timelineModel_->findRow(root.eventId);
-                    if (row >= 0) {
-                        auto* local = self->timelineModel_->at(row);
-                        if (local) { root.body = local->body; root.msgtype = local->msgtype; }
+                    // DEBT(B41): pass Decryptor* for full E2EE thread root support
+                    if (hasRootSnapshot) {
+                        root.body = rootSnapshot.body;
+                        root.msgtype = rootSnapshot.msgtype;
                     }
                 }
                 root.isThreadRoot = true;
                 self->timelineModel_->appendBack(root);
             } else {
-                int row = self->timelineModel_->findRow(rootEid);
-                if (row >= 0) {
-                    auto* local = self->timelineModel_->at(row);
-                    if (local) { DisplayedEvent root = *local; root.isThreadRoot = true;
-                                  self->timelineModel_->appendBack(root); }
+                if (hasRootSnapshot) {
+                    DisplayedEvent root = rootSnapshot; root.isThreadRoot = true;
+                    self->timelineModel_->appendBack(root);
                 }
             }
 

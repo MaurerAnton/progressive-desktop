@@ -127,16 +127,24 @@ void RoomDataLoader::loadHistory(const std::string& roomId, TimelineModel* model
                     auto result = decryptor->decryptMegolmEvent(roomId, de.senderId,
                                                                  de.contentJson, de.eventId,
                                                                  de.originServerTs);
+                    LOG(LogChannel::E2EE, "loadHistory: decrypt eid=%s ok=%d err=%s",
+                        de.eventId.c_str(), result.ok ? 1 : 0,
+                        result.error.empty() ? "(none)" : result.error.c_str());
                     if (result.ok && !result.plaintext.empty()) {
                         if (parsePlaintextBody(result.plaintext, de.type, de.contentJson)) {
                             de.msgtype = msgType(de.contentJson);
                             de.body = msgBody(de.contentJson);
                         } else {
+                            LOG(LogChannel::E2EE, "loadHistory: parsePlaintextBody FAILED eid=%s", de.eventId.c_str());
                             de.body = "[encrypted]"; de.msgtype = "m.notice";
                         }
                     } else {
                         de.body = "[encrypted]"; de.msgtype = "m.notice";
                     }
+                } else if (de.type == "m.room.encrypted") {
+                    LOG(LogChannel::E2EE, "loadHistory: SKIP decrypt eid=%s (decryptor=%p init=%d)",
+                        de.eventId.c_str(), (void*)decryptor, decryptor ? decryptor->isInitialized() : 0);
+                    de.body = "[encrypted]"; de.msgtype = "m.notice";
                 }
                 events.push_back(std::move(de));
             }

@@ -149,6 +149,10 @@ RoomSyncUpdate RoomStore::prepareRoomSyncUpdate(const FastSyncResponse& resp,
         rd.lastActivityTs = room.timeline.events.empty() ? 0 : room.timeline.events.back().originServerTs;
         rd.unreadCount = room.notificationCount;
         rd.highlightCount = room.highlightCount;
+        if (roomId == currentRoomId) {
+            rd.unreadCount = 0;
+            rd.highlightCount = 0;
+        }
         for (auto& tu : room.typingUsers) rd.typingUsers.push_back(std::string(tu));
 
         // Store last notification body for highlights

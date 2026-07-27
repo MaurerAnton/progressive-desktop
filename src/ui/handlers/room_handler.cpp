@@ -134,21 +134,6 @@ void RoomHandler::onRoomClicked(const QModelIndex& idx) {
     messageEdit_->setFocus();
     mainWindow_->setWindowTitle(QString("Progressive Chat — %1").arg(QString::fromStdString(r->name)));
 
-    if (client_ && client_->isLoggedIn()) {
-        int lastRow = timelineModel_->rowCount(QModelIndex()) - 1;
-        if (lastRow >= 0) {
-            auto* evt = timelineModel_->at(lastRow);
-            if (evt && !evt->eventId.empty()) {
-                std::string roomIdStr = r->roomId;
-                std::string eventIdStr = evt->eventId;
-                auto client = client_;
-                ThreadPool::instance().enqueue([client, roomIdStr, eventIdStr]() {
-                    client->setReadMarker(roomIdStr, eventIdStr);
-                });
-            }
-        }
-    }
-
     std::vector<std::string> senderIds;
     for (int i = 0; i < timelineModel_->rowCount(QModelIndex()); ++i) {
         auto* evt = timelineModel_->at(i);
@@ -182,12 +167,26 @@ void RoomHandler::onRoomClicked(const QModelIndex& idx) {
     messageEdit_->setMembers(memberNames);
 
     roomStore_->loadHistory(r->roomId, timelineModel_,
-        roomLifeToken_, [this](int count, const std::string& prevBatch) {
+        roomLifeToken_, [this, roomId = r->roomId](int count, const std::string& prevBatch) {
             if (count > 0) {
                 currentPrevBatch_ = prevBatch;
                 if (loadMoreBtn_ && !prevBatch.empty()) loadMoreBtn_->show();
                 timelineView_->scrollToBottom();
                 statusLabel_->setText(QString("Loaded %1 messages.").arg(count));
+
+                // Send read marker for last loaded event
+                if (client_ && client_->isLoggedIn()) {
+                    int lastRow = timelineModel_->rowCount(QModelIndex()) - 1;
+                    if (lastRow >= 0) {
+                        auto* evt = timelineModel_->at(lastRow);
+                        if (evt && !evt->eventId.empty()) {
+                            auto client = client_;
+                            ThreadPool::instance().enqueue([client, roomId, eventIdStr = evt->eventId]() {
+                                client->setReadMarker(roomId, eventIdStr);
+                            });
+                        }
+                    }
+                }
             }
         }, sync_ ? sync_->decryptor() : nullptr);
 }

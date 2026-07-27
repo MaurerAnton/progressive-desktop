@@ -59,6 +59,21 @@ std::string threadRootId(std::string_view json) {
     return std::string(eid.value());
 }
 
+std::string extractReplyToId(std::string_view contentJson) {
+    simdjson::dom::parser p;
+    auto doc = p.parse(contentJson);
+    if (doc.error() != simdjson::SUCCESS) return {};
+    auto rel = doc.value()["m.relates_to"];
+    if (rel.error() != simdjson::SUCCESS) return {};
+    auto rt = rel["rel_type"].get_string();
+    if (rt.error() == simdjson::SUCCESS && std::string_view(rt.value()) == "m.in_reply_to") {
+        auto eid = rel["event_id"].get_string();
+        if (eid.error() != simdjson::SUCCESS) return {};
+        return std::string(eid.value());
+    }
+    return {};
+}
+
 std::string msgType(std::string_view json) { return extractStringDec(json, "msgtype"); }
 std::string msgBody(std::string_view json) { return extractStringDec(json, "body"); }
 
@@ -471,9 +486,11 @@ static void appendTimelineForRoom(const std::string& roomId,
             auto it = memberAvatars->find(de.senderId);
             if (it != memberAvatars->end()) de.avatarUrl = it->second;
         }
+        bool isThreadReply = de.isThreadReply;
+        std::string threadRootId = de.threadRootId;
         batch.push_back(std::move(de));
-        if (de.isThreadReply && !de.threadRootId.empty()) {
-            int rootRow = model->findRow(de.threadRootId);
+        if (isThreadReply && !threadRootId.empty()) {
+            int rootRow = model->findRow(threadRootId);
             if (rootRow >= 0) {
                 auto* revt = model->at(rootRow);
                 if (revt) { revt->threadReplyCount++; emit model->dataChanged(model->index(rootRow), model->index(rootRow)); }

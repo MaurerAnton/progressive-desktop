@@ -27,48 +27,6 @@
 
 namespace progressive::desktop {
 
-namespace {
-
-
-std::string extractThreadRootId(std::string_view contentJson) {
-    simdjson::dom::parser p;
-    auto doc = p.parse(contentJson);
-    if (doc.error() != simdjson::SUCCESS) return {};
-    auto rel = doc.value()["m.relates_to"];
-    if (rel.error() != simdjson::SUCCESS) return {};
-    auto rt = rel["rel_type"].get_string();
-    if (rt.error() != simdjson::SUCCESS || std::string_view(rt.value()) != "m.thread") return {};
-    auto eid = rel["event_id"].get_string();
-    if (eid.error() != simdjson::SUCCESS) return {};
-    return std::string(eid.value());
-}
-
-std::string extractReplyToId(std::string_view contentJson) {
-    auto relPos = contentJson.find("\"m.in_reply_to\"");
-    if (relPos == std::string_view::npos) return {};
-    auto objStart = contentJson.find('{', relPos);
-    if (objStart == std::string_view::npos) return {};
-    int depth = 0;
-    size_t objEnd = objStart;
-    for (; objEnd < contentJson.size(); ++objEnd) {
-        if (contentJson[objEnd] == '{') depth++;
-        else if (contentJson[objEnd] == '}') { depth--; if (depth == 0) { objEnd++; break; } }
-    }
-    std::string_view obj = contentJson.substr(objStart, objEnd - objStart);
-    auto eidPos = obj.find("\"event_id\":\"");
-    if (eidPos == std::string_view::npos) {
-        eidPos = obj.find("\"event_id\": \"");
-        if (eidPos == std::string_view::npos) return {};
-        eidPos += 13;
-    } else {
-        eidPos += 12;
-    }
-    auto eidEnd = obj.find('"', eidPos);
-    if (eidEnd == std::string_view::npos) return {};
-    return std::string(obj.substr(eidPos, eidEnd - eidPos));
-}
-
-} // namespace
 
 RoomHandler::RoomHandler(std::shared_ptr<MatrixClient> client, RoomStore* roomStore,
                            RoomListModel* roomModel, TimelineModel* timelineModel,

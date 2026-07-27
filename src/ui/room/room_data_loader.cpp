@@ -123,6 +123,17 @@ void RoomDataLoader::loadHistory(const std::string& roomId, TimelineModel* model
                 if (de.type == "m.room.message") {
                     de.msgtype = msgType(de.contentJson);
                     de.body = msgBody(de.contentJson);
+                    std::string_view cv(de.contentJson);
+                    std::string threadRoot = extractThreadRootId(cv);
+                    if (!threadRoot.empty()) {
+                        de.isThreadReply = true;
+                        de.threadRootId = threadRoot;
+                    }
+                    std::string replyTo = extractReplyToId(cv);
+                    if (!replyTo.empty()) {
+                        de.isReply = true;
+                        de.replyToEventId = replyTo;
+                    }
                 } else if (de.type == "m.room.encrypted" && decryptor && decryptor->isInitialized()) {
                     auto result = decryptor->decryptMegolmEvent(roomId, de.senderId,
                                                                  de.contentJson, de.eventId,

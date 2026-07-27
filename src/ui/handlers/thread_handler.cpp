@@ -181,9 +181,7 @@ void ThreadHandler::sendThreadReply(const std::string& roomId,
             if (guard.isNull() || self.isNull()) return;
             if (r.ok) {
                 DisplayedEvent echo;
-                echo.eventId = "thread-" + std::to_string(
-                    std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::system_clock::now().time_since_epoch()).count());
+                echo.eventId = r.data;   // real server event_id for dedup with /sync
                 echo.senderId = self->client_->account().userId;
                 if (!echo.senderId.empty() && echo.senderId[0] == '@') {
                     auto colon = echo.senderId.find(':');

@@ -103,5 +103,7 @@ std::string makeSystemBody(const std::string& type, const std::string& contentJs
                             const std::string& stateKey);
 std::string msgType(std::string_view json);
 std::string msgBody(std::string_view json);
+std::string extractThreadRootId(std::string_view contentJson);
+std::string extractReplyToId(std::string_view contentJson);
 
 } // namespace progressive::desktop

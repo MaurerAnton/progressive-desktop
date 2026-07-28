@@ -273,6 +273,7 @@ public:
     }
 
     void setSessionStore(SessionStore* store) { sessionStore_ = store; }
+    SessionStore* sessionStore() { return sessionStore_; }
 
     // Persist current account to the session store (if set).
     bool persistSession();

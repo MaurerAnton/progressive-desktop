@@ -64,7 +64,10 @@ bool SessionStore::createSchema() {
         "CREATE TABLE IF NOT EXISTS e2ee_data ("
         "  key TEXT PRIMARY KEY,"
         "  value TEXT"
-        ");";
+        ");"
+        "CREATE TABLE IF NOT EXISTS hidden_rooms ("
+        "  room_id TEXT PRIMARY KEY"
+        ") WITHOUT ROWID;";
     char* err = nullptr;
     int rc = sqlite3_exec(db_, sql, nullptr, nullptr, &err);
     if (rc != SQLITE_OK) {
@@ -304,6 +307,45 @@ std::optional<bool> SessionStore::loadE2eeFlag(const std::string& key) {
         r = (std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0))) == "1");
     sqlite3_finalize(stmt);
     return r;
+}
+
+bool SessionStore::saveHiddenRoom(const std::string& roomId) {
+    if (!db_) return false;
+    const char* sql = "INSERT INTO hidden_rooms(room_id) VALUES(?) ON CONFLICT(room_id) DO NOTHING;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, roomId.c_str(), -1, SQLITE_TRANSIENT);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) return false;
+    checkpoint();
+    return true;
+}
+
+bool SessionStore::removeHiddenRoom(const std::string& roomId) {
+    if (!db_) return false;
+    const char* sql = "DELETE FROM hidden_rooms WHERE room_id=?;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, roomId.c_str(), -1, SQLITE_TRANSIENT);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) return false;
+    checkpoint();
+    return true;
+}
+
+std::vector<std::string> SessionStore::loadHiddenRooms() {
+    std::vector<std::string> result;
+    if (!db_) return result;
+    const char* sql = "SELECT room_id FROM hidden_rooms;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return result;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        result.emplace_back(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
+    }
+    sqlite3_finalize(stmt);
+    return result;
 }
 
 } // namespace progressive::desktop

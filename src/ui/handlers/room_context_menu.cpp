@@ -70,6 +70,11 @@ void RoomContextMenu::onRoomListContextMenu(const QPoint& pos, const std::string
                     self->roomModel_->removeRoom(rid);
                     self->roomModel_->refreshHeader();
                     emit self->roomLeft(rid);
+                    if (self->client_) {
+                        if (auto* ss = self->client_->sessionStore())
+                            ss->removeHiddenRoom(rid);
+                    }
+                    self->roomModel_->clearHiddenRoom(rid);
                     auto client = self->client_;
                     ThreadPool::instance().enqueue([client, rid]() {
                         client->forgetRoom(rid);
@@ -119,6 +124,11 @@ void RoomContextMenu::onRoomListContextMenu(const QPoint& pos, const std::string
                     self->statusLabel_->setText("Invite rejected.");
                     self->roomModel_->removeRoom(rid);
                     self->roomModel_->refreshHeader();
+                    if (self->client_) {
+                        if (auto* ss = self->client_->sessionStore())
+                            ss->removeHiddenRoom(rid);
+                    }
+                    self->roomModel_->clearHiddenRoom(rid);
                     auto client = self->client_;
                     ThreadPool::instance().enqueue([client, rid]() {
                         client->forgetRoom(rid);
@@ -156,6 +166,11 @@ void RoomContextMenu::onRoomListContextMenu(const QPoint& pos, const std::string
                 if (guard.isNull() || self.isNull()) return;
                 if (fr.ok) {
                     self->statusLabel_->setText("Room forgotten.");
+                    if (self->client_) {
+                        if (auto* ss = self->client_->sessionStore())
+                            ss->removeHiddenRoom(rid);
+                    }
+                    self->roomModel_->clearHiddenRoom(rid);
                     self->roomModel_->removeRoom(rid);
                     self->roomModel_->refreshHeader();
                 } else {
@@ -163,6 +178,11 @@ void RoomContextMenu::onRoomListContextMenu(const QPoint& pos, const std::string
                     if (!fr.error.code.empty()) err = "[" + fr.error.code + "] " + err;
                     self->statusLabel_->setText("Left but forget failed: " + QString::fromStdString(err)
                         + " (hidden from list)");
+                    if (self->client_) {
+                        if (auto* ss = self->client_->sessionStore())
+                            ss->removeHiddenRoom(rid);
+                    }
+                    self->roomModel_->clearHiddenRoom(rid);
                     self->roomModel_->removeRoom(rid);
                     self->roomModel_->refreshHeader();
                 }
@@ -171,6 +191,10 @@ void RoomContextMenu::onRoomListContextMenu(const QPoint& pos, const std::string
     } else if (selected == hideAction) {
         // Local-only hide — for rooms where server refuses leave/reject/forget.
         std::string rid = r->roomId;
+        if (client_) {
+            if (auto* ss = client_->sessionStore()) ss->saveHiddenRoom(rid);
+        }
+        roomModel_->addHiddenRoom(rid);
         roomModel_->removeRoom(rid);
         roomModel_->refreshHeader();
         statusLabel_->setText("Hidden from list (server state unchanged).");

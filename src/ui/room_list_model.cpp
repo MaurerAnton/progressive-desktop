@@ -58,6 +58,7 @@ QVariant RoomListModel::data(const QModelIndex& index, int role) const {
 }
 
 bool RoomListModel::upsertRoom(const RoomData& room) {
+    if (isHidden(room.roomId)) return false;
     int row = findRowByRoomId(room.roomId);
     if (row >= 0) {
         // Update existing
@@ -131,6 +132,7 @@ bool RoomListModel::removeRoom(const std::string& roomId) {
     beginRemoveRows(QModelIndex(), row, row);
     rooms_.erase(rooms_.begin() + row);
     index_.erase(roomId);
+    hiddenRoomIds_.erase(roomId);
     // Rebuild index for rows after the removed one
     for (int i = row; i < (int)rooms_.size(); ++i) {
         index_[rooms_[i].roomId] = i;

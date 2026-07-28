@@ -60,6 +60,19 @@ public:
         if (chatsHeader_ && inviteHeader_) updateHeader(chatsHeader_, inviteHeader_);
     }
 
+    bool isHidden(const std::string& roomId) const {
+        return hiddenRoomIds_.count(roomId) > 0;
+    }
+    void setHiddenRooms(std::unordered_set<std::string> ids) {
+        hiddenRoomIds_ = std::move(ids);
+    }
+    void addHiddenRoom(const std::string& roomId) {
+        hiddenRoomIds_.insert(roomId);
+    }
+    void clearHiddenRoom(const std::string& roomId) {
+        hiddenRoomIds_.erase(roomId);
+    }
+
     enum Roles {
         NameRole = Qt::DisplayRole,
         LastMessageRole = Qt::UserRole + 1,
@@ -81,6 +94,7 @@ private:
     std::unordered_map<std::string, int> index_;  // roomId → row, O(1) lookup
     QLabel* chatsHeader_ = nullptr;
     QLabel* inviteHeader_ = nullptr;
+    std::unordered_set<std::string> hiddenRoomIds_;
 };
 
 } // namespace progressive::desktop

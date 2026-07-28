@@ -59,6 +59,11 @@ public:
     bool saveE2eeFlag(const std::string& key, bool value);
     std::optional<bool> loadE2eeFlag(const std::string& key);
 
+    // ---- Hidden rooms ----
+    bool saveHiddenRoom(const std::string& roomId);
+    bool removeHiddenRoom(const std::string& roomId);
+    std::vector<std::string> loadHiddenRooms();
+
     // Force a WAL checkpoint. Called after each save.
     void checkpoint();
 

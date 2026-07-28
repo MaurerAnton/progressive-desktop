@@ -353,7 +353,8 @@ ApiResult<bool> MatrixClient::setReadMarker(const std::string& roomId,
 ApiResult<std::string> MatrixClient::createRoom(const std::string& name,
                                                   const std::string& topic,
                                                   bool isDirect,
-                                                  const std::vector<std::string>& inviteUserIds) {
+                                                  const std::vector<std::string>& inviteUserIds,
+                                                  bool encrypt) {
     ApiResult<std::string> r;
     if (!isLoggedIn()) {
         r.error.message = "not logged in";
@@ -375,6 +376,11 @@ ApiResult<std::string> MatrixClient::createRoom(const std::string& name,
         }
         o << "]";
     }
+    if (encrypt) {
+        o << R"(,"initial_state":[{"type":"m.room.encryption",)";
+        o << R"("state_key":"",)";
+        o << R"("content":{"algorithm":"m.megolm.v1.aes-sha2"}}])";
+    }
     o << R"(,"visibility":"private"})";
 
     auto resp = httpPost(account().homeserverUrl + "/_matrix/client/v3/createRoom",
@@ -391,7 +397,7 @@ ApiResult<std::string> MatrixClient::createRoom(const std::string& name,
     return r;
 }
 
-ApiResult<std::string> MatrixClient::startDirectMessage(const std::string& userId) {
+ApiResult<std::string> MatrixClient::startDirectMessage(const std::string& userId, bool encrypt) {
     // For now: create a new direct room with this user.
     // Room name: the other user's displayname or ID (simplified to their localpart)
     std::string otherName = userId;
@@ -400,7 +406,7 @@ ApiResult<std::string> MatrixClient::startDirectMessage(const std::string& userI
         if (colon != std::string::npos) otherName = otherName.substr(1, colon - 1);
         else otherName = otherName.substr(1);
     }
-    return createRoom(otherName, "", true, {userId});
+    return createRoom(otherName, "", true, {userId}, encrypt);
 }
 
 ApiResult<std::string> MatrixClient::searchUsers(const std::string& query, int limit) {

@@ -105,16 +105,18 @@ public:
     // If isDirect=true, marks as a DM (m.direct account data).
     // Returns the new room_id.
     ApiResult<std::string> createRoom(const std::string& name,
-                                       const std::string& topic = "",
-                                       bool isDirect = false,
-                                       const std::vector<std::string>& inviteUserIds = {});
+                                        const std::string& topic = "",
+                                        bool isDirect = false,
+                                        const std::vector<std::string>& inviteUserIds = {},
+                                        bool encrypt = false);
 
     // ---- Start DM (shortcut: createRoom + invite) ----
 
     // Creates a direct chat with a single user. If a DM already exists
     // with this user, we could return it (TODO: search m.direct). For now,
     // always creates a new room.
-    ApiResult<std::string> startDirectMessage(const std::string& userId);
+    ApiResult<std::string> startDirectMessage(const std::string& userId,
+                                                bool encrypt = false);
 
     // ---- Search users ----
 

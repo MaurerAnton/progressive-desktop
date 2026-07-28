@@ -97,10 +97,14 @@ void ToolbarHandler::onNewChat() {
 
     statusLabel_->setText("Creating direct chat...");
     std::string uid = userId.toStdString();
+    auto choice = QMessageBox::question(parentWidget_, "Encryption",
+        "Enable end-to-end encryption for this chat?",
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    bool encrypt = (choice == QMessageBox::Yes);
     auto client = client_;
     QPointer<QWidget> guard(parentWidget_);
-    ThreadPool::instance().enqueue([guard, client, uid]() {
-        auto r = client->startDirectMessage(uid);
+    ThreadPool::instance().enqueue([guard, client, uid, encrypt]() {
+        auto r = client->startDirectMessage(uid, encrypt);
         QMetaObject::invokeMethod(guard, [guard, r]() {
             if (guard.isNull()) return;
             if (r.ok) {

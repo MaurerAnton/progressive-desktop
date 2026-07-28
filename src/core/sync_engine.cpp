@@ -311,18 +311,21 @@ void SyncEngine::uploadDeviceKeys(bool force) {
     // generateOneTimeKeys(10) from displacing old OTKs in libolm's bounded list
     // (MAX_ONE_TIME_KEYS=100), which would break createInbound for messages
     // encrypted with those old OTKs.
-    if (!force && store_ && store_->loadE2eeFlag("otk_uploaded_once").value_or(false)) {
-        if (store_->loadE2eeFlag("otk_persisted").value_or(false)) {
-            LOG(LogChannel::E2EE, "uploadDeviceKeys: OTKs already uploaded and persisted — skipping");
-            return;
-        }
-        LOG(LogChannel::E2EE, "uploadDeviceKeys: otk_uploaded_once=true but otk_persisted=false — regenerating (bug #9 migration)");
-        // fall through to regenerate + upload + save
-    }
-
     std::string userId = client_->account().userId;
     std::string deviceId = client_->account().deviceId;
     if (deviceId.empty()) deviceId = "PROGRESSIVE_DESKTOP";
+
+    std::string otkFlag = "otk_uploaded_once:" + userId + "/" + deviceId;
+    std::string persFlag = "otk_persisted:" + userId + "/" + deviceId;
+
+    if (!force && store_ && store_->loadE2eeFlag(otkFlag).value_or(false)) {
+        if (store_->loadE2eeFlag(persFlag).value_or(false)) {
+            LOG(LogChannel::E2EE, "uploadDeviceKeys: OTKs already uploaded and persisted — skipping");
+            return;
+        }
+        LOG(LogChannel::E2EE, "uploadDeviceKeys: %s=true but %s=false — regenerating",
+            otkFlag.c_str(), persFlag.c_str());
+    }
 
     LOG(LogChannel::E2EE, "uploadDeviceKeys: uploading for %s/%s", userId.c_str(), deviceId.c_str());
     std::string body = decryptor_.buildKeysUploadBody(userId, deviceId, 10);
@@ -331,8 +334,8 @@ void SyncEngine::uploadDeviceKeys(bool force) {
     // even if upload fails (401 race with pre-refresh), OTKs persist and
     // next startup won't regenerate them (preventing bounded-list eviction).
     if (store_ && !force) {
-        store_->saveE2eeFlag("otk_uploaded_once", true);
-        LOG(LogChannel::E2EE, "uploadDeviceKeys: saved otk_uploaded_once=true (OTKs generated)");
+        store_->saveE2eeFlag(otkFlag, true);
+        LOG(LogChannel::E2EE, "uploadDeviceKeys: saved %s=true (OTKs generated)", otkFlag.c_str());
     }
 
     auto result = client_->uploadKeys(body);
@@ -358,9 +361,9 @@ void SyncEngine::uploadDeviceKeys(bool force) {
         std::string newPickle = decryptor_.saveAccountPickle(pickleKey);
         if (!newPickle.empty() && store_) {
             store_->saveOlmAccount(newPickle, pickleKey);
-            store_->saveE2eeFlag("otk_persisted", true);
-            LOG(LogChannel::E2EE, "uploadDeviceKeys: account pickle saved (otk_persisted=true, published=%d)",
-                result.ok ? 1 : 0);
+            store_->saveE2eeFlag(persFlag, true);
+            LOG(LogChannel::E2EE, "uploadDeviceKeys: account pickle saved (%s=true, published=%d)",
+                persFlag.c_str(), result.ok ? 1 : 0);
         }
     }
 }

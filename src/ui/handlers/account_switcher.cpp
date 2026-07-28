@@ -66,14 +66,19 @@ void AccountSwitcher::switchAccount(int index) {
     std::string newKey = acct.userId + "/" + acct.deviceId;
     if (sync_->decryptor() && sync_->decryptor()->init()) {
         if (store_) {
-            auto saved = store_->loadOlmAccount();
+            auto saved = store_->loadOlmAccount(newKey);
             if (saved) sync_->decryptor()->init(saved->first, saved->second);
             auto md = store_->loadMegolmSessions();
             if (md) sync_->decryptor()->megolm()->unpickleAll(newKey, *md);
             auto od = store_->loadOlmSessions();
             if (od) sync_->decryptor()->unpickleOlmSessions(newKey, *od);
         }
+        sync_->setClient(client_);
+        sync_->setSessionStore(store_);
         sync_->uploadDeviceKeys();
+    } else {
+        sync_->setClient(client_);
+        sync_->setSessionStore(store_);
     }
 
     userLabel_->setText(" " + QString::fromStdString(acct.userId) + " ");
@@ -82,8 +87,6 @@ void AccountSwitcher::switchAccount(int index) {
     accountCombo_->setCurrentIndex(index);
     accountCombo_->setEnabled(true);
 
-    sync_->setClient(client_);
-    sync_->setSessionStore(store_);
     logMemorySnapshot("after-account-switch");
     sync_->start();
 }
@@ -128,14 +131,14 @@ void AccountSwitcher::addAccount() {
         accountCombo_->blockSignals(false);
 
         sync_->decryptor()->init();
+        sync_->setClient(client_);
+        sync_->setSessionStore(store_);
         sync_->uploadDeviceKeys();
 
         userLabel_->setText(" " + QString::fromStdString(client_->account().userId) + " ");
         timelineDelegate_->setMyUserId(client_->account().userId);
         imageLoader_->setClient(client_);
         accountCombo_->setEnabled(true);
-        sync_->setClient(client_);
-        sync_->setSessionStore(store_);
         sync_->start();
     } else {
         accountCombo_->setEnabled(true);

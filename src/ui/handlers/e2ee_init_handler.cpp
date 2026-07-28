@@ -28,7 +28,7 @@ void E2eeInitHandler::init(MatrixClient* client, SessionStore* store,
         std::string savedPickle;
         std::string savedKey;
         if (store) {
-            auto saved = store->loadOlmAccount();
+            auto saved = store->loadOlmAccount(pickleKey);
             if (saved) {
                 savedPickle = saved->first;
                 savedKey = saved->second;

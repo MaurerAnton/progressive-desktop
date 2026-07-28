@@ -57,9 +57,8 @@ bool SessionStore::createSchema() {
         "  since_token TEXT"
         ");"
         "CREATE TABLE IF NOT EXISTS olm_account ("
-        "  id INTEGER PRIMARY KEY CHECK (id = 1),"
-        "  pickle TEXT NOT NULL,"
-        "  pickle_key TEXT NOT NULL"
+        "  pickle_key TEXT PRIMARY KEY,"
+        "  pickle TEXT NOT NULL"
         ");"
         "CREATE TABLE IF NOT EXISTS e2ee_data ("
         "  key TEXT PRIMARY KEY,"
@@ -74,6 +73,24 @@ bool SessionStore::createSchema() {
         sqlite3_free(err);
         return false;
     }
+
+    // Migrate olm_account from single-row (id=1) to multi-row (pickle_key PK)
+    rc = sqlite3_exec(db_, "ALTER TABLE olm_account RENAME TO olm_account_old;",
+                      nullptr, nullptr, nullptr);
+    if (rc == SQLITE_OK) {
+        sqlite3_exec(db_,
+            "CREATE TABLE olm_account ("
+            "  pickle_key TEXT PRIMARY KEY,"
+            "  pickle TEXT NOT NULL"
+            ");", nullptr, nullptr, nullptr);
+        sqlite3_exec(db_,
+            "INSERT INTO olm_account (pickle_key, pickle) "
+            "  SELECT pickle_key, pickle FROM olm_account_old;",
+            nullptr, nullptr, nullptr);
+        sqlite3_exec(db_, "DROP TABLE olm_account_old;",
+                     nullptr, nullptr, nullptr);
+    }
+
     return true;
 }
 
@@ -201,12 +218,11 @@ bool SessionStore::clearSyncToken() {
 bool SessionStore::saveOlmAccount(const std::string& pickle, const std::string& pickleKey) {
     if (!db_) return false;
     const char* sql =
-        "INSERT INTO olm_account (id, pickle, pickle_key) VALUES (1, ?, ?) "
-        "ON CONFLICT(id) DO UPDATE SET pickle=excluded.pickle, pickle_key=excluded.pickle_key;";
+        "INSERT OR REPLACE INTO olm_account (pickle_key, pickle) VALUES (?, ?);";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_text(stmt, 1, pickle.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, pickleKey.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 1, pickleKey.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, pickle.c_str(), -1, SQLITE_TRANSIENT);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     if (rc != SQLITE_DONE) return false;
@@ -214,11 +230,12 @@ bool SessionStore::saveOlmAccount(const std::string& pickle, const std::string& 
     return true;
 }
 
-std::optional<std::pair<std::string, std::string>> SessionStore::loadOlmAccount() {
+std::optional<std::pair<std::string, std::string>> SessionStore::loadOlmAccount(const std::string& pickleKey) {
     if (!db_) return std::nullopt;
-    const char* sql = "SELECT pickle, pickle_key FROM olm_account WHERE id=1;";
+    const char* sql = "SELECT pickle, pickle_key FROM olm_account WHERE pickle_key=?;";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
+    sqlite3_bind_text(stmt, 1, pickleKey.c_str(), -1, SQLITE_TRANSIENT);
     std::optional<std::pair<std::string, std::string>> result;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         std::string pickle(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));

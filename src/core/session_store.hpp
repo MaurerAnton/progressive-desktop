@@ -45,7 +45,7 @@ public:
 
     // ---- Olm account (E2EE) ----
     bool saveOlmAccount(const std::string& pickle, const std::string& pickleKey);
-    std::optional<std::pair<std::string, std::string>> loadOlmAccount();
+    std::optional<std::pair<std::string, std::string>> loadOlmAccount(const std::string& pickleKey);
 
     // ---- Megolm sessions (E2EE) ----
     bool saveMegolmSessions(const std::string& data);

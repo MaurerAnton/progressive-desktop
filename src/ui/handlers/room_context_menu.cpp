@@ -286,7 +286,8 @@ void RoomContextMenu::showTimelineContextMenu(const QString& eventId,
             }, Qt::QueuedConnection);
         });
     } else if (selected == replyThreadAction) {
-        threadHandler_->replyInThread(eventId, roomIdStr);
+        QString target = threadRootForView.isEmpty() ? eventId : threadRootForView;
+        threadHandler_->replyInThread(target, roomIdStr);
     } else if (selected == viewThreadAction) {
         QString target = threadRootForView.isEmpty() ? eventId : threadRootForView;
         threadHandler_->openThreadView(target, roomIdStr);

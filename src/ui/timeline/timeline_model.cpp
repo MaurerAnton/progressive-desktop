@@ -94,6 +94,12 @@ void TimelineModel::appendBack(const DisplayedEvent& evt) {
     events_.push_back(evt);
     endInsertRows();
     if (!evt.eventId.empty()) rowIndex_[evt.eventId] = row;
+    if (evt.isThreadReply && !evt.threadRootId.empty()) {
+        auto it = rowIndex_.find(evt.threadRootId);
+        if (it != rowIndex_.end() && it->second >= 0 && it->second < (int)events_.size()) {
+            events_[it->second].threadReplyCount++;
+        }
+    }
     updateGroupMarkers(events_);
     if (!events_.empty()) emit dataChanged(index(0), index(static_cast<int>(events_.size()) - 1));
 
@@ -192,6 +198,14 @@ void TimelineModel::appendFront(const std::vector<DisplayedEvent>& evts) {
     for (size_t i = 0; i < events_.size(); ++i) {
         if (!events_[i].eventId.empty()) rowIndex_[events_[i].eventId] = (int)i;
     }
+    for (const auto& evt : newOnes) {
+        if (evt.isThreadReply && !evt.threadRootId.empty()) {
+            auto it = rowIndex_.find(evt.threadRootId);
+            if (it != rowIndex_.end() && it->second >= 0 && it->second < (int)events_.size()) {
+                events_[it->second].threadReplyCount++;
+            }
+        }
+    }
     updateGroupMarkers(events_);
     if (!events_.empty()) emit dataChanged(index(0), index(static_cast<int>(events_.size()) - 1));
 }
@@ -213,6 +227,14 @@ void TimelineModel::appendBackBatch(const std::vector<DisplayedEvent>& events) {
 
     for (int i = 0; i < static_cast<int>(events_.size()); ++i)
         if (!events_[i].eventId.empty()) rowIndex_[events_[i].eventId] = i;
+    for (const auto& evt : filtered) {
+        if (evt.isThreadReply && !evt.threadRootId.empty()) {
+            auto it = rowIndex_.find(evt.threadRootId);
+            if (it != rowIndex_.end() && it->second >= 0 && it->second < (int)events_.size()) {
+                events_[it->second].threadReplyCount++;
+            }
+        }
+    }
     updateGroupMarkers(events_);
     if (!events_.empty()) emit dataChanged(index(0), index(static_cast<int>(events_.size()) - 1));
 }

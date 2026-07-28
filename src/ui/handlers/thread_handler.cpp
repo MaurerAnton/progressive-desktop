@@ -46,6 +46,14 @@ void ThreadHandler::openThreadView(const QString& rootEventId, const std::string
         auto* local = timelineModel_->at(rootRow);
         if (local) { rootSnapshot = *local; hasRootSnapshot = true; }
     }
+    // Snapshot thread replies from local timeline before clearing
+    std::vector<DisplayedEvent> replySnapshots;
+    for (int i = 0; i < timelineModel_->rowCount(QModelIndex()); i++) {
+        auto* evt = timelineModel_->at(i);
+        if (evt && evt->isThreadReply && evt->threadRootId == currentThreadRoot_) {
+            replySnapshots.push_back(*evt);
+        }
+    }
     timelineModel_->clear();
     threadBanner_->show();
     statusLabel_->setText("Loading thread...");
@@ -54,9 +62,9 @@ void ThreadHandler::openThreadView(const QString& rootEventId, const std::string
     QPointer<MainWindow> guard(mw_);
     QPointer<ThreadHandler> self(this);
 
-    ThreadPool::instance().enqueue([guard, self, roomId, rootEid, rootSnapshot, hasRootSnapshot]() {
+    ThreadPool::instance().enqueue([guard, self, roomId, rootEid, rootSnapshot, hasRootSnapshot, replySnapshots]() {
         auto r = self->client_->getThreadReplies(roomId, rootEid);
-        QMetaObject::invokeMethod(guard, [guard, self, r, rootEid, rootSnapshot, hasRootSnapshot]() {
+        QMetaObject::invokeMethod(guard, [guard, self, r, rootEid, rootSnapshot, hasRootSnapshot, replySnapshots]() {
             if (guard.isNull() || self.isNull()) return;
             if (!r.ok) {
                 self->statusLabel_->setText("Failed to load thread: " + QString::fromStdString(r.error.message));
@@ -147,6 +155,8 @@ void ThreadHandler::openThreadView(const QString& rootEventId, const std::string
             }
             for (const auto& de : events)
                 self->timelineModel_->appendBack(de);
+            for (const auto& de : replySnapshots)
+                self->timelineModel_->appendBack(de);
             self->statusLabel_->setText(QString("Loaded %1 thread reply(s).").arg(events.size()));
         }, Qt::QueuedConnection);
     });
@@ -213,22 +223,12 @@ void ThreadHandler::sendThreadReply(const std::string& roomId,
                     echo.type = "m.room.message";
                     echo.msgtype = "m.text";
                     echo.body = text;
-                    echo.isThreadReply = true;
-                    echo.threadRootId = effectiveRoot;
-                    self->timelineModel_->appendBack(echo);
-                    LOG(LogChannel::GUI, "sendThreadReply: echo appended eventId=%s",
-                        echo.eventId.c_str());
-                    int rootRow = self->timelineModel_->findRow(effectiveRoot);
-                    if (rootRow >= 0) {
-                        auto* rootEvt = self->timelineModel_->at(rootRow);
-                        if (rootEvt) {
-                            rootEvt->threadReplyCount++;
-                            emit self->timelineModel_->dataChanged(
-                                self->timelineModel_->index(rootRow),
-                                self->timelineModel_->index(rootRow));
-                        }
-                    }
-                }
+                     echo.isThreadReply = true;
+                     echo.threadRootId = effectiveRoot;
+                     self->timelineModel_->appendBack(echo);
+                     LOG(LogChannel::GUI, "sendThreadReply: echo appended eventId=%s",
+                         echo.eventId.c_str());
+                 }
             }, Qt::QueuedConnection);
         } else {
             auto* dec = self->sync_ ? self->sync_->decryptor() : nullptr;
@@ -339,20 +339,10 @@ void ThreadHandler::sendThreadReply(const std::string& roomId,
                     echo.type = "m.room.message";
                     echo.msgtype = "m.text";
                     echo.body = text;
-                    echo.isThreadReply = true;
-                    echo.threadRootId = effectiveRoot;
-                    self->timelineModel_->appendBack(echo);
-                    int rootRow = self->timelineModel_->findRow(effectiveRoot);
-                    if (rootRow >= 0) {
-                        auto* rootEvt = self->timelineModel_->at(rootRow);
-                        if (rootEvt) {
-                            rootEvt->threadReplyCount++;
-                            emit self->timelineModel_->dataChanged(
-                                self->timelineModel_->index(rootRow),
-                                self->timelineModel_->index(rootRow));
-                        }
-                    }
-                } else {
+                     echo.isThreadReply = true;
+                     echo.threadRootId = effectiveRoot;
+                     self->timelineModel_->appendBack(echo);
+                 } else {
                     self->statusLabel_->setText("�� " + QString::fromStdString(r.error.message));
                 }
             }, Qt::QueuedConnection);

@@ -489,19 +489,6 @@ static void appendTimelineForRoom(const std::string& roomId,
         batch.push_back(std::move(de));
     }
     model->appendBackBatch(batch);
-    for (const auto& evt : batch) {
-        if (evt.isThreadReply && !evt.threadRootId.empty()) {
-            int rootRow = model->findRow(evt.threadRootId);
-            if (rootRow >= 0) {
-                auto* rootEvt = model->at(rootRow);
-                if (rootEvt) {
-                    rootEvt->threadReplyCount++;
-                    emit model->dataChanged(
-                        model->index(rootRow), model->index(rootRow));
-                }
-            }
-        }
-    }
     for (const auto& pr : pendingReactions)
         model->addReaction(pr.targetId, pr.emoji, pr.sender);
 }

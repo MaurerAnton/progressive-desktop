@@ -180,19 +180,6 @@ void RoomDataLoader::loadHistory(const std::string& roomId, TimelineModel* model
             LOG(LogChannel::DBG, "loadHistory: appended %zu events, %zu pending reactions",
                 events.size(), pendingReactions.size());
             model->appendBackBatch(events);
-            for (const auto& evt : events) {
-                if (evt.isThreadReply && !evt.threadRootId.empty()) {
-                    int rootRow = model->findRow(evt.threadRootId);
-                    if (rootRow >= 0) {
-                        auto* rootEvt = model->at(rootRow);
-                        if (rootEvt) {
-                            rootEvt->threadReplyCount++;
-                            emit model->dataChanged(
-                                model->index(rootRow), model->index(rootRow));
-                        }
-                    }
-                }
-            }
             for (const auto& [eid, emoji, senderId] : pendingReactions) {
                 model->addReaction(eid, emoji, senderId);
                 int row = model->findRow(eid);

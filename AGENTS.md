@@ -2,7 +2,7 @@
 
 **Read this file, code_map.json, and memory/REFERENCE.md before any code change.**
 **memory/DREAM.md explains WHY the architecture exists.**
-**Last updated: July 24, 2026**
+**Last updated: July 27, 2026**
 
 ---
 
@@ -164,6 +164,13 @@ for (auto [key, value] : obj) { if (key == "...") ... }
    **NEVER add `base64Decode()` before any olm_* function — they all handle base64 internally.**
    **NEVER re-call `olm_*_session(memory)` on already-initialized memory — use `static_cast`.**
 
+    - `olm_unpickle_session` / `olm_unpickle_account` / `olm_unpickle_pk_decryption` — take `void *pickled`
+      (NOT const). libolm decrypts the pickle buffer IN-PLACE — after the call, the original buffer contains
+      garbage (decrypted plaintext, not the encrypted pickle). MUST pass a copy:
+      `std::string copy = original; sess.unpickle("", copy);`. Passing the stored data directly destroys it;
+      every subsequent unpickle attempt fails because the buffer is now garbage. Discovered July 26 — the
+      7th libolm quirk, cost a full debugging cycle. Same applies to `olm_unpickle_account` and `olm_unpickle_pk_decryption` — always pass a copy.
+
 ---
 
 ## Debugging
@@ -211,6 +218,58 @@ Zero output = safe. Any "MISSING" = DO NOT COMMIT, add setClient() first.
 - DEBT comments must reference a bug number or AGENTS.md rule
 - Example: `// DEBT(B3): batchLoadRoomStates queries all rooms on every sync — add stateLoaded flag`
 - CI build remains green — tech debt does NOT mean broken tests
+
+---
+
+### Rule: Never cache mutable credentials — read live from MatrixClient
+Access tokens rotate during runtime (pre-refresh at startup, sync-triggered re-authentication at `sync_engine.cpp:156`). **NEVER store `accessToken`, `userId`, `deviceId`, or `homeserverUrl` in a class member variable for later HTTP use.** Either:
+(a) receive them as function parameters (like `shareRoomKey`, `chat_view.cpp:195-198`), OR
+(b) hold `shared_ptr<MatrixClient>` via `setClient()` (with full propagation chain, per rule #3), and read from `client->account()` at call time.
+
+**The `ctxToken_` bug (#14):** `Decryptor` stored the token at E2EE init (`e2ee_init_handler.cpp:55`), but the pre-refresh (`session_bootstrap.cpp:76`) rotated it 30 lines later. `ctxToken_` held the stale value → all `forceNewOlmSession`/`requestRoomKey` HTTP calls got 401 → Bug A recovery chain stalled. Fixed via re-calling `setCryptoContext` after each refresh (`a33e44e`), but the real permanent fix (deferred) is injecting `shared_ptr<MatrixClient>` and reading `accessToken` live — matching Nheko's `http::client()` pattern.
+
+### Rule: Classes making authenticated HTTP calls MUST have MatrixClient access
+If a class calls `httpPost`/`httpPut` with auth headers (`makeAuthHeaders(token)`), it MUST either accept credentials as parameters or hold `shared_ptr<MatrixClient>`. **NEVER cache the token in a member** — that's the `ctxToken_` workaround which broke on rotation. The `shareRoomKey` pattern (pass `accessToken` as a parameter, read fresh from `client->account()` at call time) is correct.
+
+---
+
+## E2EE Implementation Status (July 2026)
+
+### Working ✓
+- Inbound decryption (Olm + Megolm, recovery chain via m.dummy + m.room_key_request)
+- Outbound encryption (Megolm + Olm, room_key sharing via /sendToDevice)
+- Self-echo decryption (outbound imported as inbound)
+- Olm session persistence (multiple sessions per senderKey, vector storage)
+- Megolm inbound session persistence (SQLite)
+- Token rotation handling (setCryptoContext re-call at refresh sites)
+- Bug A recovery verified (Element re-shares room_key via fresh Olm session)
+- Bug B outbound verified (Element decrypts; room_id in Megolm plaintext)
+
+### Gaps (deferred — not user-visible bugs)
+| Gap | What | Priority |
+|---|---|---|
+| Outbound Megolm persistence | Sessions lost on restart; new session per run | MEDIUM |
+| Device verification (cross-signing/SAS) | Red shield in Element; device not verified | Future sprint |
+| SSSS key backup | Can't recover history after re-login | Future sprint |
+| m.room_key_request incoming | Don't re-share keys when another device requests | LOW |
+| m.forwarded_room_key | Don't handle forwarded keys | LOW |
+| Megolm rotation | No forward secrecy | LOW |
+| Olm plaintext validation | Don't verify sender/recipient/keys | LOW |
+| OTK signature verification | Don't verify signed_curve25519 signatures | LOW |
+| Threading: HTTP on UI thread | requestRoomKey blocks UI for 1-3s | LOW |
+| Option A refactor | ctxToken_ works but is stale-prone; inject MatrixClient | LOW |
+| FluffyChat multi-device OTK | Only claim 1 OTK for 2+ devices | LOW |
+
+### libolm Quirks Documented (AGENTS.md #6) — full details in docs/E2EE.md
+1. olm_create_inbound_session expects BASE64
+2. olm_decrypt expects BASE64
+3. olm_encrypt outputs BASE64
+4. olm_init_inbound_group_session / olm_import_inbound_group_session expect BASE64
+5. olm_group_encrypt outputs BASE64
+6. olm_group_decrypt_max_plaintext_length clobbers buffer IN-PLACE
+7. olm_*_session(memory) zeros the struct — call ONCE
+8. olm_unpickle_session mutates pickle buffer IN-PLACE — must pass copy
+See `docs/E2EE.md` for full implementation notes, common mistakes, recovery chain design, and spec compliance table.
 
 ---
 

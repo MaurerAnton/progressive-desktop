@@ -254,20 +254,6 @@ void RoomHandler::onLoadMoreClicked() {
 
             std::reverse(events.begin(), events.end());
             self->timelineModel_->appendFront(events);
-            for (const auto& evt : events) {
-                if (evt.isThreadReply && !evt.threadRootId.empty()) {
-                    int rootRow = self->timelineModel_->findRow(evt.threadRootId);
-                    if (rootRow >= 0) {
-                        auto* rootEvt = self->timelineModel_->at(rootRow);
-                        if (rootEvt) {
-                            rootEvt->threadReplyCount++;
-                            emit self->timelineModel_->dataChanged(
-                                self->timelineModel_->index(rootRow),
-                                self->timelineModel_->index(rootRow));
-                        }
-                    }
-                }
-            }
 
             if (self->currentPrevBatch_.empty()) {
                 self->loadMoreBtn_->hide();

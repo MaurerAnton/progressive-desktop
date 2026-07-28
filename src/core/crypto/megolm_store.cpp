@@ -156,7 +156,8 @@ bool MegolmStore::unpickleAll(const std::string& key, const std::string& data) {
             impl_->params.push_back({roomId, senderKey, sessionId, sessionKey});
         }
     }
-    LOG(LogChannel::E2EE, "unpickleAll: loaded %d sessions", sessionCount());
+    LOG(LogChannel::E2EE, "unpickleAll: loaded %d sessions",
+        impl_->mgr.sessionCount());
     return true;
 }
 

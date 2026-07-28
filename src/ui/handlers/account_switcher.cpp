@@ -67,21 +67,24 @@ void AccountSwitcher::switchAccount(int index) {
     client_->setAccount(acct);
 
     std::string newKey = acct.userId + "/" + acct.deviceId;
-    if (sync_->decryptor() && sync_->decryptor()->init()) {
+    if (sync_->decryptor()) {
         if (store_) {
             auto saved = store_->loadOlmAccount(newKey);
-            if (saved) sync_->decryptor()->init(saved->pickle, saved->pickleKey, saved->shared);
+            if (saved) {
+                sync_->decryptor()->init(saved->pickle, saved->pickleKey, saved->shared);
+            } else {
+                sync_->decryptor()->init();
+            }
             auto md = store_->loadMegolmSessions(newKey);
             if (md) sync_->decryptor()->megolm()->unpickleAll(newKey, *md);
             auto od = store_->loadOlmSessions(newKey);
             if (od) sync_->decryptor()->unpickleOlmSessions(newKey, *od);
+        } else {
+            sync_->decryptor()->init();
         }
         sync_->setClient(client_);
         sync_->setSessionStore(store_);
         sync_->uploadDeviceKeys();
-    } else {
-        sync_->setClient(client_);
-        sync_->setSessionStore(store_);
     }
 
     userLabel_->setText(" " + QString::fromStdString(acct.userId) + " ");

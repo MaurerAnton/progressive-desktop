@@ -161,7 +161,14 @@ void ChatView::doSend(const std::string& body) {
                 if (c == '"') escaped += "\\\""; else if (c == '\\') escaped += "\\\\";
                 else if (c == '\n') escaped += "\\n"; else escaped += c;
             }
-            std::string inner = "{\"type\":\"m.room.message\",\"content\":{\"msgtype\":\"m.text\",\"body\":\"" + escaped + "\"},\"room_id\":\"" + roomId + "\"}";
+            std::string relatesTo;
+            if (!threadRoot.empty()) {
+                relatesTo = ",\"m.relates_to\":{\"rel_type\":\"m.thread\",\"event_id\":\""
+                          + threadRoot + "\"}";
+            }
+            std::string inner = "{\"type\":\"m.room.message\",\"content\":{\"msgtype\":\"m.text\",\"body\":\""
+                              + escaped + "\"" + relatesTo + "},\"room_id\":\""
+                              + roomId + "\"}";
             std::string enc = dec->encryptMessage(roomId, deviceId, inner);
             LOG(LogChannel::E2EE, "doSend: enc size=%zu empty=%d", enc.size(), enc.empty() ? 1 : 0);
             if (enc.empty()) {

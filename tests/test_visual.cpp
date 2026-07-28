@@ -355,7 +355,7 @@ static void test_threadHandler_smoke() {
     auto client = std::make_shared<MatrixClient>();
     TimelineModel timeline;
     QLabel banner("thread"), status("status");
-    ThreadHandler handler(client, &timeline, &banner, &status, nullptr);
+    ThreadHandler handler(client, &timeline, &banner, &status, nullptr, nullptr, nullptr);
     handler.setClient(client);
 
     CHECK(handler.currentThreadRoot().empty(), "no thread open initially");

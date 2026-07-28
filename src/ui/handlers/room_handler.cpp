@@ -47,7 +47,8 @@ RoomHandler::RoomHandler(std::shared_ptr<MatrixClient> client, RoomStore* roomSt
       messageEdit_(messageEdit), mainWindow_(mainWindow) {
     roomLifeToken_ = std::make_shared<bool>(true);
     threadHandler_ = new ThreadHandler(client_, timelineModel_,
-        mainWindow_->threadBanner(), statusLabel_, mainWindow_, this);
+        mainWindow_->threadBanner(), statusLabel_, mainWindow_,
+        roomModel_, sync_, this);
     contextMenu_ = new RoomContextMenu(client_, timelineModel_, roomModel_,
         roomList_, threadHandler_, statusLabel_, mainWindow_, this);
     connect(contextMenu_, &RoomContextMenu::roomLeft, this, [this](const std::string& roomId) {

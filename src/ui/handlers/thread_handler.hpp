@@ -12,13 +12,17 @@ namespace progressive::desktop {
 class MatrixClient;
 class TimelineModel;
 class MainWindow;
+class SyncEngine;
+class RoomListModel;
 
 class ThreadHandler : public QObject {
     Q_OBJECT
 public:
     ThreadHandler(std::shared_ptr<MatrixClient> client, TimelineModel* timelineModel,
                   QLabel* threadBanner, QLabel* statusLabel,
-                  QPointer<MainWindow> mw, QObject* parent = nullptr);
+                  QPointer<MainWindow> mw,
+                  RoomListModel* roomModel, SyncEngine* sync,
+                  QObject* parent = nullptr);
 
     void setClient(std::shared_ptr<MatrixClient> c) { client_ = std::move(c); }
 
@@ -39,6 +43,8 @@ private:
     QLabel* threadBanner_;
     QLabel* statusLabel_;
     QPointer<MainWindow> mw_;
+    RoomListModel* roomModel_ = nullptr;
+    SyncEngine* sync_ = nullptr;
     std::string currentThreadRoot_;
 };
 

@@ -84,7 +84,6 @@ private:
     QToolBar* toolbar_ = nullptr;
     QLabel* userLabel_ = nullptr;
     QComboBox* accountCombo_ = nullptr;
-    QAction* logoutAction_ = nullptr;
     QLabel* roomListHeader_ = nullptr;
     QLabel* inviteHeader_ = nullptr;
     QLabel* timelinePlaceholder_ = nullptr;

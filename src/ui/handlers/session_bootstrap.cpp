@@ -48,6 +48,9 @@ void SessionBootstrap::start(const std::shared_ptr<MatrixClient>& client, const 
             if (a.userId == client->account().userId)
                 accountCombo->setCurrentIndex(accountCombo->count() - 1);
         }
+        accountCombo->insertSeparator(accountCombo->count());
+        accountCombo->addItem("+ Add Account");
+        accountCombo->addItem("Logout");
     }
     int cacheSize = PrefsDialog::imageCacheSize();
     imageLoader->setCacheSize(cacheSize);

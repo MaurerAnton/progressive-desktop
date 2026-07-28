@@ -31,6 +31,9 @@ public:
 
     void setClient(std::shared_ptr<MatrixClient> c) { client_ = std::move(c); }
 
+    int accountCount();
+    int currentAccountIndex();
+
 public slots:
     void switchAccount(int index);
     void addAccount();

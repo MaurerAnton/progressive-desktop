@@ -127,8 +127,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     accountCombo_->setStyleSheet("QComboBox{background:#1a1a1a;color:#ccc;border:1px solid #333;padding:2px 4px;} QComboBox::drop-down{border:none;} QComboBox QAbstractItemView{background:#1a1a1a;color:#ccc;}");
     toolbar_->addWidget(accountCombo_);
 
-    logoutAction_ = toolbar_->addAction("Logout");
-
     connect(threadBanner_, &QLabel::linkActivated, this, [this](const QString& link) {
         if (link == "back" && roomHandler_) roomHandler_->closeThreadView();
     });
@@ -188,8 +186,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(timelineView_, &QListView::customContextMenuRequested, roomHandler_, &RoomHandler::onTimelineContextMenu);
     connect(timelineDelegate_, &TimelineDelegate::threadIndicatorClicked, roomHandler_, &RoomHandler::openThreadView);
 
-    connect(logoutAction_, &QAction::triggered, auth_, &AuthHandler::logout);
-
     syncHandler_ = new SyncResponseHandler(client_, roomStore_, roomModel_,
         timelineModel_, &notifier_, roomListHeader_, inviteHeader_,
         statusLabel_, timelinePlaceholder_, timelineView_,
@@ -203,11 +199,22 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         timelinePlaceholder_, timelineView_, messageEdit_, this);
 
     connect(accountCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, [this](int index) { accountSwitcher_->switchAccount(index); });
-
-    auto* addAccountAction = toolbar_->addAction("Add Account");
-    addAccountAction->setToolTip("Log into an additional Matrix account");
-    connect(addAccountAction, &QAction::triggered, accountSwitcher_, &AccountSwitcher::addAccount);
+            this, [this](int index) {
+                int accountCount = accountSwitcher_->accountCount();
+                if (index < accountCount) {
+                    accountSwitcher_->switchAccount(index);
+                } else if (index == accountCount + 1) {
+                    accountCombo_->blockSignals(true);
+                    accountCombo_->setCurrentIndex(accountSwitcher_->currentAccountIndex());
+                    accountCombo_->blockSignals(false);
+                    accountSwitcher_->addAccount();
+                } else if (index == accountCount + 2) {
+                    accountCombo_->blockSignals(true);
+                    accountCombo_->setCurrentIndex(accountSwitcher_->currentAccountIndex());
+                    accountCombo_->blockSignals(false);
+                    auth_->logout();
+                }
+            });
 
     connect(timelineDelegate_, &TimelineDelegate::imageClicked, this, [this](const QString& eventId, const QString& mxcUrl) {
         attachmentHandler_->openAttachment(eventId, mxcUrl);

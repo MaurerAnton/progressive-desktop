@@ -113,14 +113,19 @@ void AccountSwitcher::addAccount() {
         if (roomHandler_) roomHandler_->memberAvatarCache().clear();
         chatView_->clear();
 
+        accountCombo_->blockSignals(true);
+        accountCombo_->clear();
         auto accounts = store_->listAccounts();
         int targetIdx = -1;
-        accountCombo_->clear();
         for (size_t i = 0; i < accounts.size(); i++) {
             accountCombo_->addItem(QString::fromStdString(accounts[i].userId));
             if (accounts[i].userId == client_->account().userId) targetIdx = (int)i;
         }
+        accountCombo_->insertSeparator(accountCombo_->count());
+        accountCombo_->addItem("+ Add Account");
+        accountCombo_->addItem("Logout");
         if (targetIdx >= 0) accountCombo_->setCurrentIndex(targetIdx);
+        accountCombo_->blockSignals(false);
 
         sync_->decryptor()->init();
         sync_->uploadDeviceKeys();
@@ -136,6 +141,19 @@ void AccountSwitcher::addAccount() {
         accountCombo_->setEnabled(true);
         sync_->start();
     }
+}
+
+int AccountSwitcher::accountCount() {
+    auto accounts = store_->listAccounts();
+    return (int)accounts.size();
+}
+
+int AccountSwitcher::currentAccountIndex() {
+    auto accounts = store_->listAccounts();
+    for (size_t i = 0; i < accounts.size(); i++) {
+        if (accounts[i].userId == client_->account().userId) return (int)i;
+    }
+    return 0;
 }
 
 } // namespace progressive::desktop

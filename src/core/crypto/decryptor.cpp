@@ -349,6 +349,14 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
     auto ourEntry = ct.value()[ourCurve];
     if (ourEntry.error() != simdjson::SUCCESS) {
         LOG(LogChannel::E2EE, "Olm: our key not found in ciphertext");
+        LOG(LogChannel::E2EE, "Olm: our curve25519=%s", ourCurve.c_str());
+        auto ctObj = ct.value().get_object();
+        if (ctObj.error() == simdjson::SUCCESS) {
+            for (auto entry : ctObj.value()) {
+                LOG(LogChannel::E2EE, "Olm: ciphertext has key=%s",
+                    std::string(entry.key).c_str());
+            }
+        }
         return {};
     }
 

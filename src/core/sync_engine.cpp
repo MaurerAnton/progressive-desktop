@@ -329,6 +329,9 @@ void SyncEngine::uploadDeviceKeys(bool force) {
 
     LOG(LogChannel::E2EE, "uploadDeviceKeys: uploading for %s/%s", userId.c_str(), deviceId.c_str());
     std::string body = decryptor_.buildKeysUploadBody(userId, deviceId, 10);
+    LOG(LogChannel::E2EE, "uploadDeviceKeys: our curve25519=%s ed25519=%s",
+        decryptor_.curve25519Key().c_str(),
+        decryptor_.ed25519Key().c_str());
 
     // OTKs are now in libolm's bounded list. Save flag BEFORE HTTP upload —
     // even if upload fails (401 race with pre-refresh), OTKs persist and
@@ -347,6 +350,13 @@ void SyncEngine::uploadDeviceKeys(bool force) {
         // Mark OTKs as published — they remain usable by olm_create_inbound_session
         // but won't be returned by olm_account_one_time_keys (prevents re-upload).
         decryptor_.markOneTimeKeysPublished();
+        {
+            std::string queryBody = "{\"device_keys\":{\"" + userId + "\":[]}}";
+            auto queryResp = client_->queryKeys(queryBody);
+            LOG(LogChannel::E2EE, "uploadDeviceKeys: self-query http=%d body=%.800s",
+                queryResp.httpStatus,
+                queryResp.ok ? queryResp.data.c_str() : "");
+        }
     } else {
         LOG(LogChannel::E2EE, "uploadDeviceKeys: FAILED — error=%s (OTKs persisted, will retry via auto-refresh)",
             result.error.message.c_str());

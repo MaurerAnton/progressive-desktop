@@ -27,16 +27,18 @@ void E2eeInitHandler::init(MatrixClient* client, SessionStore* store,
     try {
         std::string savedPickle;
         std::string savedKey;
+        bool savedShared = false;
         if (store) {
             auto saved = store->loadOlmAccount(pickleKey);
             if (saved) {
-                savedPickle = saved->first;
-                savedKey = saved->second;
+                savedPickle = saved->pickle;
+                savedKey = saved->pickleKey;
+                savedShared = saved->shared;
             }
         }
 
         if (!savedPickle.empty()) {
-            e2eeOk = sync->decryptor()->init(savedPickle, savedKey);
+            e2eeOk = sync->decryptor()->init(savedPickle, savedKey, savedShared);
             if (!e2eeOk) {
                 std::cerr << "[e2ee] failed to load saved olm account — creating new one\n";
                 e2eeOk = sync->decryptor()->init();
@@ -57,7 +59,8 @@ void E2eeInitHandler::init(MatrixClient* client, SessionStore* store,
 
             std::string newPickle = sync->decryptor()->saveAccountPickle(pickleKey);
             if (!newPickle.empty() && store) {
-                store->saveOlmAccount(newPickle, pickleKey);
+                store->saveOlmAccount(newPickle, pickleKey,
+                                      sync->decryptor()->accountShared());
             }
 
             if (store) {

@@ -49,7 +49,8 @@ public:
     ~Decryptor();
 
     // ---- Account lifecycle ----
-    bool init(const std::string& accountPickle, const std::string& pickleKey);
+    bool init(const std::string& accountPickle, const std::string& pickleKey,
+              bool shared = false);
     bool init();
     bool isInitialized() const { return account_ && account_->isValid(); }
 
@@ -66,11 +67,16 @@ public:
     // Generates `count` one-time keys before building the body.
     std::string buildKeysUploadBody(const std::string& userId,
                                       const std::string& deviceId,
-                                      int oneTimeKeyCount = 10);
+                                      int oneTimeKeyCount = 10,
+                                      bool includeDeviceKeys = true);
 
     // Mark current one-time keys as published (call after /keys/upload success).
     // Tells libolm to discard used keys so next generateOneTimeKeys produces fresh ones.
     void markOneTimeKeysPublished();
+
+    bool accountShared() const { return account_ ? account_->shared() : false; }
+    void markAccountAsShared() { if (account_) account_->markAsShared(); }
+    void setAccountShared(bool s) { if (account_) account_->setShared(s); }
 
     // ---- Inbound Megolm (room message decryption) ----
     // Decrypts a m.room.encrypted event (Megolm algorithm).

@@ -51,6 +51,10 @@ public:
     // Mark current one-time keys as published (called after /keys/upload success).
     void markOneTimeKeysPublished();
 
+    bool shared() const { return shared_; }
+    void markAsShared() { shared_ = true; }
+    void setShared(bool s) { shared_ = s; }
+
     bool isValid() const { return account_ != nullptr; }
 
     // Access the underlying progressive::OlmAccount for OlmSession operations.
@@ -58,6 +62,7 @@ public:
 
 private:
     void* account_ = nullptr;  // progressive::OlmAccount*
+    bool shared_ = false;
     friend class Decryptor;
 };
 

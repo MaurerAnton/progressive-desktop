@@ -26,12 +26,13 @@ Decryptor::Decryptor()
 
 Decryptor::~Decryptor() = default;
 
-bool Decryptor::init(const std::string& accountPickle, const std::string& pickleKey) {
+bool Decryptor::init(const std::string& accountPickle, const std::string& pickleKey,
+                      bool shared) {
     if (!accountPickle.empty()) {
         if (!account_->load(accountPickle, pickleKey)) {
-            // Failed to load — fall back to creating new account
             return account_->create();
         }
+        account_->setShared(shared);
         return true;
     }
     return account_->create();
@@ -211,8 +212,9 @@ std::string Decryptor::signCanonicalJson(const std::string& canonicalJson) {
 }
 
 std::string Decryptor::buildKeysUploadBody(const std::string& userId,
-                                              const std::string& deviceId,
-                                              int oneTimeKeyCount) {
+                                               const std::string& deviceId,
+                                               int oneTimeKeyCount,
+                                               bool includeDeviceKeys) {
     // 1. Generate one-time keys
     std::string oneTimeKeysJson = account_->generateOneTimeKeys(oneTimeKeyCount);
 
@@ -299,8 +301,11 @@ std::string Decryptor::buildKeysUploadBody(const std::string& userId,
 
     // 5. Assemble the full /keys/upload body
     std::ostringstream body;
-    body << "{\"device_keys\":" << deviceKeysSigned
-         << ",\"one_time_keys\":" << otkSigned.str()
+    body << "{";
+    if (includeDeviceKeys) {
+        body << "\"device_keys\":" << deviceKeysSigned << ",";
+    }
+    body << "\"one_time_keys\":" << otkSigned.str()
          << "}";
     return body.str();
 }

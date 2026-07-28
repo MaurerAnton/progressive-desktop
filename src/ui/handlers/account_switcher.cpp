@@ -50,6 +50,9 @@ void AccountSwitcher::switchAccount(int index) {
         if (!mp.empty()) store_->saveMegolmSessions(mp);
         auto op = sync_->decryptor()->pickleOlmSessions(oldKey);
         if (!op.empty()) store_->saveOlmSessions(op);
+        auto ap = sync_->decryptor()->saveAccountPickle(oldKey);
+        if (!ap.empty()) store_->saveOlmAccount(ap, oldKey,
+                                                 sync_->decryptor()->accountShared());
     }
 
     roomModel_->clear();
@@ -67,7 +70,7 @@ void AccountSwitcher::switchAccount(int index) {
     if (sync_->decryptor() && sync_->decryptor()->init()) {
         if (store_) {
             auto saved = store_->loadOlmAccount(newKey);
-            if (saved) sync_->decryptor()->init(saved->first, saved->second);
+            if (saved) sync_->decryptor()->init(saved->pickle, saved->pickleKey, saved->shared);
             auto md = store_->loadMegolmSessions();
             if (md) sync_->decryptor()->megolm()->unpickleAll(newKey, *md);
             auto od = store_->loadOlmSessions();
@@ -102,6 +105,9 @@ void AccountSwitcher::addAccount() {
         if (!mp.empty()) store_->saveMegolmSessions(mp);
         auto op = sync_->decryptor()->pickleOlmSessions(oldKey);
         if (!op.empty()) store_->saveOlmSessions(op);
+        auto ap = sync_->decryptor()->saveAccountPickle(oldKey);
+        if (!ap.empty()) store_->saveOlmAccount(ap, oldKey,
+                                                 sync_->decryptor()->accountShared());
     }
 
     auto* parentWidget = qobject_cast<QWidget*>(parent());

@@ -236,7 +236,7 @@ void SyncEngine::run() {
         if (result.data.signedCurve25519Count >= 0 && result.data.signedCurve25519Count < 5) {
             LOG(LogChannel::E2EE, "sync: OTK count=%d (<5) — uploading fresh keys",
                 result.data.signedCurve25519Count);
-            uploadDeviceKeys(true);
+            uploadDeviceKeys(false);
         }
 
         setState(SyncEngineState::Running);
@@ -307,39 +307,21 @@ void SyncEngine::uploadDeviceKeys(bool force) {
         return;
     }
 
-    // Skip if OTKs already uploaded from a previous session — prevents
-    // generateOneTimeKeys(10) from displacing old OTKs in libolm's bounded list
-    // (MAX_ONE_TIME_KEYS=100), which would break createInbound for messages
-    // encrypted with those old OTKs.
+    // Check if device_keys need uploading (new or recreated account).
+    bool needDeviceKeys = !decryptor_.accountShared();
+
+    LOG(LogChannel::E2EE, "uploadDeviceKeys: shared=%d needDeviceKeys=%d",
+        decryptor_.accountShared() ? 1 : 0, needDeviceKeys ? 1 : 0);
+
     std::string userId = client_->account().userId;
     std::string deviceId = client_->account().deviceId;
     if (deviceId.empty()) deviceId = "PROGRESSIVE_DESKTOP";
 
-    std::string otkFlag = "otk_uploaded_once:" + userId + "/" + deviceId;
-    std::string persFlag = "otk_persisted:" + userId + "/" + deviceId;
-
-    if (!force && store_ && store_->loadE2eeFlag(otkFlag).value_or(false)) {
-        if (store_->loadE2eeFlag(persFlag).value_or(false)) {
-            LOG(LogChannel::E2EE, "uploadDeviceKeys: OTKs already uploaded and persisted — skipping");
-            return;
-        }
-        LOG(LogChannel::E2EE, "uploadDeviceKeys: %s=true but %s=false — regenerating",
-            otkFlag.c_str(), persFlag.c_str());
-    }
-
     LOG(LogChannel::E2EE, "uploadDeviceKeys: uploading for %s/%s", userId.c_str(), deviceId.c_str());
-    std::string body = decryptor_.buildKeysUploadBody(userId, deviceId, 10);
+    std::string body = decryptor_.buildKeysUploadBody(userId, deviceId, 10, needDeviceKeys);
     LOG(LogChannel::E2EE, "uploadDeviceKeys: our curve25519=%s ed25519=%s",
         decryptor_.curve25519Key().c_str(),
         decryptor_.ed25519Key().c_str());
-
-    // OTKs are now in libolm's bounded list. Save flag BEFORE HTTP upload —
-    // even if upload fails (401 race with pre-refresh), OTKs persist and
-    // next startup won't regenerate them (preventing bounded-list eviction).
-    if (store_ && !force) {
-        store_->saveE2eeFlag(otkFlag, true);
-        LOG(LogChannel::E2EE, "uploadDeviceKeys: saved %s=true (OTKs generated)", otkFlag.c_str());
-    }
 
     auto result = client_->uploadKeys(body);
     LOG(LogChannel::E2EE, "uploadDeviceKeys: result ok=%d httpStatus=%d bodyLen=%zu",
@@ -350,6 +332,10 @@ void SyncEngine::uploadDeviceKeys(bool force) {
         // Mark OTKs as published — they remain usable by olm_create_inbound_session
         // but won't be returned by olm_account_one_time_keys (prevents re-upload).
         decryptor_.markOneTimeKeysPublished();
+        if (needDeviceKeys) {
+            decryptor_.markAccountAsShared();
+            LOG(LogChannel::E2EE, "uploadDeviceKeys: account marked as shared");
+        }
         {
             std::string queryBody = "{\"device_keys\":{\"" + userId + "\":[]}}";
             auto queryResp = client_->queryKeys(queryBody);
@@ -370,10 +356,9 @@ void SyncEngine::uploadDeviceKeys(bool force) {
         std::string pickleKey = userId + "/" + deviceId;
         std::string newPickle = decryptor_.saveAccountPickle(pickleKey);
         if (!newPickle.empty() && store_) {
-            store_->saveOlmAccount(newPickle, pickleKey);
-            store_->saveE2eeFlag(persFlag, true);
-            LOG(LogChannel::E2EE, "uploadDeviceKeys: account pickle saved (%s=true, published=%d)",
-                persFlag.c_str(), result.ok ? 1 : 0);
+            store_->saveOlmAccount(newPickle, pickleKey, decryptor_.accountShared());
+            LOG(LogChannel::E2EE, "uploadDeviceKeys: account pickle saved (shared=%d, published=%d)",
+                decryptor_.accountShared() ? 1 : 0, result.ok ? 1 : 0);
         }
     }
 }

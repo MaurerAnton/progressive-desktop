@@ -109,6 +109,19 @@ bool TimelineDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
         }
     }
 
+    bool isThreadReply = index.data(TimelineModel::IsThreadReplyRole).toBool();
+    QString threadRootId = index.data(TimelineModel::ThreadRootIdRole).toString();
+    if (isThreadReply && !threadRootId.isEmpty() && L.threadReplyH > 0) {
+        int threadReplyY = bubbleY + kPadTop;
+        if (L.pinnedH) threadReplyY += kIndicatorRowH;
+        QRect threadReplyZone(bubbleX + kBubblePadding, threadReplyY,
+                              bubbleW - kBubblePadding * 2, kIndicatorRowH);
+        if (threadReplyZone.contains(me->pos())) {
+            emit threadIndicatorClicked(threadRootId);
+            return true;
+        }
+    }
+
     bool isReply = index.data(TimelineModel::IsReplyRole).toBool();
     if (isReply && L.replyH > 0) {
         int replyY = bubbleY + kPadTop;

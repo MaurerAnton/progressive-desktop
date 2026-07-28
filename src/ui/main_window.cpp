@@ -205,6 +205,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(accountCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, [this](int index) { accountSwitcher_->switchAccount(index); });
 
+    auto* addAccountAction = toolbar_->addAction("Add Account");
+    addAccountAction->setToolTip("Log into an additional Matrix account");
+    connect(addAccountAction, &QAction::triggered, accountSwitcher_, &AccountSwitcher::addAccount);
+
     connect(timelineDelegate_, &TimelineDelegate::imageClicked, this, [this](const QString& eventId, const QString& mxcUrl) {
         attachmentHandler_->openAttachment(eventId, mxcUrl);
     });

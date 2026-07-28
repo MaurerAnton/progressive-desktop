@@ -33,6 +33,7 @@ public:
 
 public slots:
     void switchAccount(int index);
+    void addAccount();
 
 private:
     std::shared_ptr<MatrixClient> client_;

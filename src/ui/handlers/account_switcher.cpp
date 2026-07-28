@@ -11,6 +11,7 @@
 #include "../shared/image_loader.hpp"
 #include "../chat/chat_view.hpp"
 #include "room_handler.hpp"
+#include "../dialogs/login_dialog.hpp"
 #include <QComboBox>
 #include <QLabel>
 #include <QWidget>
@@ -85,6 +86,56 @@ void AccountSwitcher::switchAccount(int index) {
     sync_->setSessionStore(store_);
     logMemorySnapshot("after-account-switch");
     sync_->start();
+}
+
+void AccountSwitcher::addAccount() {
+    if (!client_ || !store_) return;
+    sync_->stop();
+    accountCombo_->setEnabled(false);
+
+    std::string oldKey = client_->account().userId + "/" + client_->account().deviceId;
+    if (sync_->decryptor() && sync_->decryptor()->isInitialized()) {
+        auto mp = sync_->decryptor()->megolm()->pickleAll(oldKey);
+        if (!mp.empty()) store_->saveMegolmSessions(mp);
+        auto op = sync_->decryptor()->pickleOlmSessions(oldKey);
+        if (!op.empty()) store_->saveOlmSessions(op);
+    }
+
+    auto* parentWidget = qobject_cast<QWidget*>(parent());
+    LoginDialog dlg(client_.get(), store_.get(), parentWidget);
+    if (dlg.exec() == QDialog::Accepted && dlg.loggedIn()) {
+        roomModel_->clear();
+        timelineModel_->clear();
+        timelineView_->hide();
+        placeholder_->show();
+        messageEdit_->hide();
+        if (roomHandler_) roomHandler_->clearCurrentRoom();
+        if (roomHandler_) roomHandler_->memberAvatarCache().clear();
+        chatView_->clear();
+
+        auto accounts = store_->listAccounts();
+        int targetIdx = -1;
+        accountCombo_->clear();
+        for (size_t i = 0; i < accounts.size(); i++) {
+            accountCombo_->addItem(QString::fromStdString(accounts[i].userId));
+            if (accounts[i].userId == client_->account().userId) targetIdx = (int)i;
+        }
+        if (targetIdx >= 0) accountCombo_->setCurrentIndex(targetIdx);
+
+        sync_->decryptor()->init();
+        sync_->uploadDeviceKeys();
+
+        userLabel_->setText(" " + QString::fromStdString(client_->account().userId) + " ");
+        timelineDelegate_->setMyUserId(client_->account().userId);
+        imageLoader_->setClient(client_);
+        accountCombo_->setEnabled(true);
+        sync_->setClient(client_);
+        sync_->setSessionStore(store_);
+        sync_->start();
+    } else {
+        accountCombo_->setEnabled(true);
+        sync_->start();
+    }
 }
 
 } // namespace progressive::desktop

@@ -223,6 +223,7 @@ void RoomHandler::onLoadMoreClicked() {
                     if (colon != std::string::npos) de.senderName = de.senderId.substr(1, colon - 1);
                     else de.senderName = de.senderId.substr(1);
                 }
+                // DEBT: load-more path doesn't decrypt m.room.encrypted events
                 if (de.type == "m.room.message") {
                     de.msgtype = extractStringDec(de.contentJson, "msgtype");
                     de.body = extractStringDec(de.contentJson, "body");
@@ -252,6 +253,20 @@ void RoomHandler::onLoadMoreClicked() {
 
             std::reverse(events.begin(), events.end());
             self->timelineModel_->appendFront(events);
+            for (const auto& evt : events) {
+                if (evt.isThreadReply && !evt.threadRootId.empty()) {
+                    int rootRow = self->timelineModel_->findRow(evt.threadRootId);
+                    if (rootRow >= 0) {
+                        auto* rootEvt = self->timelineModel_->at(rootRow);
+                        if (rootEvt) {
+                            rootEvt->threadReplyCount++;
+                            emit self->timelineModel_->dataChanged(
+                                self->timelineModel_->index(rootRow),
+                                self->timelineModel_->index(rootRow));
+                        }
+                    }
+                }
+            }
 
             if (self->currentPrevBatch_.empty()) {
                 self->loadMoreBtn_->hide();

@@ -145,6 +145,17 @@ void RoomDataLoader::loadHistory(const std::string& roomId, TimelineModel* model
                         if (parsePlaintextBody(result.plaintext, de.type, de.contentJson)) {
                             de.msgtype = msgType(de.contentJson);
                             de.body = msgBody(de.contentJson);
+                            std::string_view cv(de.contentJson);
+                            std::string threadRoot = extractThreadRootId(cv);
+                            if (!threadRoot.empty()) {
+                                de.isThreadReply = true;
+                                de.threadRootId = threadRoot;
+                            }
+                            std::string replyTo = extractReplyToId(cv);
+                            if (!replyTo.empty()) {
+                                de.isReply = true;
+                                de.replyToEventId = replyTo;
+                            }
                         } else {
                             LOG(LogChannel::E2EE, "loadHistory: parsePlaintextBody FAILED eid=%s", de.eventId.c_str());
                             de.body = "[encrypted]"; de.msgtype = "m.notice";
@@ -169,6 +180,19 @@ void RoomDataLoader::loadHistory(const std::string& roomId, TimelineModel* model
             LOG(LogChannel::DBG, "loadHistory: appended %zu events, %zu pending reactions",
                 events.size(), pendingReactions.size());
             model->appendBackBatch(events);
+            for (const auto& evt : events) {
+                if (evt.isThreadReply && !evt.threadRootId.empty()) {
+                    int rootRow = model->findRow(evt.threadRootId);
+                    if (rootRow >= 0) {
+                        auto* rootEvt = model->at(rootRow);
+                        if (rootEvt) {
+                            rootEvt->threadReplyCount++;
+                            emit model->dataChanged(
+                                model->index(rootRow), model->index(rootRow));
+                        }
+                    }
+                }
+            }
             for (const auto& [eid, emoji, senderId] : pendingReactions) {
                 model->addReaction(eid, emoji, senderId);
                 int row = model->findRow(eid);

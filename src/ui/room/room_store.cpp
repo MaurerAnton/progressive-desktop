@@ -211,6 +211,7 @@ RoomSyncUpdate RoomStore::prepareRoomSyncUpdate(const FastSyncResponse& resp,
             rd.lastMessage = n + " invited you";
         }
         if (!inv.roomAvatar.empty()) rd.avatarUrl = std::string(inv.roomAvatar);
+        rd.isEncrypted = inv.isEncrypted;
         u.invitedRooms.push_back(std::move(rd));
     }
 

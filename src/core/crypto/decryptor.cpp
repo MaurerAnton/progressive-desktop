@@ -659,6 +659,10 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
 
     std::fprintf(stderr, "[e2ee] shareRoomKey: room=%.30s users=%zu\n",
                  roomId.c_str(), userIds.size());
+    LOG(LogChannel::E2EE, "shareRoomKey: ourUserId=%s ourDeviceId=%s userIds=[%s]",
+        ourUserId.c_str(), ourDeviceId.c_str(),
+        [&]() { std::string s; for (size_t i=0; i<userIds.size(); ++i) {
+            if (i) s += ","; s += userIds[i]; } return s; }().c_str());
 
     // Step 1: Query device keys for all room members.
     std::ostringstream queryBody;
@@ -672,12 +676,19 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
     }
     queryBody << "}}";
 
+    LOG(LogChannel::E2EE, "shareRoomKey: queryBody=%s", queryBody.str().c_str());
+
     auto queryResp = httpPost(homeserverUrl + "/_matrix/client/v3/keys/query",
                               queryBody.str(), hdrs, 30000);
     if (!queryResp.success) {
+        LOG(LogChannel::E2EE, "shareRoomKey: keys/query FAILED http=%d bodyLen=%zu",
+            queryResp.statusCode, queryResp.body.size());
         std::fprintf(stderr, "[e2ee] keys/query failed: %s\n", queryResp.errorMessage.c_str());
         return false;
     }
+
+    LOG(LogChannel::E2EE, "shareRoomKey: keys/query ok http=%d bodyLen=%zu body=%.500s",
+        queryResp.statusCode, queryResp.body.size(), queryResp.body.c_str());
 
     // Parse the response to extract device keys for each user.
     // Response format:
@@ -703,6 +714,7 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
     if (deviceKeysResult.error() == simdjson::SUCCESS) {
         for (auto userField : deviceKeysResult.value()) {
             std::string uid(userField.key);
+            size_t userDeviceCount = 0;
             auto userDevices = userField.value.get_object();
             if (userDevices.error() != simdjson::SUCCESS) continue;
             for (auto devField : userDevices.value()) {
@@ -729,11 +741,14 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
                 }
                 if (!info.curve25519.empty()) {
                     devices.push_back(info);
+                    userDeviceCount++;
                     std::fprintf(stderr, "[e2ee] found device: %s/%s curve=%s...\n",
                                  uid.c_str(), info.deviceId.c_str(),
                                  info.curve25519.substr(0, 8).c_str());
                 }
             }
+            LOG(LogChannel::E2EE, "shareRoomKey: user=%s deviceCount=%zu",
+                uid.c_str(), userDeviceCount);
         }
     }
 
@@ -741,7 +756,7 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
 
     if (devices.empty()) {
         std::fprintf(stderr, "[e2ee] no devices to share room_key with\n");
-        return true;  // nothing to do — not an error
+        return false;
     }
 
     // Step 2: Claim one-time keys for each device.

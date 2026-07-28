@@ -312,9 +312,11 @@ void ThreadHandler::sendThreadReply(const std::string& roomId,
                         }
                     }
                     if (!userIds.empty()) {
-                        dec->shareRoomKey(roomId, userIds, ourUserId, ourDeviceId,
-                                         homeserver, token);
-                        dec->markRoomKeyShared(roomId);
+                        bool shared = dec->shareRoomKey(roomId, userIds, ourUserId, ourDeviceId,
+                                                         homeserver, token);
+                        if (shared) {
+                            dec->markRoomKeyShared(roomId);
+                        }
                     }
                 }
             }

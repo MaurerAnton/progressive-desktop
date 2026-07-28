@@ -206,8 +206,13 @@ void ChatView::doSend(const std::string& body) {
                         }
                     }
                     if (!userIds.empty()) {
-                        dec->shareRoomKey(roomId, userIds, ourUserId, ourDeviceId, homeserver, token);
-                        dec->markRoomKeyShared(roomId);
+                        bool shared = dec->shareRoomKey(roomId, userIds, ourUserId, ourDeviceId, homeserver, token);
+                        if (shared) {
+                            dec->markRoomKeyShared(roomId);
+                            LOG(LogChannel::E2EE, "doSend: room key shared ok room=%.30s", roomId.c_str());
+                        } else {
+                            LOG(LogChannel::E2EE, "doSend: room key NOT shared (will retry next send) room=%.30s", roomId.c_str());
+                        }
                     }
                 }
             }

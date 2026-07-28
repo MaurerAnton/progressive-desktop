@@ -47,9 +47,9 @@ void AccountSwitcher::switchAccount(int index) {
     std::string oldKey = client_->account().userId + "/" + client_->account().deviceId;
     if (sync_->decryptor() && sync_->decryptor()->isInitialized()) {
         auto mp = sync_->decryptor()->megolm()->pickleAll(oldKey);
-        if (!mp.empty()) store_->saveMegolmSessions(mp);
+        if (!mp.empty()) store_->saveMegolmSessions(mp, oldKey);
         auto op = sync_->decryptor()->pickleOlmSessions(oldKey);
-        if (!op.empty()) store_->saveOlmSessions(op);
+        if (!op.empty()) store_->saveOlmSessions(op, oldKey);
         auto ap = sync_->decryptor()->saveAccountPickle(oldKey);
         if (!ap.empty()) store_->saveOlmAccount(ap, oldKey,
                                                  sync_->decryptor()->accountShared());
@@ -71,9 +71,9 @@ void AccountSwitcher::switchAccount(int index) {
         if (store_) {
             auto saved = store_->loadOlmAccount(newKey);
             if (saved) sync_->decryptor()->init(saved->pickle, saved->pickleKey, saved->shared);
-            auto md = store_->loadMegolmSessions();
+            auto md = store_->loadMegolmSessions(newKey);
             if (md) sync_->decryptor()->megolm()->unpickleAll(newKey, *md);
-            auto od = store_->loadOlmSessions();
+            auto od = store_->loadOlmSessions(newKey);
             if (od) sync_->decryptor()->unpickleOlmSessions(newKey, *od);
         }
         sync_->setClient(client_);
@@ -102,9 +102,9 @@ void AccountSwitcher::addAccount() {
     std::string oldKey = client_->account().userId + "/" + client_->account().deviceId;
     if (sync_->decryptor() && sync_->decryptor()->isInitialized()) {
         auto mp = sync_->decryptor()->megolm()->pickleAll(oldKey);
-        if (!mp.empty()) store_->saveMegolmSessions(mp);
+        if (!mp.empty()) store_->saveMegolmSessions(mp, oldKey);
         auto op = sync_->decryptor()->pickleOlmSessions(oldKey);
-        if (!op.empty()) store_->saveOlmSessions(op);
+        if (!op.empty()) store_->saveOlmSessions(op, oldKey);
         auto ap = sync_->decryptor()->saveAccountPickle(oldKey);
         if (!ap.empty()) store_->saveOlmAccount(ap, oldKey,
                                                  sync_->decryptor()->accountShared());

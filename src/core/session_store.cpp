@@ -240,12 +240,14 @@ std::optional<OlmAccountRecord> SessionStore::loadOlmAccount(const std::string& 
 
 // ---- E2EE data store (key-value) ----
 
-bool SessionStore::saveMegolmSessions(const std::string& data) {
+bool SessionStore::saveMegolmSessions(const std::string& data, const std::string& pickleKey) {
     if (!db_) return false;
-    const char* sql = "INSERT INTO e2ee_data(key,value) VALUES('megolm',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value;";
+    std::string key = "megolm:" + pickleKey;
+    const char* sql = "INSERT INTO e2ee_data(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value;";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_text(stmt, 1, data.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 1, key.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, data.c_str(), -1, SQLITE_TRANSIENT);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     if (rc != SQLITE_DONE) return false;
@@ -253,11 +255,13 @@ bool SessionStore::saveMegolmSessions(const std::string& data) {
     return true;
 }
 
-std::optional<std::string> SessionStore::loadMegolmSessions() {
+std::optional<std::string> SessionStore::loadMegolmSessions(const std::string& pickleKey) {
     if (!db_) return std::nullopt;
-    const char* sql = "SELECT value FROM e2ee_data WHERE key='megolm';";
+    std::string key = "megolm:" + pickleKey;
+    const char* sql = "SELECT value FROM e2ee_data WHERE key=?;";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
+    sqlite3_bind_text(stmt, 1, key.c_str(), -1, SQLITE_TRANSIENT);
     std::optional<std::string> r;
     if (sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL)
         r = std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
@@ -265,12 +269,14 @@ std::optional<std::string> SessionStore::loadMegolmSessions() {
     return r;
 }
 
-bool SessionStore::saveOlmSessions(const std::string& data) {
+bool SessionStore::saveOlmSessions(const std::string& data, const std::string& pickleKey) {
     if (!db_) return false;
-    const char* sql = "INSERT INTO e2ee_data(key,value) VALUES('olm_sessions',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value;";
+    std::string key = "olm_sessions:" + pickleKey;
+    const char* sql = "INSERT INTO e2ee_data(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value;";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_text(stmt, 1, data.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 1, key.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, data.c_str(), -1, SQLITE_TRANSIENT);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     if (rc != SQLITE_DONE) return false;
@@ -278,11 +284,13 @@ bool SessionStore::saveOlmSessions(const std::string& data) {
     return true;
 }
 
-std::optional<std::string> SessionStore::loadOlmSessions() {
+std::optional<std::string> SessionStore::loadOlmSessions(const std::string& pickleKey) {
     if (!db_) return std::nullopt;
-    const char* sql = "SELECT value FROM e2ee_data WHERE key='olm_sessions';";
+    std::string key = "olm_sessions:" + pickleKey;
+    const char* sql = "SELECT value FROM e2ee_data WHERE key=?;";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
+    sqlite3_bind_text(stmt, 1, key.c_str(), -1, SQLITE_TRANSIENT);
     std::optional<std::string> r;
     if (sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL)
         r = std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));

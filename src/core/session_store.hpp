@@ -55,12 +55,12 @@ public:
     std::optional<OlmAccountRecord> loadOlmAccount(const std::string& pickleKey);
 
     // ---- Megolm sessions (E2EE) ----
-    bool saveMegolmSessions(const std::string& data);
-    std::optional<std::string> loadMegolmSessions();
+    bool saveMegolmSessions(const std::string& data, const std::string& pickleKey);
+    std::optional<std::string> loadMegolmSessions(const std::string& pickleKey);
 
     // ---- Olm 1:1 sessions (E2EE) ----
-    bool saveOlmSessions(const std::string& data);
-    std::optional<std::string> loadOlmSessions();
+    bool saveOlmSessions(const std::string& data, const std::string& pickleKey);
+    std::optional<std::string> loadOlmSessions(const std::string& pickleKey);
 
     // ---- E2EE flags ----
     bool saveE2eeFlag(const std::string& key, bool value);

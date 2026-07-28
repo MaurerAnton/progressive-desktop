@@ -2,6 +2,8 @@
 
 #include "megolm_store.hpp"
 
+#include "core/debug_log.hpp"
+
 #include <progressive/megolm_decryptor.hpp>
 #include <progressive/olm.hpp>
 
@@ -125,9 +127,16 @@ bool MegolmStore::unpickleAll(const std::string& key, const std::string& data) {
     // causing only the first session to be loaded)
     simdjson::dom::parser parser;
     auto root = parser.parse(raw);
-    if (root.error() != simdjson::SUCCESS) return true;
+    if (root.error() != simdjson::SUCCESS) {
+        LOG(LogChannel::E2EE, "unpickleAll: JSON parse FAILED dataLen=%zu rawLen=%zu",
+            data.size(), raw.size());
+        return false;
+    }
     auto arr = root.value().get_array();
-    if (arr.error() != simdjson::SUCCESS) return true;
+    if (arr.error() != simdjson::SUCCESS) {
+        LOG(LogChannel::E2EE, "unpickleAll: not an array");
+        return false;
+    }
     for (auto elem : arr.value()) {
         auto obj = elem.get_object();
         if (obj.error() != simdjson::SUCCESS) continue;
@@ -147,6 +156,7 @@ bool MegolmStore::unpickleAll(const std::string& key, const std::string& data) {
             impl_->params.push_back({roomId, senderKey, sessionId, sessionKey});
         }
     }
+    LOG(LogChannel::E2EE, "unpickleAll: loaded %d sessions", sessionCount());
     return true;
 }
 

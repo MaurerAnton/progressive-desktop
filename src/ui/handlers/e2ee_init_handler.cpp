@@ -64,13 +64,13 @@ void E2eeInitHandler::init(MatrixClient* client, SessionStore* store,
             }
 
             if (store) {
-                auto megolmData = store->loadMegolmSessions();
+                auto megolmData = store->loadMegolmSessions(pickleKey);
                 if (megolmData && !megolmData->empty()) {
                     sync->decryptor()->megolm()->unpickleAll(pickleKey, *megolmData);
                     std::cerr << "[e2ee] loaded megolm sessions: "
                               << sync->decryptor()->megolm()->sessionCount() << "\n";
                 }
-                auto olmSessionsData = store->loadOlmSessions();
+                auto olmSessionsData = store->loadOlmSessions(pickleKey);
                 if (olmSessionsData && !olmSessionsData->empty()) {
                     sync->decryptor()->unpickleOlmSessions(pickleKey, *olmSessionsData);
                     std::cerr << "[e2ee] loaded olm sessions: "
@@ -99,14 +99,14 @@ void E2eeInitHandler::persistCrypto(MatrixClient* client, SessionStore* store,
     std::string pickleKey = client->account().userId + "/" + client->account().deviceId;
     auto megolmPickle = sync->decryptor()->megolm()->pickleAll(pickleKey);
     if (!megolmPickle.empty()) {
-        store->saveMegolmSessions(megolmPickle);
+        store->saveMegolmSessions(megolmPickle, pickleKey);
         std::fprintf(stderr, "[e2ee] persistCrypto: saved %d megolm sessions\n",
             sync->decryptor()->megolm()->sessionCount());
     }
     auto olmSessionsPickle = sync->decryptor()->pickleOlmSessions(pickleKey);
     std::fprintf(stderr, "[e2ee] persistCrypto: saving %zu olm sessions\n",
                  sync->decryptor()->olmSessionCount());
-    if (!olmSessionsPickle.empty()) store->saveOlmSessions(olmSessionsPickle);
+    if (!olmSessionsPickle.empty()) store->saveOlmSessions(olmSessionsPickle, pickleKey);
 }
 
 } // namespace progressive::desktop

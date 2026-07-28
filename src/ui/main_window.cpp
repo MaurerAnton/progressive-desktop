@@ -70,6 +70,7 @@ void MainWindow::setClient(std::shared_ptr<MatrixClient> client) {
 void MainWindow::setSessionStore(std::shared_ptr<SessionStore> store) {
     store_ = std::move(store);
     if (roomStore_) roomStore_->setSessionStore(store_);
+    if (accountSwitcher_) accountSwitcher_->setSessionStore(store_);
     if (roomModel_ && store_) {
         auto hidden = store_->loadHiddenRooms();
         roomModel_->setHiddenRooms({hidden.begin(), hidden.end()});

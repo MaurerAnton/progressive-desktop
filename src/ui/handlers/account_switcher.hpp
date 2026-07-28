@@ -30,6 +30,7 @@ public:
                     QObject* parent = nullptr);
 
     void setClient(std::shared_ptr<MatrixClient> c) { client_ = std::move(c); }
+    void setSessionStore(std::shared_ptr<SessionStore> s) { store_ = std::move(s); }
 
     int accountCount();
     int currentAccountIndex();

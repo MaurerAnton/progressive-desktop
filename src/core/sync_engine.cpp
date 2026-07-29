@@ -245,7 +245,7 @@ void SyncEngine::run() {
 
         // Auto-upload one-time keys if running low
         if (result.data.signedCurve25519Count >= 0 && result.data.signedCurve25519Count < 50) {
-            LOG(LogChannel::E2EE, "sync: OTK count=%d (<5) — uploading fresh keys",
+            LOG(LogChannel::E2EE, "sync: OTK count=%d (<50) — uploading fresh keys",
                 result.data.signedCurve25519Count);
             uploadDeviceKeys(true);
         }
@@ -367,6 +367,9 @@ void SyncEngine::uploadDeviceKeys(bool force) {
             decryptor_.markAccountAsShared();
             LOG(LogChannel::E2EE, "uploadDeviceKeys: account marked as shared");
         }
+        decryptor_.account()->setUploadedKeyCount(serverCount + needed);
+        LOG(LogChannel::E2EE, "uploadDeviceKeys: OTK count updated locally to %d (was %d, added %d)",
+            serverCount + needed, serverCount, needed);
         {
             std::string queryBody = "{\"device_keys\":{\"" + userId + "\":[]}}";
             auto queryResp = client_->queryKeys(queryBody);

@@ -193,6 +193,12 @@ if(PROGRESSIVE_BUILD_TESTS)
         -include "${CMAKE_CURRENT_SOURCE_DIR}/third_party/android_shim/progressive_compat.h")
     add_test(NAME e2ee_account COMMAND test_e2ee_account)
 
+    add_executable(test_e2ee_otk_count tests/test_e2ee_otk_count.cpp)
+    target_link_libraries(test_e2ee_otk_count PRIVATE progressive_core)
+    target_compile_options(test_e2ee_otk_count PRIVATE
+        -include "${CMAKE_CURRENT_SOURCE_DIR}/third_party/android_shim/progressive_compat.h")
+    add_test(NAME e2ee_otk_count COMMAND test_e2ee_otk_count)
+
     add_executable(test_phase4 tests/test_phase4.cpp)
     add_test(NAME phase4 COMMAND test_phase4)
 

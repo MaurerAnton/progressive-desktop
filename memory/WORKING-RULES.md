@@ -6,6 +6,29 @@
 
 ---
 
+## Quick Reference
+
+| # | Rule | Action |
+|---|---|---|
+| 1 | No opencode question forms | Ask in plain text, ONE at a time |
+| 2 | Verify AI coder claims | grep/read actual source — they've been wrong before |
+| 3 | Open questions BEFORE prompts | Resolve ambiguity first, never write prompts with assumptions |
+| 4 | Write answers FOR the AI coder | Copy-paste ready response with verified claims |
+| 5 | Maximal effort in research | Compare actual source via gh/curl, quote real code |
+| 6 | Honest about errors | Acknowledge mistakes, consider regressions from recent commits |
+| 7 | Simple explanations | Explain Matrix/E2EE concepts (OTK, Megolm, Olm, etc.) |
+| 7a | Explain C++ basics | lambda, shared_ptr, QPointer, mutex, XOR, pickle, base64 |
+| 8 | Grammar correction | Fix articles/spelling/verb forms; NOT slang, case, punctuation |
+| 9 | AI coder commits/pushes | I do NOT commit — delegate to AI coder |
+| 9a | Exception: docs/memory | I CAN commit docs/, memory/, AGENTS.md (verify: no Russian, no secrets) |
+| 10 | Test accounts by ROLE | Progressive, Element/Faraday, FluffyChat, Element Web |
+| 11 | User tests on PineTab 2 | ARM64, DanctNIX |
+| 11a | 9-step log analysis | startup → upload → crashes → incoming → recovery → Olm → OTK → switch → outbound |
+| 12 | Multi-device context | Check if other device (Faraday) can decrypt |
+| 13 | Be efficient when tired | Skip detail, actionable only |
+
+---
+
 ## 1. Don't use opencode question forms
 The multi-question form has a bug — the user has trouble with more than 1 question.
 Present questions as PLAIN TEXT with pros/cons, not via the question tool.

@@ -147,6 +147,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(roomListDelegate_, &RoomListDelegate::inviteRejected, roomHandler_, &RoomHandler::rejectInvite);
 
     toolbarHandler_->setRoomHandler(roomHandler_);
+    toolbarHandler_->setAuthHandler(auth_);
     toolbarHandler_->setInterfaceElements(chatLogBtn_, threadBtn_);
     connect(chatLogBtn_, &QPushButton::clicked, toolbarHandler_, &ToolbarHandler::onToggleChatLog);
     connect(threadBtn_, &QPushButton::clicked, toolbarHandler_, &ToolbarHandler::toggleThreadPanel);

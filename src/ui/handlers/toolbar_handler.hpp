@@ -19,6 +19,7 @@ class RoomStore;
 class TimelineModel;
 class RoomHandler;
 class SyncEngine;
+class AuthHandler;
 
 class ToolbarHandler : public QObject {
     Q_OBJECT
@@ -39,6 +40,7 @@ public:
         void setClient(std::shared_ptr<MatrixClient> c) { client_ = std::move(c); }
 
     void setRoomHandler(RoomHandler* rh) { roomHandler_ = rh; }
+    void setAuthHandler(AuthHandler* a) { authHandler_ = a; }
     void setInterfaceElements(QPushButton* chatLog, QPushButton* threadBtn) {
         chatLogBtn_ = chatLog; threadBtn_ = threadBtn;
     }
@@ -71,6 +73,7 @@ private:
     QWidget* parentWidget_;
     SyncEngine* sync_ = nullptr;
     RoomHandler* roomHandler_ = nullptr;
+    AuthHandler* authHandler_ = nullptr;
     QPushButton* chatLogBtn_ = nullptr;
     QPushButton* threadBtn_ = nullptr;
     std::unique_ptr<ChatLogger> chatLogger_;

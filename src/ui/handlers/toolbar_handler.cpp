@@ -7,6 +7,7 @@
 #include "core/sync_engine.hpp"
 #include "core/crypto/decryptor.hpp"
 #include "core/debug_log.hpp"
+#include "auth_handler.hpp"
 #include "../profile/room_members_dialog.hpp"
 #include "../profile/user_profile_dialog.hpp"
 #include "core/version.h"
@@ -247,8 +248,16 @@ void ToolbarHandler::onResetDeviceKeys() {
                     });
                 }
             } else {
-                self->statusLabel_->setText("Reset failed: " +
-                    QString::fromStdString(delRes.error.message));
+                if (self->authHandler_ && (delRes.httpStatus == 401 ||
+                                     delRes.error.code == "M_UNKNOWN_TOKEN")) {
+                    LOG(LogChannel::E2EE, "resetDeviceKeys: 401 — triggering forceReLogin");
+                    QMetaObject::invokeMethod(self->authHandler_, &AuthHandler::forceReLogin,
+                                             Qt::QueuedConnection);
+                    self->statusLabel_->setText("Session expired — please log in again, then retry reset.");
+                } else {
+                    self->statusLabel_->setText("Reset failed: " +
+                        QString::fromStdString(delRes.error.message));
+                }
             }
         }, Qt::QueuedConnection);
     });

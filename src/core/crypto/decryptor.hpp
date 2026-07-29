@@ -183,7 +183,7 @@ private:
     std::unique_ptr<MegolmStore> megolm_;
     // Per-room outbound megolm sessions.
     std::unordered_map<std::string, OutboundMegolmSession> outboundSessions_;
-    std::mutex outboundMtx_;
+    mutable std::mutex outboundMtx_;
     // Inbound Olm 1:1 sessions, keyed by (senderCurve25519).
     // We store them as pickled strings; created on-demand from pre-key messages.
     // DEBT: no GC on old Olm sessions — cap at ~20 per sender if growth becomes an issue

@@ -646,11 +646,13 @@ void Decryptor::dropOutboundSession(const std::string& roomId) {
 }
 
 bool Decryptor::roomKeyShared(const std::string& roomId) const {
+    std::lock_guard<std::mutex> lk(outboundMtx_);
     auto it = roomKeysShared_.find(roomId);
     return it != roomKeysShared_.end() && it->second;
 }
 
 void Decryptor::markRoomKeyShared(const std::string& roomId) {
+    std::lock_guard<std::mutex> lk(outboundMtx_);
     roomKeysShared_[roomId] = true;
 }
 

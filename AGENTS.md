@@ -2,7 +2,7 @@
 
 **Read this file, code_map.json, and memory/REFERENCE.md before any code change.**
 **memory/DREAM.md explains WHY the architecture exists.**
-**Last updated: July 27, 2026**
+**Last updated: July 29, 2026**
 
 ---
 
@@ -233,24 +233,29 @@ If a class calls `httpPost`/`httpPut` with auth headers (`makeAuthHeaders(token)
 
 ---
 
-## E2EE Implementation Status (July 2026)
+## E2EE Implementation Status (July 29, 2026)
 
 ### Working ✓
 - Inbound decryption (Olm + Megolm, recovery chain via m.dummy + m.room_key_request)
 - Outbound encryption (Megolm + Olm, room_key sharing via /sendToDevice)
 - Self-echo decryption (outbound imported as inbound)
-- Olm session persistence (multiple sessions per senderKey, vector storage)
-- Megolm inbound session persistence (SQLite)
+- Olm session persistence (multiple sessions per senderKey, vector storage, scoped per-account)
+- Megolm inbound session persistence (SQLite, scoped per-account)
 - Token rotation handling (setCryptoContext re-call at refresh sites)
 - Bug A recovery verified (Element re-shares room_key via fresh Olm session)
 - Bug B outbound verified (Element decrypts; room_id in Megolm plaintext)
+- **Multi-account E2EE** — `shared` flag on OlmAccount (matrix-rust-sdk pattern), per-account scoping for all crypto tables
+- **OTK count tracking** — `uploadedKeyCount_` updated from /sync, smart generation (`max(0, 100 - serverCount)`)
+- **device_lists tracking** — parse `device_lists:{changed,left}` from /sync, mark stale users
+- **Device reset** — "Reset device keys" action clears stale OTKs via `POST /delete_devices`
 
-### Gaps (deferred — not user-visible bugs)
+### Gaps
 | Gap | What | Priority |
 |---|---|---|
 | Outbound Megolm persistence | Sessions lost on restart; new session per run | MEDIUM |
 | Device verification (cross-signing/SAS) | Red shield in Element; device not verified | Future sprint |
 | SSSS key backup | Can't recover history after re-login | Future sprint |
+| Fallback keys | No fallback when OTKs exhausted | P4 (blocked on submodule) |
 | m.room_key_request incoming | Don't re-share keys when another device requests | LOW |
 | m.forwarded_room_key | Don't handle forwarded keys | LOW |
 | Megolm rotation | No forward secrecy | LOW |
@@ -259,6 +264,17 @@ If a class calls `httpPost`/`httpPut` with auth headers (`makeAuthHeaders(token)
 | Threading: HTTP on UI thread | requestRoomKey blocks UI for 1-3s | LOW |
 | Option A refactor | ctxToken_ works but is stale-prone; inject MatrixClient | LOW |
 | FluffyChat multi-device OTK | Only claim 1 OTK for 2+ devices | LOW |
+| Proactive Olm session creation | get_missing_sessions() between syncs | P5 (deferred) |
+
+### Multi-Account E2EE Patterns (AGENTS.md #7)
+1. **`shared` flag**: Stored on OlmAccountStore (matches matrix-rust-sdk `Account.shared`). `false` = new account → upload device_keys. `true` = already uploaded → skip. Persisted in `olm_account.shared` column.
+2. **Per-account scoping**: All crypto tables use `userId/deviceId` as key suffix: `megolm:userId/devId`, `olm_sessions:userId/devId`, `otk_uploaded_once:userId/devId`. No cross-contamination when switching accounts.
+3. **OTK count from /sync**: `fast_sync.cpp` parses `signed_curve25519 count` → `uploadedKeyCount_` → `needed = max(0, 100 - serverCount)`. Never generate duplicate OTKs.
+4. **Double-init guard**: NEVER call `init()` before `init(pickle, key, shared)`. The 2-arg init handles both load and create-new cases. Pre-calling `init()` creates an account that `load()` can't overwrite → libolm zeros the struct.
+5. **`sessionCount()` inside `unpickleAll()`**: Already holds `mtx_` → don't call `sessionCount()` (which locks). Use `impl_->mgr.sessionCount()` directly.
+6. **`markOneTimeKeysPublished()` before generate**: Always discard old unpublished OTKs before generating new ones. Prevents sequential ID collisions (400 "already exists").
+7. **`device_lists` from /sync**: Parse `device_lists:{changed,left}` in `fast_sync.cpp`. Mark users as stale in `Decryptor::staleDeviceUsers_`. LOG on next `shareRoomKey` call.
+See `docs/E2EE.md` for full multi-account E2EE architecture and the 167 stale OTKs cautionary tale.
 
 ### libolm Quirks Documented (AGENTS.md #6) — full details in docs/E2EE.md
 1. olm_create_inbound_session expects BASE64

@@ -2,7 +2,8 @@
 
 > **Who this is for:** Developers implementing Matrix E2EE with libolm in any language.
 > Written from hard-won experience implementing E2EE from scratch in a pure C++20 Matrix client.
-> **Last updated:** July 27, 2026 — 15+ commits, 8 libolm quirks discovered.
+> **Last updated:** July 29, 2026 — Multi-account E2EE, shared flag pattern, OTK count tracking, device_lists tracking, device reset, 10+ commits.
+> See `docs/E2EE-troubleshooting.md` for diagnostic guide (log patterns → root cause → fix).
 
 ---
 
@@ -430,20 +431,205 @@ std::string pickleOlmSessions(const std::string& key) {
 
 ---
 
+## Multi-Account E2EE Architecture
+
+### The Problem: Why Multi-Account Broke E2EE
+
+Progressive Chat supports multiple Matrix accounts within a single app instance. Each account has its own Olm identity (curve25519/ed25519 key pair), its own Megolm sessions, and its own Olm 1:1 sessions.
+
+The original implementation stored all E2EE state in a **shared SQLite database** with **global keys** — not scoped per account. This caused 5 compounding bugs:
+
+1. **`olm_account` single-row table** (`id INTEGER PRIMARY KEY CHECK (id=1)`) — only ONE Olm account pickle could exist. Switching accounts overwrote the previous account's pickle with the new one.
+
+2. **`otk_uploaded_once` global flag** — stored in shared `e2ee_data` table, not scoped per userId/deviceId. Account A uploading OTKs set the flag → Account B saw "already uploaded" → skipped upload → B's device keys never reached the server.
+
+3. **`e2ee_data['megolm']` single key** — ALL accounts shared one Megolm session store. Account A's sessions overwrote Account B's.
+
+4. **`e2ee_data['olm_sessions']` single key** — same bug as Megolm. Account A's Olm sessions overwrote Account B's.
+
+5. **Double-init in account switcher** — `switchAccount()` called `init()` (creates new Olm account) then `init(pickle, key)` (tries to load pickle). If load failed, `create()` was called AGAIN → libolm quirk #7: re-calling zeros the struct → curve25519 = "AAAA..." (all zeros). Uploaded garbage keys to server.
+
+### The Fix: Per-Account Scoping
+
+All fixes were applied July 28-29, 2026 (10+ commits):
+
+| Bug | Fix | Pattern |
+|---|---|---|
+| `olm_account` single-row | Multi-row table, keyed by `pickle_key` (userId/deviceId) | FluffyChat's per-account database (approximated via scoped keys) |
+| Global `otk_uploaded_once` | Replaced with `shared` flag on OlmAccountStore (matches matrix-rust-sdk `Account.shared`) | matrix-rust-sdk pattern |
+| Global `megolm` / `olm_sessions` | Scoped to `megolm:userId/devId` / `olm_sessions:userId/devId` | Same pattern as olm_account table |
+| Double-init | Removed `init()` pre-check, call `init(pickle, key, shared)` directly | No double-create |
+
+### The `shared` Flag Pattern (matrix-rust-sdk)
+
+```cpp
+// OlmAccountStore (olm_account.hpp)
+class OlmAccountStore {
+    bool shared_ = false;           // has device_keys been uploaded?
+    int uploadedKeyCount_ = 0;      // OTKs on server (from /sync)
+
+    bool shared() const { return shared_; }
+    void markAsShared() { shared_ = true; }
+    int uploadedKeyCount() const { return uploadedKeyCount_; }
+    void setUploadedKeyCount(int c) { uploadedKeyCount_ = c; }
+};
+
+// sync_engine.cpp:uploadDeviceKeys()
+bool needDeviceKeys = !decryptor_.accountShared();
+// shared=false → upload device_keys + OTKs → markAsShared → save pickle
+// shared=true  → skip device_keys, OTK managed by auto-refresh
+```
+
+**How it matches matrix-rust-sdk**:
+```rust
+// matrix-rust-sdk account.rs:693
+pub fn keys_for_upload(&self) -> (Option<DeviceKeys>, ...) {
+    let device_keys = self.shared().not().then(|| self.device_keys());
+    // shared=false → Some(device_keys) → upload
+    // shared=true  → None → skip
+}
+```
+
+The `shared` flag is **on the Olm account itself** (stored in `olm_account.shared` column), NOT in a global DB flag. New account → `shared=false` → upload. Loaded from pickle → `shared` restored from DB. After successful upload → `shared=true` → persisted.
+
+### OTK Count Tracking (matrix-rust-sdk pattern)
+
+```cpp
+// sync_engine.cpp — update from every /sync response
+if (result.data.signedCurve25519Count > 0) {
+    decryptor_.account()->setUploadedKeyCount(result.data.signedCurve25519Count);
+}
+
+// Smart generation: only generate what's needed
+int serverCount = decryptor_.account()->uploadedKeyCount();
+int needed = std::max(0, 100 - serverCount);  // 100 = libolm MAX_ONE_TIME_KEYS
+if (needed == 0 && shared && !needDeviceKeys) {
+    return;  // server has enough, nothing to do
+}
+// discard old unpublished OTKs, generate exactly `needed`
+decryptor_.markOneTimeKeysPublished();
+std::string body = decryptor_.buildKeysUploadBody(userId, deviceId, needed, needDeviceKeys);
+```
+
+**How it matches matrix-rust-sdk**:
+```rust
+// account.rs — generate_one_time_keys_if_needed()
+let count = self.uploaded_key_count();
+if count >= max_keys as u64 { return None; }  // enough → skip
+let key_count = (max_keys as u64) - count;     // only generate needed
+```
+
+### device_lists Tracking (matrix-rust-sdk pattern)
+
+The `/sync` response includes `device_lists: {changed: [...], left: [...]}` — the server tells us when other users' device keys change. We now parse this in `fast_sync.cpp` and mark users as "stale" in `Decryptor::staleDeviceUsers_`. On next `shareRoomKey` call, we LOG stale users (future: re-query /keys/query).
+
+```cpp
+// fast_sync.cpp — parse device_lists
+auto deviceLists = root["device_lists"].get_object();
+// Parse "changed" array → resp.deviceListChanged
+// Parse "left" array → resp.deviceListLeft
+LOG("device_lists: changed=%zu left=%zu", ...);
+
+// sync_engine.cpp — mark stale
+if (!result.data.deviceListChanged.empty()) {
+    decryptor_.markDevicesStale(result.data.deviceListChanged);
+}
+```
+
+### The 167 Stale OTKs Story (A Cautionary Tale)
+
+**What happened**: During the broken period (July 22-28), each account switch created a NEW Olm account (new curve25519) due to the single-row `olm_account` table. Each new account uploaded 10 fresh OTKs. But the old OTKs from previous accounts stayed on the server (the Matrix spec says `/keys/upload` ADDS OTKs, doesn't replace). After multiple switches, 167 OTKs accumulated on the server — most from OLD Olm accounts, now orphaned (wrong key pair — can't be used with current curve25519).
+
+**The symptom**: FluffyChat/Element would query `/keys/query` for our device → get our current curve25519 → claim an OTK from the server → receive an ORPHANED OTK (from an old Olm account) → Olm session creation FAILS (wrong key pair) → give up → never share room_key → we can't decrypt their messages.
+
+**Our outbound worked** because WE queried THEIR fresh device keys → claimed THEIR fresh OTKs → Olm session succeeded → room_key shared correctly.
+
+**The fix**: "Reset device keys" action (Settings menu). Calls `POST /_matrix/client/v3/delete_devices` with password auth → deletes the device from the server (clears ALL stale OTKs) → restart → `shared=false` → re-uploads fresh device_keys + fresh OTKs → server has ONLY fresh keys → other clients claim fresh OTKs → Olm sessions work.
+
+### Per-Account Session Persistence
+
+Megolm and Olm sessions are stored in `e2ee_data` KV table with scoped keys:
+
+```sql
+-- Old (broken): ALL accounts shared one row
+SELECT value FROM e2ee_data WHERE key='megolm';
+
+-- New (fixed): each account has its own row
+SELECT value FROM e2ee_data WHERE key='megolm:@t1s3:matrix.org/pd-745a8faa...';
+SELECT value FROM e2ee_data WHERE key='megolm:@t0n1a:matrix.org/pd-745a8faa...';
+```
+
+The pickleKey (userId/deviceId) is used both for XOR encryption of the pickle data AND as part of the DB key. This prevents cross-contamination when switching accounts.
+
+### Megolm Pickle Format (XOR + Hex)
+
+```cpp
+// Saved: JSON array → XOR with pickleKey → hex encode → e2ee_data
+std::string megolmPickle = pickleAll(pickleKey);
+store->saveMegolmSessions(megolmPickle, pickleKey);
+
+// Loaded: hex decode → XOR with pickleKey → JSON parse → unpickle
+auto data = store->loadMegolmSessions(pickleKey);
+megolm_->unpickleAll(pickleKey, *data);
+```
+
+**Critical**: `sessionCount()` inside `unpickleAll()` holds `mtx_` (line 108). The bonus diagnostic LOG at line 159 called `sessionCount()` which tries to lock `mtx_` again → non-recursive mutex → SIGABRT. Fixed by using `impl_->mgr.sessionCount()` (direct access, no lock needed while already locked).
+
+### Multi-Device Handling (1 user, 2+ devices)
+
+When a user has multiple devices (e.g., Progressive on PineTab + Element on phone):
+
+1. `/keys/query` returns ALL devices for the user (different device_ids, different curve25519 keys)
+2. `shareRoomKey` queries `/keys/query` for all room members, finds ALL devices
+3. Claims 1 OTK per device via `/keys/claim` (single request, all devices)
+4. Creates an Olm session with EACH device
+5. Encrypts room_key for EACH device separately
+6. Sends via `/sendToDevice`
+
+**Known issue**: FluffyChat multi-device OTK claim — if a friend has 2+ devices and one has no available OTKs, the server returns nothing for that device → we skip it → that device doesn't get the room_key. FluffyChat's workaround: re-upload OTKs regularly.
+
+### Architecture Comparison — Multi-Account E2EE
+
+| Aspect | matrix-rust-sdk | FluffyChat | Progressive Chat |
+|---|---|---|---|
+| Account storage | Per-account crypto store | Per-account SQLite DB | Shared SQLite, scoped keys |
+| `shared` flag | On Account struct, pickled | Implicit (pickle exists) | On OlmAccountStore, DB column |
+| OTK count tracking | `uploaded_signed_key_count` from /sync | `handleDeviceOneTimeKeysCount()` | `uploadedKeyCount_` from /sync |
+| OTK generation | `generate_one_time_keys_if_needed()` — only if needed | `(2/3*max - oldCount)` | `max(0, 100 - serverCount)` |
+| Fallback keys | ✅ Weekly rotation | ✅ Generated if no unused | ❌ Blocked on submodule (P4) |
+| `device_lists` tracking | ✅ Re-queries changed users | ✅ Cache invalidation | ✅ Marks stale, LOG only |
+| Device reset | Delete device API | Re-login with new device_id | "Reset device keys" action |
+| Megolm persistence | Per-account crypto store | Per-account DB | Scoped `e2ee_data` keys |
+| Olm session GC | LRU with TTL | LRU with TTL | ❌ No GC (DEBT comment) |
+
+## Device Reset — Clearing Stale OTKs
+
+One-time operation accessible from Settings menu. Requires password authentication.
+
+1. User clicks "Reset device keys" → warning dialog → enter password
+2. `POST /_matrix/client/v3/delete_devices {"devices":["pd-745a8faa..."],"auth":{"type":"m.login.password","user":"@user","password":"..."}}`
+3. Server deletes the device → ALL stale OTKs cleared
+4. On next app start (or manual restart): `shared=false` → uploads fresh device_keys + fresh OTKs
+5. Other clients re-query `/keys/query` → get fresh curve25519 + fresh OTKs
+6. E2EE works correctly in both directions
+
 ## File Reference
 
 | File | Purpose |
 |---|---|
-| `src/core/crypto/decryptor.cpp` | E2EE coordinator (1190 lines) |
-| `src/core/crypto/decryptor.hpp` | Decryptor class (206 lines) |
-| `src/core/crypto/olm_account.cpp` | OlmAccountStore — device keys, OTK management |
-| `src/core/crypto/megolm_store.cpp` | MegolmStore — inbound session persistence (SQLite) |
+| `src/core/crypto/decryptor.cpp` | E2EE coordinator (1218 lines) |
+| `src/core/crypto/decryptor.hpp` | Decryptor class — `shared()`, `markDevicesStale()`, `isDeviceStale()` |
+| `src/core/crypto/olm_account.cpp` | OlmAccountStore — `shared_`, `uploadedKeyCount_`, `markAsShared()` |
+| `src/core/crypto/megolm_store.cpp` | MegolmStore — pickleAll + unpickleAll with XOR + hex |
 | `src/core/crypto/event_body_parser.hpp` | `parsePlaintextBody()` — shared parser |
-| `src/ui/handlers/e2ee_init_handler.cpp` | E2EE init at login — `setCryptoContext` call |
-| `src/ui/handlers/session_bootstrap.cpp` | Token pre-refresh + `setCryptoContext` re-call |
-| `src/core/sync_engine.cpp` | Sync loop + token refresh + `setCryptoContext` re-call |
-| `src/ui/chat/chat_view.cpp` | `doSend` — encrypts + sends, builds Megolm plaintext with room_id |
-| `third_party/progressive-android-experiments/.../olm.cpp` | OlmSession C++ wrappers (pickle, unpickle, encrypt, decrypt) |
+| `src/core/session_store.cpp` | SQLite: `olm_account` (pickle_key PK, shared, uploaded_key_count), `e2ee_data` (scoped keys) |
+| `src/core/sync_engine.cpp` | `uploadDeviceKeys()` — shared flag check, OTK count tracking, auto-refresh |
+| `src/core/fast_sync.cpp` | Parses `device_lists:{changed,left}` from /sync |
+| `src/ui/handlers/e2ee_init_handler.cpp` | E2EE init: load Olm pickle + sessions, restore count |
+| `src/ui/handlers/account_switcher.cpp` | Account switch: save/Load Olm pickle + megolm/olm sessions per account |
+| `src/ui/handlers/toolbar_handler.cpp` | "Reset device keys" action → `deleteDevice()` API |
+| `src/ui/chat/chat_view.cpp` | `doSend` — encrypts + sends with room_id in Megolm plaintext |
+| `third_party/progressive-android-experiments/.../olm.hpp` | `OlmAccount` class — libolm wrapper |
 | `build/_deps/olm-src/src/` | libolm C source — verify quirks here before adding encode/decode |
 
 ---

@@ -236,7 +236,7 @@ void SyncEngine::run() {
         if (result.data.signedCurve25519Count >= 0 && result.data.signedCurve25519Count < 5) {
             LOG(LogChannel::E2EE, "sync: OTK count=%d (<5) — uploading fresh keys",
                 result.data.signedCurve25519Count);
-            uploadDeviceKeys(false);
+            uploadDeviceKeys(true);
         }
 
         setState(SyncEngineState::Running);
@@ -312,6 +312,17 @@ void SyncEngine::uploadDeviceKeys(bool force) {
 
     LOG(LogChannel::E2EE, "uploadDeviceKeys: shared=%d needDeviceKeys=%d",
         decryptor_.accountShared() ? 1 : 0, needDeviceKeys ? 1 : 0);
+
+    if (decryptor_.accountShared() && !force) {
+        LOG(LogChannel::E2EE, "uploadDeviceKeys: shared=true, skipping "
+            "(OTKs managed by auto-refresh)");
+        return;
+    }
+
+    // Always discard old unpublished OTKs before generating new ones.
+    // Prevents sequential ID collisions (400 "already exists").
+    decryptor_.markOneTimeKeysPublished();
+    LOG(LogChannel::E2EE, "uploadDeviceKeys: discarded old OTKs before generating fresh");
 
     std::string userId = client_->account().userId;
     std::string deviceId = client_->account().deviceId;

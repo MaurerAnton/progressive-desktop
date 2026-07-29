@@ -145,6 +145,10 @@ public:
     // POST /_matrix/client/v3/rooms/{roomId}/forget
     ApiResult<bool> forgetRoom(const std::string& roomId);
 
+    // POST /_matrix/client/v3/delete_devices — delete current device (clears stale OTKs)
+    ApiResult<std::string> deleteDevice(const std::string& deviceId,
+                                          const std::string& password);
+
     // ---- Reactions ----
 
     // POST /_matrix/client/v3/rooms/{roomId}/send/m.reaction/{txnId}

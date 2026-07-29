@@ -4,6 +4,9 @@
 #include "../room_list_model.hpp"
 #include "room_handler.hpp"
 #include "core/matrix_client.hpp"
+#include "core/sync_engine.hpp"
+#include "core/crypto/decryptor.hpp"
+#include "core/debug_log.hpp"
 #include "../profile/room_members_dialog.hpp"
 #include "../profile/user_profile_dialog.hpp"
 #include "core/version.h"
@@ -32,11 +35,11 @@ namespace progressive::desktop {
 
 ToolbarHandler::ToolbarHandler(std::shared_ptr<MatrixClient> client, RoomListModel* roomModel,
                                  RoomStore* roomStore, TimelineModel* timelineModel,
-                                 QLabel* statusLabel, QWidget* parent)
+                                 QLabel* statusLabel, SyncEngine* sync, QWidget* parent)
     : QObject(parent), client_(std::move(client)), roomModel_(roomModel),
       roomStore_(roomStore), timelineModel_(timelineModel),
       statusLabel_(statusLabel), parentWidget_(parent),
-      chatLogger_(std::make_unique<ChatLogger>()) {}
+      sync_(sync), chatLogger_(std::make_unique<ChatLogger>()) {}
 
 QAction* ToolbarHandler::createNewChatAction() {
     auto* action = new QAction("+ New chat", parentWidget_);
@@ -185,6 +188,8 @@ void ToolbarHandler::onSettings() {
     auto* prefsAction = menu.addAction("Preferences...");
     menu.addSeparator();
     auto* netLogAction = menu.addAction("Network log");
+    menu.addSeparator();
+    auto* resetKeysAction = menu.addAction("Reset device keys");
     auto* selected = menu.exec(QCursor::pos());
     if (!selected) return;
 
@@ -201,7 +206,49 @@ void ToolbarHandler::onSettings() {
     } else if (selected == netLogAction) {
         NetworkLogDialog dlg(parentWidget_);
         dlg.exec();
+    } else if (selected == resetKeysAction) {
+        onResetDeviceKeys();
     }
+}
+
+void ToolbarHandler::onResetDeviceKeys() {
+    if (!client_ || !sync_) return;
+    auto reply = QMessageBox::warning(parentWidget_,
+        "Reset device keys",
+        "Delete device from server + re-upload device keys.\n"
+        "Other clients (Element, FluffyChat) must re-verify.\n"
+        "Fixes 'Unable to decrypt' from stale one-time keys.\n\n"
+        "Enter password to confirm:",
+        QMessageBox::Ok | QMessageBox::Cancel);
+    if (reply != QMessageBox::Ok) return;
+
+    bool ok;
+    QString password = QInputDialog::getText(parentWidget_,
+        "Reset device keys", "Password:", QLineEdit::Password, "", &ok);
+    if (!ok || password.isEmpty()) return;
+
+    std::string deviceId = client_->account().deviceId;
+    auto client = client_;
+    QPointer<ToolbarHandler> self(this);
+
+    ThreadPool::instance().enqueue([self, client, deviceId, password]() {
+        auto delRes = client->deleteDevice(deviceId, password.toStdString());
+        LOG(LogChannel::E2EE, "resetDeviceKeys: delete http=%d ok=%d",
+            delRes.httpStatus, delRes.ok ? 1 : 0);
+        QMetaObject::invokeMethod(self, [self, delRes]() {
+            if (self.isNull()) return;
+            if (delRes.ok) {
+                self->statusLabel_->setText("Device deleted. Re-uploading keys...");
+                if (self->sync_ && self->sync_->decryptor()) {
+                    self->sync_->decryptor()->setAccountShared(false);
+                    self->sync_->uploadDeviceKeys();
+                }
+            } else {
+                self->statusLabel_->setText("Reset failed: " +
+                    QString::fromStdString(delRes.error.message));
+            }
+        }, Qt::QueuedConnection);
+    });
 }
 
 void ToolbarHandler::doFullscreen() {

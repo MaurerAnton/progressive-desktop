@@ -505,6 +505,27 @@ ApiResult<bool> MatrixClient::forgetRoom(const std::string& roomId) {
     return r;
 }
 
+ApiResult<std::string> MatrixClient::deleteDevice(const std::string& deviceId,
+                                                    const std::string& password) {
+    ApiResult<std::string> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    std::ostringstream body;
+    body << "{\"auth\":{\"type\":\"m.login.password\",\"user\":\""
+         << account().userId << "\",\"password\":\""
+         << jsonEscape(password) << "\"},\"delete\":[\"" << deviceId << "\"]}";
+    auto resp = httpPost(account().homeserverUrl + "/_matrix/client/v3/delete_devices",
+                         body.str(), authHeaders(), 15000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) {
+        r.ok = true;
+        r.data = resp.body;
+    } else {
+        if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+        if (r.error.message.empty()) r.error.message = resp.errorMessage;
+    }
+    return r;
+}
+
 ApiResult<std::string> MatrixClient::sendReaction(const std::string& roomId,
                                                     const std::string& eventId,
                                                     const std::string& emoji) {

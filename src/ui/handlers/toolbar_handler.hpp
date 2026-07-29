@@ -18,13 +18,14 @@ class RoomListModel;
 class RoomStore;
 class TimelineModel;
 class RoomHandler;
+class SyncEngine;
 
 class ToolbarHandler : public QObject {
     Q_OBJECT
 public:
     ToolbarHandler(std::shared_ptr<MatrixClient> client, RoomListModel* roomModel,
                    RoomStore* roomStore, TimelineModel* timelineModel,
-                   QLabel* statusLabel, QWidget* parent);
+                   QLabel* statusLabel, SyncEngine* sync, QWidget* parent);
 
     QAction* createNewChatAction();
     QAction* createJoinRoomAction();
@@ -59,6 +60,7 @@ private slots:
     void onRoomSettings();
     void onRoomMembers();
     void onSettings();
+    void onResetDeviceKeys();
 
 private:
     std::shared_ptr<MatrixClient> client_;
@@ -67,6 +69,7 @@ private:
     TimelineModel* timelineModel_;
     QLabel* statusLabel_;
     QWidget* parentWidget_;
+    SyncEngine* sync_ = nullptr;
     RoomHandler* roomHandler_ = nullptr;
     QPushButton* chatLogBtn_ = nullptr;
     QPushButton* threadBtn_ = nullptr;

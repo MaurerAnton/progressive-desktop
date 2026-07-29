@@ -109,7 +109,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     roomModel_->setHeaderLabels(roomListHeader_, inviteHeader_);
 
     toolbarHandler_ = new ToolbarHandler(client_, roomModel_, roomStore_,
-        timelineModel_, statusLabel_, this);
+        timelineModel_, statusLabel_, &sync_, this);
     toolbar_->addAction(toolbarHandler_->createNewChatAction());
     toolbar_->addAction(toolbarHandler_->createJoinRoomAction());
     toolbar_->addAction(toolbarHandler_->createBrowseRoomsAction());

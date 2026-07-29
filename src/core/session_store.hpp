@@ -19,6 +19,7 @@ struct OlmAccountRecord {
     std::string pickle;
     std::string pickleKey;
     bool shared = false;
+    int uploadedKeyCount = 0;
 };
 
 class SessionStore {
@@ -51,7 +52,7 @@ public:
 
     // ---- Olm account (E2EE) ----
     bool saveOlmAccount(const std::string& pickle, const std::string& pickleKey,
-                         bool shared);
+                         bool shared, int uploadedKeyCount);
     std::optional<OlmAccountRecord> loadOlmAccount(const std::string& pickleKey);
 
     // ---- Megolm sessions (E2EE) ----

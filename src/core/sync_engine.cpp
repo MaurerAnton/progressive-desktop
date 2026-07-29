@@ -232,8 +232,13 @@ void SyncEngine::run() {
         // Emit to UI thread.
         if (syncCb_) syncCb_(result.data);
 
+        // Update OTK count tracking from sync response
+        if (result.data.signedCurve25519Count >= 0) {
+            decryptor_.account()->setUploadedKeyCount(result.data.signedCurve25519Count);
+        }
+
         // Auto-upload one-time keys if running low
-        if (result.data.signedCurve25519Count >= 0 && result.data.signedCurve25519Count < 5) {
+        if (result.data.signedCurve25519Count >= 0 && result.data.signedCurve25519Count < 50) {
             LOG(LogChannel::E2EE, "sync: OTK count=%d (<5) — uploading fresh keys",
                 result.data.signedCurve25519Count);
             uploadDeviceKeys(true);
@@ -329,7 +334,15 @@ void SyncEngine::uploadDeviceKeys(bool force) {
     if (deviceId.empty()) deviceId = "PROGRESSIVE_DESKTOP";
 
     LOG(LogChannel::E2EE, "uploadDeviceKeys: uploading for %s/%s", userId.c_str(), deviceId.c_str());
-    std::string body = decryptor_.buildKeysUploadBody(userId, deviceId, 10, needDeviceKeys);
+    int serverCount = decryptor_.account()->uploadedKeyCount();
+    int maxKeys = 100;
+    int needed = std::max(0, maxKeys - serverCount);
+    if (needed == 0 && decryptor_.accountShared() && !needDeviceKeys) {
+        LOG(LogChannel::E2EE, "uploadDeviceKeys: OTKs sufficient (count=%d), skipping",
+            serverCount);
+        return;
+    }
+    std::string body = decryptor_.buildKeysUploadBody(userId, deviceId, needed, needDeviceKeys);
     LOG(LogChannel::E2EE, "uploadDeviceKeys: our curve25519=%s ed25519=%s",
         decryptor_.curve25519Key().c_str(),
         decryptor_.ed25519Key().c_str());
@@ -367,7 +380,8 @@ void SyncEngine::uploadDeviceKeys(bool force) {
         std::string pickleKey = userId + "/" + deviceId;
         std::string newPickle = decryptor_.saveAccountPickle(pickleKey);
         if (!newPickle.empty() && store_) {
-            store_->saveOlmAccount(newPickle, pickleKey, decryptor_.accountShared());
+            store_->saveOlmAccount(newPickle, pickleKey, decryptor_.accountShared(),
+                                    decryptor_.account()->uploadedKeyCount());
             LOG(LogChannel::E2EE, "uploadDeviceKeys: account pickle saved (shared=%d, published=%d)",
                 decryptor_.accountShared() ? 1 : 0, result.ok ? 1 : 0);
         }

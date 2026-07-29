@@ -55,6 +55,9 @@ public:
     void markAsShared() { shared_ = true; }
     void setShared(bool s) { shared_ = s; }
 
+    int uploadedKeyCount() const { return uploadedKeyCount_; }
+    void setUploadedKeyCount(int c) { uploadedKeyCount_ = c; }
+
     bool isValid() const { return account_ != nullptr; }
 
     // Access the underlying progressive::OlmAccount for OlmSession operations.
@@ -63,6 +66,7 @@ public:
 private:
     void* account_ = nullptr;  // progressive::OlmAccount*
     bool shared_ = false;
+    int uploadedKeyCount_ = 0;
     friend class Decryptor;
 };
 

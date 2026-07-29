@@ -9,6 +9,7 @@
 #include "../room_list_model.hpp"
 #include "../main_window.hpp"
 #include "core/debug_log.hpp"
+#include "room_key_helper.hpp"
 
 #include <QInputDialog>
 #include <QLabel>
@@ -288,38 +289,7 @@ void ThreadHandler::sendThreadReply(const std::string& roomId,
                 }, Qt::QueuedConnection);
                 return;
             }
-            if (!dec->roomKeyShared(roomId)) {
-                std::string ourUserId = self->client_->account().userId;
-                std::string ourDeviceId = self->client_->account().deviceId;
-                std::string homeserver = self->client_->account().homeserverUrl;
-                std::string token = self->client_->account().accessToken;
-                auto membersResp = self->client_->getRoomMembers(roomId);
-                if (membersResp.ok) {
-                    std::vector<std::string> userIds;
-                    simdjson::dom::parser mp;
-                    auto doc = mp.parse(membersResp.data);
-                    if (doc.error() == simdjson::SUCCESS) {
-                        auto chunk = doc.value()["chunk"].get_array();
-                        if (chunk.error() == simdjson::SUCCESS) {
-                            for (auto evt : chunk.value()) {
-                                auto mship = evt["content"]["membership"].get_string();
-                                if (mship.error() != simdjson::SUCCESS ||
-                                    std::string(mship.value()) != "join") continue;
-                                auto sk = evt["state_key"].get_string();
-                                if (sk.error() == simdjson::SUCCESS)
-                                    userIds.push_back(std::string(sk.value()));
-                            }
-                        }
-                    }
-                    if (!userIds.empty()) {
-                        bool shared = dec->shareRoomKey(roomId, userIds, ourUserId, ourDeviceId,
-                                                         homeserver, token);
-                        if (shared) {
-                            dec->markRoomKeyShared(roomId);
-                        }
-                    }
-                }
-            }
+            shareRoomKeyForRoom(*self->client_, *dec, roomId);
             int64_t ts = static_cast<int64_t>(
                 std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::system_clock::now().time_since_epoch()).count());

@@ -6,6 +6,7 @@
 #include "core/debug_log.hpp"
 #include "core/memory_stats.hpp"
 #include "../room_list_model.hpp"
+#include "../handlers/room_key_helper.hpp"
 
 #include <QFileDialog>
 #include <QPointer>
@@ -182,39 +183,8 @@ void ChatView::doSend(const std::string& body) {
             // Share room key ONCE per session — BEFORE sending the encrypted message
             // so the recipient's /sync processes the to-device room_key before the room event,
             // and the message decrypts immediately instead of showing 'Unable to decrypt'.
-            if (!dec->roomKeyShared(roomId)) {
-                std::string ourUserId = client->account().userId;
-                std::string ourDeviceId = client->account().deviceId;
-                std::string homeserver = client->account().homeserverUrl;
-                std::string token = client->account().accessToken;
-                auto membersResp = client->getRoomMembers(roomId);
-                if (membersResp.ok) {
-                    std::vector<std::string> userIds;
-                    simdjson::dom::parser mp;
-                    auto doc = mp.parse(membersResp.data);
-                    if (doc.error() == simdjson::SUCCESS) {
-                        auto chunk = doc.value()["chunk"].get_array();
-                        if (chunk.error() == simdjson::SUCCESS) {
-                            for (auto evt : chunk.value()) {
-                                auto mship = evt["content"]["membership"].get_string();
-                                if (mship.error() != simdjson::SUCCESS ||
-                                    std::string(mship.value()) != "join") continue;
-                                auto sk = evt["state_key"].get_string();
-                                if (sk.error() == simdjson::SUCCESS)
-                                    userIds.push_back(std::string(sk.value()));
-                            }
-                        }
-                    }
-                    if (!userIds.empty()) {
-                        bool shared = dec->shareRoomKey(roomId, userIds, ourUserId, ourDeviceId, homeserver, token);
-                        if (shared) {
-                            dec->markRoomKeyShared(roomId);
-                            LOG(LogChannel::E2EE, "doSend: room key shared ok room=%.30s", roomId.c_str());
-                        } else {
-                            LOG(LogChannel::E2EE, "doSend: room key NOT shared (will retry next send) room=%.30s", roomId.c_str());
-                        }
-                    }
-                }
+            if (!shareRoomKeyForRoom(*client, *dec, roomId)) {
+                LOG(LogChannel::E2EE, "doSend: room key NOT shared (will retry next send) room=%.30s", roomId.c_str());
             }
             auto r = client->sendEncryptedEvent(roomId, enc, "pd" + std::to_string(std::time(nullptr)));
             if (!r.ok) {

@@ -120,6 +120,7 @@ add_library(progressive_ui_handlers STATIC
     src/ui/handlers/room_handler.cpp
     src/ui/handlers/thread_handler.cpp
     src/ui/handlers/room_context_menu.cpp
+    src/ui/handlers/room_key_helper.cpp
     src/ui/handlers/toolbar_handler.cpp
     src/ui/handlers/e2ee_init_handler.cpp
     src/ui/handlers/sync_response_handler.cpp

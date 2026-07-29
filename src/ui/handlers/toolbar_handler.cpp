@@ -21,6 +21,7 @@
 
 #include <chrono>
 #include <QInputDialog>
+#include <QLineEdit>
 #include <QMessageBox>
 #include <QMenu>
 #include <QCursor>
@@ -217,14 +218,13 @@ void ToolbarHandler::onResetDeviceKeys() {
         "Reset device keys",
         "Delete device from server + re-upload device keys.\n"
         "Other clients (Element, FluffyChat) must re-verify.\n"
-        "Fixes 'Unable to decrypt' from stale one-time keys.\n\n"
-        "Enter password to confirm:",
+        "Fixes 'Unable to decrypt' from stale one-time keys.",
         QMessageBox::Ok | QMessageBox::Cancel);
     if (reply != QMessageBox::Ok) return;
 
     bool ok;
     QString password = QInputDialog::getText(parentWidget_,
-        "Reset device keys", "Password:", QLineEdit::Password, "", &ok);
+        "Reset device keys", "Enter your password:", QLineEdit::Password, "", &ok);
     if (!ok || password.isEmpty()) return;
 
     std::string deviceId = client_->account().deviceId;
@@ -241,7 +241,10 @@ void ToolbarHandler::onResetDeviceKeys() {
                 self->statusLabel_->setText("Device deleted. Re-uploading keys...");
                 if (self->sync_ && self->sync_->decryptor()) {
                     self->sync_->decryptor()->setAccountShared(false);
-                    self->sync_->uploadDeviceKeys();
+                    auto sync = self->sync_;
+                    ThreadPool::instance().enqueue([sync]() {
+                        sync->uploadDeviceKeys();
+                    });
                 }
             } else {
                 self->statusLabel_->setText("Reset failed: " +

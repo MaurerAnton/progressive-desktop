@@ -62,6 +62,7 @@ public:
 
     // Access the E2EE decryptor (for setup at login time).
     Decryptor* decryptor() { return &decryptor_; }
+    void setPollTimeout(int ms) { syncTimeoutMs_ = ms; }
 
     // Upload device keys + one-time keys to the server.
     // Call once after init() + login. Non-blocking (spawns a thread).
@@ -105,6 +106,7 @@ private:
     std::string sinceToken_;
     SyncEngineStats stats_;
     bool firstRun_ = false;  // true → next sync uses empty since (gets current state)
+    int syncTimeoutMs_ = 3000;
 };
 
 } // namespace progressive::desktop

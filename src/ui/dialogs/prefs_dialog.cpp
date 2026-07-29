@@ -30,6 +30,16 @@ PrefsDialog::PrefsDialog(QWidget* parent) : QDialog(parent) {
     cacheSpin_->setToolTip("Maximum images cached in RAM. Lower = less memory. Default: 20.");
     form->addRow("Image cache size:", cacheSpin_);
 
+    syncTimeoutSpin_ = new QSpinBox(this);
+    syncTimeoutSpin_->setRange(1000, 30000);
+    syncTimeoutSpin_->setSingleStep(500);
+    syncTimeoutSpin_->setSuffix(" ms");
+    syncTimeoutSpin_->setValue(pollTimeoutMs());
+    syncTimeoutSpin_->setToolTip(
+        "How long /sync waits for new events before returning. "
+        "Lower = faster message delivery but more requests. Default 3000 (3s).");
+    form->addRow("Sync poll timeout:", syncTimeoutSpin_);
+
     root->addLayout(form);
 
     auto* btnRow = new QHBoxLayout;
@@ -47,6 +57,7 @@ PrefsDialog::PrefsDialog(QWidget* parent) : QDialog(parent) {
 void PrefsDialog::onSave() {
     QSettings s;
     s.setValue("cache/imageCount", cacheSpin_->value());
+    s.setValue("sync/pollTimeoutMs", syncTimeoutSpin_->value());
     accept();
 }
 

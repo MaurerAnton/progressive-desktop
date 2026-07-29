@@ -86,7 +86,7 @@ void SyncEngine::run() {
         // Timeout: 15s for initial sync (more data), 10s for incremental.
         bool useEmptySince = firstRun_;
         std::string since = useEmptySince ? "" : sinceToken_;
-        int timeout = useEmptySince ? 15000 : 10000;
+        int timeout = useEmptySince ? 15000 : syncTimeoutMs_;
         auto result = client_->syncFast(since, timeout, false);
 
         if (!result.ok) {

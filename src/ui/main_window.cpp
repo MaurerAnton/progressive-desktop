@@ -57,6 +57,7 @@ inline constexpr int kAccountComboW = 140;
 void MainWindow::setClient(std::shared_ptr<MatrixClient> client) {
     client_ = std::move(client);
     sync_.setClient(client_);
+    sync_.setPollTimeout(PrefsDialog::pollTimeoutMs());
     if (imageLoader_) imageLoader_->setClient(client_);
     if (chatView_) chatView_->setClient(client_);
     if (roomStore_) roomStore_->setClient(client_);

@@ -16,11 +16,17 @@ public:
         return s.value("cache/imageCount", 20).toInt();
     }
 
+    static int pollTimeoutMs() {
+        QSettings s;
+        return s.value("sync/pollTimeoutMs", 3000).toInt();
+    }
+
 private slots:
     void onSave();
 
 private:
     QSpinBox* cacheSpin_;
+    QSpinBox* syncTimeoutSpin_ = nullptr;
 };
 
 } // namespace progressive::desktop

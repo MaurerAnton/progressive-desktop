@@ -1,8 +1,6 @@
 # Progressive Chat — Desktop
 
-A Matrix client in the making. The goal: a truly progressive messenger with a **pure C++ native** core.
-
-Desktop sister to [`progressive-android-next`](https://github.com/MaurerAnton/progressive-android-next). Built with Qt6 QWidgets, libolm, and the shared `progressive_native` C++ core. For Linux desktop and PineTab 2 / PinePhone.
+A Matrix client in the making. Built with Qt6 QWidgets, libolm, and a shared `progressive_native` C++ core. For Linux desktop and PineTab 2 / PinePhone.
 
 **Website:** [progressive.chat](https://progressive.chat)
 
@@ -18,24 +16,31 @@ Desktop sister to [`progressive-android-next`](https://github.com/MaurerAnton/pr
 
 **⚠️ NOT USABLE. Under active refactoring. Do not use for daily communication.**
 
-Current phase: architecture cleanup — handlers extracted from MainWindow (532→220 lines),
-Qt-free core completed, file structure reorganized into `src/ui/handlers/`.
+Current phase: architecture cleanup — handlers extracted from MainWindow (1702→302 lines),
+Qt-free core completed, file structure reorganized into `src/ui/handlers/`, `src/ui/chat/`,
+`src/ui/timeline/`, `src/ui/room/`, `src/ui/shared/`.
 
-What partially works:
-- Login dialog with homeserver discovery + password login
+What works:
+- Login/logout with homeserver discovery + password login
 - Room list sidebar (avatars, unread badges, invites with accept/reject)
-- Timeline renders `m.room.message` events with chat bubbles
-- Background `/sync` loop with exponential backoff
-- SQLite-backed session persistence
-- Slash commands (`/help`, `/clear`, `/logout`)
-- Emoji picker, room directory / room settings / member list dialogs
+- Timeline renders `m.room.message` events with chat bubbles + avatars + grouping
+- Background `/sync` loop with exponential backoff + token refresh
+- SQLite-backed session persistence (account, sync token, crypto pickles)
+- Slash commands (`/invite`, `/leave`, `/kick`, `/ban`, `/join`, `/me`)
+- Emoji picker, quick-react on last message
+- File/image/audio attachment upload
+- Threads: view, reply, indicator (`💬 N replies`)
+- Reactions: context-menu add/remove
+- Load-more (backward pagination)
+- Multi-account (switch between saved accounts)
+- Account switcher dropdown in toolbar
+- E2EE: outbound encryption (Megolm) + inbound decryption (Olm/Megolm recovery chain)
 
-Known regressions (fix in progress):
-- Reactions not working (QuickReact button returns silently)
-- Non-message events render as empty bubbles (m.typing, m.receipt, m.room.member)
-- E2EE encryption state not detected for new rooms
-- Megolm session missing for incoming encrypted messages
-- No backward pagination, no read receipts, no typing indicators
+Not yet implemented:
+- Read receipts, typing indicators (sending)
+- Date dividers, Ctrl+K room switcher
+- Cross-user E2EE key sharing is unreliable in rooms with 3+ members
+- Thread counts inflated + thread view empty on first room load (fixed after room switch)
 
 ## Build
 
@@ -104,41 +109,74 @@ progressive-desktop/
     progressive-android-experiments/   git submodule (sparse: progressive/src/main/cpp/)
     android_shim/                    <android/log.h> + STL compat shims for desktop
   src/
-    main.cpp              Phase 2 entry: CLI subcommands + GUI mode
+    main.cpp              entry: CLI subcommands + GUI mode
     core/
       http_client.{hpp,cpp}      libcurl wrapper (TLS, SOCKS5, proxy)
-      matrix_client.{hpp,cpp}   CS API: login / sync / send / messages / read_markers
+      matrix_client.{hpp,cpp}   CS API: login / sync / send / messages
       session_store.{hpp,cpp}   SQLite persistence (WAL + checkpoint)
       sync_engine.{hpp,cpp}     background /sync loop with backoff
-      fast_sync.{hpp,cpp}       incremental sync parser
+      fast_sync.{hpp,cpp}       incremental sync parser (simdjson)
       memory_stats.{hpp,cpp}    struct-size + snapshot diagnostics
-      notifications.{hpp,cpp}   desktop notifications
-      crypto/                  libolm wrappers (Phase 4)
+      thread_pool.{hpp,cpp}     global worker thread pool
+      account_info.hpp          userId/deviceId/token struct
+      crypto/                   libolm wrappers
+        decryptor.{hpp,cpp}     E2EE coordinator (Olm + Megolm)
+        olm_account.{hpp,cpp}   Olm account identity keys + pickling
+        megolm_store.{hpp,cpp}  Megolm inbound session manager
     ui/
-      main_window.{hpp,cpp}         top-level window + sync wiring
-      login_dialog.{hpp,cpp}        modal login
-      chat_view.{hpp,cpp}           message sending / file attach logic
-      room_list_model.{hpp,cpp}     QAbstractListModel for rooms
-      room_list_delegate.{hpp,cpp}  paints room list rows
-      timeline_model.{hpp,cpp}       QAbstractListModel for events
-      timeline_delegate.{hpp,cpp}    paints chat bubbles
-      timeline_handlers.{hpp,cpp}    context-menu actions (react/edit/delete/pin)
-      message_edit.{hpp,cpp}         input + slash commands
-      emoji_picker.{hpp,cpp}         emoji picker
-      image_loader.{hpp,cpp}         async mxc:// thumbnail fetcher
-      image_viewer_dialog.{hpp,cpp}  full-size image viewer
-      prefs_dialog / profile_dialog / room_directory_dialog /
-      room_members_dialog / room_settings_dialog / threads_dialog /
-      user_profile_dialog / network_log_dialog
-      theme.{hpp,cpp}                dark palette + design tokens
+      main_window.{hpp,cpp}        top-level window + sync wiring
+      ui_layout_builder.{hpp,cpp}  widget/layout creation for main window
+      room_list_model.{hpp,cpp}    QAbstractListModel for rooms
+      room_list_delegate.{hpp,cpp} paints room list rows
+      chat/                        message input + sending
+        chat_view.{hpp,cpp}        send message / file attach / quick-react
+        message_edit.{hpp,cpp}     input box + @mention autocomplete
+        emoji_picker.{hpp,cpp}     emoji picker dialog
+      handlers/                    business logic (orchestration)
+        auth_handler.{hpp,cpp}     login/logout/forceReLogin
+        toolbar_handler.{hpp,cpp}  toolbar actions factory
+        room_handler.{hpp,cpp}     room switch + invites + load-more
+        thread_handler.{hpp,cpp}   thread view + reply
+        room_context_menu.{hpp,cpp} context menus (leave/reply/react/pin)
+        sync_response_handler.{hpp,cpp} sync → UI bridge
+        account_switcher.{hpp,cpp} multi-account switch
+        e2ee_init_handler.{hpp,cpp} E2EE init at startup
+        session_bootstrap.{hpp,cpp} post-login startup sequence
+        attachment_handler.{hpp,cpp} file download + image viewer
+        slash_command_handler.{hpp,cpp} /invite, /leave, /kick, /ban, /join
+      timeline/                    message display
+        timeline_model.{hpp,cpp}   QAbstractListModel + seen-id dedup
+        timeline_delegate.{hpp,cpp} editorEvent (clicks: react, thread, image)
+        timeline_painter.{hpp,cpp} paint bubbles, avatars, reactions
+        timeline_layout.{hpp,cpp}  bubble layout computation
+        timeline_handlers.{hpp,cpp} react/edit/delete/pin server calls
+      room/                        room data + sync processing
+        room_store.{hpp,cpp}       sync → room list + timeline updates
+        room_data_loader.{hpp,cpp} async history + member loading
+      dialogs/                     modal dialogs
+        login_dialog.{hpp,cpp}     login/register
+        room_settings_dialog.{hpp,cpp}
+        room_directory_dialog.{hpp,cpp}
+        room_members_dialog.{hpp,cpp}
+        threads_dialog.{hpp,cpp}
+        image_viewer_dialog.{hpp,cpp}
+        prefs_dialog.{hpp,cpp}
+      profile/
+        user_profile_dialog.{hpp,cpp}
+      shared/
+        theme.{hpp,cpp}            dark palette + design tokens
+        image_loader.{hpp,cpp}     async mxc:// thumbnail fetcher
+        notifications.{hpp,cpp}    desktop notifications (D-Bus)
   scripts/
     build-pt2.sh          PineTab 2 build wrapper (ccache + ninja)
-    audit-modules.py      Tier A/B/C/D classifier
+    audit_modules.py      Tier A/B/C/D classifier
+  memory/                 planning + tracking (not shipped)
   docs/
-    phase1.md            Phase 1 — core plumbing
-    phase2.md            Phase 2 — minimal usable UI
   tests/
     test_phase1.cpp       unit tests (no network)
+    test_phase4.cpp       E2EE crypto tests
+    test_gui_phase4.cpp   GUI + E2EE integration
+    test_visual.cpp       widget/model smoke tests
 ```
 
 ## License

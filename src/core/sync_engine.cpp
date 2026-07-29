@@ -367,9 +367,11 @@ void SyncEngine::uploadDeviceKeys(bool force) {
             decryptor_.markAccountAsShared();
             LOG(LogChannel::E2EE, "uploadDeviceKeys: account marked as shared");
         }
-        decryptor_.account()->setUploadedKeyCount(serverCount + needed);
-        LOG(LogChannel::E2EE, "uploadDeviceKeys: OTK count updated locally to %d (was %d, added %d)",
-            serverCount + needed, serverCount, needed);
+        if (needed > 0) {
+            decryptor_.account()->setUploadedKeyCount(serverCount + needed);
+            LOG(LogChannel::E2EE, "uploadDeviceKeys: OTK count updated locally to %d (was %d, added %d)",
+                serverCount + needed, serverCount, needed);
+        }
         {
             std::string queryBody = "{\"device_keys\":{\"" + userId + "\":[]}}";
             auto queryResp = client_->queryKeys(queryBody);

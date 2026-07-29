@@ -60,8 +60,17 @@ std::string Decryptor::ed25519Key() const {
 
 void Decryptor::markDevicesStale(const std::vector<std::string>& userIds) {
     std::lock_guard<std::mutex> lk(staleMtx_);
-    for (const auto& uid : userIds)
+    for (const auto& uid : userIds) {
+        if (staleDeviceUsers_.size() >= 1000) {
+            static bool warned = false;
+            if (!warned) {
+                LOG(LogChannel::E2EE, "markDevicesStale: cap 1000 reached, dropping further entries");
+                warned = true;
+            }
+            break;
+        }
         staleDeviceUsers_.insert(uid);
+    }
 }
 
 bool Decryptor::isDeviceStale(const std::string& userId) {

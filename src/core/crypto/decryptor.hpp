@@ -163,6 +163,11 @@ public:
     void setCryptoContext(const std::string& ourUserId, const std::string& ourDeviceId,
                           const std::string& homeserverUrl, const std::string& accessToken);
 
+    // Device list staleness tracking (from /sync device_lists).
+    void markDevicesStale(const std::vector<std::string>& userIds);
+    bool isDeviceStale(const std::string& userId);
+    void clearStale(const std::string& userId);
+
     // Request re-sharing of a megolm room key (m.room_key_request to-device).
     // Throttled: one request per (room, session, senderKey) per run.
     void requestRoomKey(const std::string& roomId, const std::string& senderId,
@@ -191,6 +196,8 @@ private:
     std::mutex requestMtx_;
     // Track which rooms have had their key shared for current outbound session
     std::unordered_map<std::string, bool> roomKeysShared_;
+    std::unordered_set<std::string> staleDeviceUsers_;
+    std::mutex staleMtx_;
 
     // Sign a canonical JSON string with Ed25519. Returns base64 signature.
     std::string signCanonicalJson(const std::string& canonicalJson);

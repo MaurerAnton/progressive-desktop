@@ -58,6 +58,22 @@ std::string Decryptor::ed25519Key() const {
     return account_->ed25519Key();
 }
 
+void Decryptor::markDevicesStale(const std::vector<std::string>& userIds) {
+    std::lock_guard<std::mutex> lk(staleMtx_);
+    for (const auto& uid : userIds)
+        staleDeviceUsers_.insert(uid);
+}
+
+bool Decryptor::isDeviceStale(const std::string& userId) {
+    std::lock_guard<std::mutex> lk(staleMtx_);
+    return staleDeviceUsers_.count(userId) > 0;
+}
+
+void Decryptor::clearStale(const std::string& userId) {
+    std::lock_guard<std::mutex> lk(staleMtx_);
+    staleDeviceUsers_.erase(userId);
+}
+
 DecryptionResult Decryptor::decryptMegolmEvent(const std::string& roomId,
                                                   const std::string& senderId,
                                                   const std::string& contentJson,
@@ -676,6 +692,14 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
         ourUserId.c_str(), ourDeviceId.c_str(),
         [&]() { std::string s; for (size_t i=0; i<userIds.size(); ++i) {
             if (i) s += ","; s += userIds[i]; } return s; }().c_str());
+
+    for (const auto& uid : userIds) {
+        if (isDeviceStale(uid)) {
+            LOG(LogChannel::E2EE, "shareRoomKey: user %s has stale device keys — querying fresh",
+                uid.c_str());
+            clearStale(uid);
+        }
+    }
 
     // Step 1: Query device keys for all room members.
     std::ostringstream queryBody;

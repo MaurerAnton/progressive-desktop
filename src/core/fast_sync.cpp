@@ -233,6 +233,28 @@ FastSyncResponse parseSyncResponseFast(std::string json, std::string& errorMessa
         LOG(LogChannel::E2EE, "fastSync: no to_device section in sync response");
     }
 
+    auto deviceLists = root["device_lists"].get_object();
+    if (deviceLists.error() == simdjson::SUCCESS) {
+        auto changed = deviceLists.value()["changed"].get_array();
+        if (changed.error() == simdjson::SUCCESS) {
+            for (auto user : changed.value()) {
+                auto s = user.get_string();
+                if (s.error() == simdjson::SUCCESS)
+                    resp.deviceListChanged.push_back(std::string(s.value()));
+            }
+        }
+        auto left = deviceLists.value()["left"].get_array();
+        if (left.error() == simdjson::SUCCESS) {
+            for (auto user : left.value()) {
+                auto s = user.get_string();
+                if (s.error() == simdjson::SUCCESS)
+                    resp.deviceListLeft.push_back(std::string(s.value()));
+            }
+        }
+        LOG(LogChannel::SYNC, "device_lists: changed=%zu left=%zu",
+            resp.deviceListChanged.size(), resp.deviceListLeft.size());
+    }
+
     auto otkCountResult = root["device_one_time_keys_count"];
     if (otkCountResult.error() == simdjson::SUCCESS) {
         auto count = otkCountResult.value()["signed_curve25519"].get_int64();

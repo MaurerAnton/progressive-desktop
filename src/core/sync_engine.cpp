@@ -224,6 +224,12 @@ void SyncEngine::run() {
         // m.room.encrypted handles Olm 1:1 (decrypts room_key delivery).
         processToDeviceEvents(result.data);
 
+        if (!result.data.deviceListChanged.empty()) {
+            decryptor_.markDevicesStale(result.data.deviceListChanged);
+            LOG(LogChannel::E2EE, "device_lists: marked %zu users as stale",
+                result.data.deviceListChanged.size());
+        }
+
         // Persist token.
         if (store_ && !sinceToken_.empty()) {
             store_->saveSyncToken(sinceToken_);

@@ -88,7 +88,7 @@ struct FastSyncResponse {
     std::vector<std::string_view> leftRoomIds;
     int totalTimelineEvents = 0;
     int toDeviceEvents = 0;
-    int signedCurve25519Count = 0;
+    int signedCurve25519Count = -1;
     std::vector<std::string> deviceListChanged;
     std::vector<std::string> deviceListLeft;
 

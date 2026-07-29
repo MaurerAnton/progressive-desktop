@@ -73,6 +73,7 @@ void AccountSwitcher::switchAccount(int index) {
             auto saved = store_->loadOlmAccount(newKey);
             if (saved) {
                 sync_->decryptor()->init(saved->pickle, saved->pickleKey, saved->shared);
+                sync_->decryptor()->account()->setUploadedKeyCount(saved->uploadedKeyCount);
             } else {
                 sync_->decryptor()->init();
             }

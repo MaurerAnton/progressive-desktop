@@ -239,7 +239,7 @@ void SyncEngine::run() {
         if (syncCb_) syncCb_(result.data);
 
         // Update OTK count tracking from sync response
-        if (result.data.signedCurve25519Count >= 0) {
+        if (result.data.signedCurve25519Count > 0) {
             decryptor_.account()->setUploadedKeyCount(result.data.signedCurve25519Count);
         }
 
@@ -330,16 +330,10 @@ void SyncEngine::uploadDeviceKeys(bool force) {
         return;
     }
 
-    // Always discard old unpublished OTKs before generating new ones.
-    // Prevents sequential ID collisions (400 "already exists").
-    decryptor_.markOneTimeKeysPublished();
-    LOG(LogChannel::E2EE, "uploadDeviceKeys: discarded old OTKs before generating fresh");
-
     std::string userId = client_->account().userId;
     std::string deviceId = client_->account().deviceId;
     if (deviceId.empty()) deviceId = "PROGRESSIVE_DESKTOP";
 
-    LOG(LogChannel::E2EE, "uploadDeviceKeys: uploading for %s/%s", userId.c_str(), deviceId.c_str());
     int serverCount = decryptor_.account()->uploadedKeyCount();
     int maxKeys = 100;
     int needed = std::max(0, maxKeys - serverCount);
@@ -348,6 +342,13 @@ void SyncEngine::uploadDeviceKeys(bool force) {
             serverCount);
         return;
     }
+
+    // Always discard old unpublished OTKs before generating new ones.
+    // Prevents sequential ID collisions (400 "already exists").
+    decryptor_.markOneTimeKeysPublished();
+    LOG(LogChannel::E2EE, "uploadDeviceKeys: discarded old OTKs before generating fresh");
+
+    LOG(LogChannel::E2EE, "uploadDeviceKeys: uploading for %s/%s", userId.c_str(), deviceId.c_str());
     std::string body = decryptor_.buildKeysUploadBody(userId, deviceId, needed, needDeviceKeys);
     LOG(LogChannel::E2EE, "uploadDeviceKeys: our curve25519=%s ed25519=%s",
         decryptor_.curve25519Key().c_str(),

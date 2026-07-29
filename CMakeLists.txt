@@ -187,6 +187,12 @@ if(PROGRESSIVE_BUILD_TESTS)
         -include "${CMAKE_CURRENT_SOURCE_DIR}/third_party/android_shim/progressive_compat.h")
     add_test(NAME megolm_inbound COMMAND test_megolm_inbound)
 
+    add_executable(test_e2ee_account tests/test_e2ee_account.cpp)
+    target_link_libraries(test_e2ee_account PRIVATE progressive_core)
+    target_compile_options(test_e2ee_account PRIVATE
+        -include "${CMAKE_CURRENT_SOURCE_DIR}/third_party/android_shim/progressive_compat.h")
+    add_test(NAME e2ee_account COMMAND test_e2ee_account)
+
     add_executable(test_phase4 tests/test_phase4.cpp)
     add_test(NAME phase4 COMMAND test_phase4)
 

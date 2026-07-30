@@ -128,6 +128,16 @@ void Theme::reapply() {
     auto* app = qobject_cast<QApplication*>(QCoreApplication::instance());
     if (!app) return;
     applyDarkTheme(*app);
+    for (auto& cb : listeners()) cb();
+}
+
+std::vector<std::function<void()>>& Theme::listeners() {
+    static std::vector<std::function<void()>> v;
+    return v;
+}
+
+void Theme::addListener(std::function<void()> cb) {
+    listeners().push_back(std::move(cb));
 }
 
 } // namespace progressive::desktop

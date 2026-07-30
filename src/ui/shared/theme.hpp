@@ -3,6 +3,7 @@
 
 #include <QColor>
 #include <vector>
+#include <functional>
 
 class QApplication;
 
@@ -83,9 +84,13 @@ struct Theme {
     static void load();     // read QSettings → Design:: tokens
     static void save();     // write Design:: tokens → QSettings
     static void reapply();  // re-apply palette + stylesheet after token changes
+    static void addListener(std::function<void()> cb);
 
     struct TokenEntry { const char* qkey; QColor* field; };
     static const std::vector<TokenEntry>& tokenRegistry();
+
+private:
+    static std::vector<std::function<void()>>& listeners();
 };
 
 // Deterministic color from user ID — unified across all delegates.

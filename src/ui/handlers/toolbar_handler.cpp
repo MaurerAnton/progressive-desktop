@@ -13,6 +13,7 @@
 #include "core/version.h"
 #include "../profile_dialog.hpp"
 #include "../dialogs/room_settings_dialog.hpp"
+#include "../dialogs/shortcuts_dialog.hpp"
 #include "../dialogs/room_directory_dialog.hpp"
 #include "../dialogs/threads_dialog.hpp"
 #include "../dialogs/prefs_dialog.hpp"
@@ -189,6 +190,7 @@ void ToolbarHandler::onSettings() {
     auto* aboutAction = menu.addAction("About");
     auto* profileAction = menu.addAction("My profile...");
     auto* prefsAction = menu.addAction("Preferences...");
+    auto* shortcutsAction = menu.addAction("Shortcuts...");
     menu.addSeparator();
     auto* colorsAction = menu.addAction("Colors...");
     auto* netLogAction = menu.addAction("Network log");
@@ -207,6 +209,9 @@ void ToolbarHandler::onSettings() {
     } else if (selected == prefsAction) {
         PrefsDialog dlg(parentWidget_);
         connect(&dlg, &PrefsDialog::settingsChanged, this, &ToolbarHandler::prefsChanged);
+        dlg.exec();
+    } else if (selected == shortcutsAction) {
+        ShortcutsDialog dlg(parentWidget_);
         dlg.exec();
     } else if (selected == colorsAction) {
         ColorSettingsDialog dlg(parentWidget_);

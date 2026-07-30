@@ -8,14 +8,18 @@
 #include <QHBoxLayout>
 #include <QPushButton>
 #include <QLabel>
+#include <QScrollArea>
+#include <QFrame>
 
 namespace progressive::desktop {
 
 ColorSettingsDialog::ColorSettingsDialog(QWidget* parent) : QDialog(parent) {
     setWindowTitle("Colors");
-    setMinimumWidth(440);
+    resize(460, 520);
     auto* root = new QVBoxLayout(this);
-    auto* form = new QFormLayout;
+
+    auto* formContainer = new QWidget;
+    auto* form = new QFormLayout(formContainer);
 
     addRow("View background",      &Design::viewBg,         "theme/viewBg");
     addRow("Input background",     &Design::inputBg,        "theme/inputBg");
@@ -40,7 +44,11 @@ ColorSettingsDialog::ColorSettingsDialog(QWidget* parent) : QDialog(parent) {
     addRow("Thread color",         &Design::threadColor,    "theme/threadColor");
     addRow("Unread badge",         &Design::unreadBadgeColor,"theme/unreadBadgeColor");
 
-    root->addLayout(form);
+    auto* scroll = new QScrollArea(this);
+    scroll->setWidgetResizable(true);
+    scroll->setWidget(formContainer);
+    scroll->setFrameShape(QFrame::NoFrame);
+    root->addWidget(scroll);
 
     auto* btnRow = new QHBoxLayout;
     btnRow->addStretch();

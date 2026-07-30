@@ -363,7 +363,7 @@ void EmojiPicker::buildGrid() {
         btn->setToolTip(entry.emoji + " " + entry.name + " — " + entry.keywords);
         btn->setFlat(true);
         btn->setStyleSheet("QPushButton { border: none; background: transparent; }"
-                           "QPushButton:hover { background: #3a3a3a; border-radius: 4px; }");
+                           "QPushButton:hover { background: " + Design::borderColor.name() + "; border-radius: 4px; }");
         grid_->addWidget(btn, i / cols, i % cols);
         connect(btn, &QPushButton::clicked, this, [this, emoji = entry.emoji]() {
             onEmojiClicked(emoji);

@@ -154,7 +154,7 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     nameFont.setBold(true);
     nameFont.setPointSize(qMax(1, (int)(kRoomNameFont * Design::fontScale)));
     painter->setFont(nameFont);
-    painter->setPen(QColor("#e8e8e8"));
+    painter->setPen(Design::reactionTextColor);
     QString displayName = name;
     if (isInvite) displayName = "✉ " + name;
     if (isEncrypted) displayName = "🔒 " + displayName;
@@ -186,13 +186,13 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         painter->setFont(btnFont);
         int btnY = option.rect.y() + (option.rect.height() - kInviteBtnSize) / 2;
         QRect acceptRect(option.rect.right() - kInviteAcceptX, btnY, kInviteBtnSize, kInviteBtnSize);
-        painter->setBrush(QColor("#2d6a2d"));
+        painter->setBrush(Design::acceptBg);
         painter->setPen(Qt::NoPen);
         painter->drawRoundedRect(acceptRect, 5, 5);
         painter->setPen(Design::typingColor);
         painter->drawText(acceptRect, Qt::AlignCenter, "✓");
         QRect rejectRect(option.rect.right() - kInviteRejectX, btnY, kInviteBtnSize, kInviteBtnSize);
-        painter->setBrush(QColor("#6a2d2d"));
+        painter->setBrush(Design::dangerBg);
         painter->setPen(Qt::NoPen);
         painter->drawRoundedRect(rejectRect, 4, 4);
         painter->setPen(QColor("#f66"));
@@ -210,7 +210,7 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         painter->drawText(msgRect, Qt::AlignLeft | Qt::AlignVCenter,
                           QFontMetrics(msgFont).elidedText(hint, Qt::ElideRight, textWidth));
     } else {
-        painter->setPen(QColor("#969696"));
+        painter->setPen(Design::dimTextColor);
         painter->drawText(msgRect, Qt::AlignLeft | Qt::AlignVCenter,
                           QFontMetrics(msgFont).elidedText(lastMsg, Qt::ElideRight, textWidth));
     }

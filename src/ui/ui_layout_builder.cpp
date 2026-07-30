@@ -58,20 +58,20 @@ UILayout buildMainWindowLayout(QWidget* window,
     leftLayout->setSpacing(0);
 
     ui.roomListHeader = new QLabel(" Chats (0) ", window);
-    ui.roomListHeader->setStyleSheet("font-weight:600; padding:10px 12px; color:#e8e8e8; background:#1e1e1e;");
+    ui.roomListHeader->setStyleSheet("font-weight:600; padding:10px 12px; color:" + Design::reactionTextColor.name() + "; background:" + Design::viewBg.name() + ";");
     leftLayout->addWidget(ui.roomListHeader);
 
     ui.inviteHeader = new QLabel("  Invitations (0) ", window);
-    ui.inviteHeader->setStyleSheet("font-weight:600; padding:6px 12px; color:#ff9944; background:#2a1e1e;");
+    ui.inviteHeader->setStyleSheet("font-weight:600; padding:6px 12px; color:" + Design::inviteTextColor.name() + "; background:" + Design::inviteRowBg.name() + ";");
     ui.inviteHeader->hide();
     leftLayout->addWidget(ui.inviteHeader);
 
     ui.roomList = new QListView(leftPanel);
     ui.roomList->setModel(roomModel);
     ui.roomList->setStyleSheet(
-        "QListView{background:#1e1e1e;border:none;}"
-        "QListView::item:hover{background:#2a2a3e;}"
-        "QListView::item:selected{background:#3a3a5e;}");
+        "QListView{background:" + Design::viewBg.name() + ";border:none;}"
+        "QListView::item:hover{background:" + Design::incomingBubble.name() + ";}"
+        "QListView::item:selected{background:" + Design::selectedBg.name() + ";}");
     ui.roomListDelegate = new RoomListDelegate(imageLoader, ui.roomList);
     ui.roomList->setItemDelegate(ui.roomListDelegate);
     ui.roomList->setMinimumWidth(kRoomListMinW);
@@ -97,8 +97,8 @@ UILayout buildMainWindowLayout(QWidget* window,
     ui.timelineView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
     ui.threadBanner = new QLabel(
-        "<a href='back' style='color:#6699cc'> Back to chat</a>", rightPanel);
-    ui.threadBanner->setStyleSheet("background:#2a2a3a; padding:8px; color:#cccccc;");
+        "<a href='back' style='color:" + Design::threadColor.name() + "'> Back to chat</a>", rightPanel);
+    ui.threadBanner->setStyleSheet("background:" + Design::incomingBubble.name() + "; padding:8px; color:" + Design::mutedTextColor.name() + ";");
     ui.threadBanner->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     ui.threadBanner->hide();
     rightLayout->addWidget(ui.threadBanner);
@@ -110,9 +110,9 @@ UILayout buildMainWindowLayout(QWidget* window,
 
     ui.loadMoreBtn = new QPushButton(" Load older", rightPanel);
     ui.loadMoreBtn->setStyleSheet(
-        "QPushButton{background:#2a2a3a;color:#888;border:1px solid #3a3a3a;"
+        "QPushButton{background:" + Design::incomingBubble.name() + ";color:" + Design::mutedTextColor.name() + ";border:1px solid " + Design::borderColor.name() + ";"
         "padding:2px 10px;border-radius:3px;font-size:11px;}"
-        "QPushButton:hover{color:#ccc;border-color:#555;}");
+        "QPushButton:hover{color:" + Design::mutedTextColor.name() + ";border-color:" + Design::replyLineColor.name() + ";}");
     ui.loadMoreBtn->hide();
 
     ui.chatLogBtn = new QPushButton(" Save", rightPanel);
@@ -143,7 +143,7 @@ UILayout buildMainWindowLayout(QWidget* window,
     ui.timelinePlaceholder = new QLabel(
         "Select a chat from the list\nor click \"+ New chat\" to start a conversation", window);
     ui.timelinePlaceholder->setAlignment(Qt::AlignCenter);
-    ui.timelinePlaceholder->setStyleSheet("color:#969696; font-size:14pt; background:#141414;");
+    ui.timelinePlaceholder->setStyleSheet("color:" + Design::dimTextColor.name() + "; font-size:14pt; background:" + Design::inputBg.name() + ";");
     ui.timelinePlaceholder->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     rightLayout->addWidget(ui.timelinePlaceholder, 1);
     ui.timelinePlaceholder->show();

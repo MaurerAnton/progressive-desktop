@@ -414,8 +414,8 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
                 p->setPen(Design::reactionTextColor);
                 p->drawText(row.rect, Qt::AlignCenter, row.text);
             } else {
-                p->setPen(QColor("#3a3a3a"));
-                p->setBrush(QColor("#2a2a2a"));
+                p->setPen(Design::borderColor);
+                p->setBrush(Design::viewBg);
                 p->drawRoundedRect(row.rect, 8, 8);
                 p->setPen(Design::reactionTextColor);
                 p->drawText(row.rect, Qt::AlignCenter, row.text);

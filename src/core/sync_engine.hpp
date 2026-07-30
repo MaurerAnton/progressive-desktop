@@ -11,6 +11,8 @@
 #include "session_store.hpp"
 #include "fast_sync.hpp"
 #include "crypto/decryptor.hpp"
+#include <functional>
+#include <string>
 
 #include <atomic>
 #include <condition_variable>
@@ -63,6 +65,9 @@ public:
     // Access the E2EE decryptor (for setup at login time).
     Decryptor* decryptor() { return &decryptor_; }
     void setPollTimeout(int ms) { syncTimeoutMs_ = ms; }
+    void setBackupPathProvider(std::function<std::string()> provider) {
+        backupPathProvider_ = std::move(provider);
+    }
 
     // Upload device keys + one-time keys to the server.
     // Call once after init() + login. Non-blocking (spawns a thread).
@@ -107,6 +112,7 @@ private:
     SyncEngineStats stats_;
     bool firstRun_ = false;  // true → next sync uses empty since (gets current state)
     int syncTimeoutMs_ = 3000;
+    std::function<std::string()> backupPathProvider_;
 };
 
 } // namespace progressive::desktop

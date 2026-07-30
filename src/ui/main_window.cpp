@@ -19,6 +19,7 @@
 #include <QMessageBox>
 #include <QPointer>
 #include <QApplication>
+#include <cstdlib>
 #include <QSplitter>
 #include <QToolBar>
 #include <QAction>
@@ -58,6 +59,17 @@ void MainWindow::setClient(std::shared_ptr<MatrixClient> client) {
     client_ = std::move(client);
     sync_.setClient(client_);
     sync_.setPollTimeout(PrefsDialog::pollTimeoutMs());
+    sync_.setBackupPathProvider([]() -> std::string {
+        const char* dataHome = std::getenv("XDG_DATA_HOME");
+        if (!dataHome || !dataHome[0]) {
+            const char* home = std::getenv("HOME");
+            if (!home || !home[0]) return {};
+            static std::string homeData;
+            homeData = std::string(home) + "/.local/share";
+            dataHome = homeData.c_str();
+        }
+        return std::string(dataHome) + "/progressive-desktop/sessions_backup/";
+    });
     client_->setInvisibleMode(PrefsDialog::invisibleMode());
     if (imageLoader_) imageLoader_->setClient(client_);
     if (chatView_) chatView_->setClient(client_);

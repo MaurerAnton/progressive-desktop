@@ -5,6 +5,7 @@
 #include "core/crypto/decryptor.hpp"
 #include "core/thread_pool.hpp"
 #include "../room/room_store.hpp"
+#include "../room/event_parser.hpp"
 #include "../room/event_body_parser.hpp"
 #include "../timeline/timeline_model.hpp"
 #include "../room_list_model.hpp"
@@ -41,23 +42,7 @@ void RoomDataLoader::loadHistory(const std::string& roomId, TimelineModel* model
             std::vector<std::tuple<std::string, std::string, std::string>> pendingReactions;
             for (auto evt : chunk.value()) {
                 DisplayedEvent de;
-                auto t = evt["type"].get_string();
-                if (t.error() == simdjson::SUCCESS) de.type = std::string(t.value());
-                if (de.type == "m.reaction")
-                    LOG(LogChannel::DBG, "loadHistory: reaction contentJson=[%.200s]",
-                        de.contentJson.c_str());
-                auto eid = evt["event_id"].get_string();
-                if (eid.error() == simdjson::SUCCESS) de.eventId = std::string(eid.value());
-                auto sender = evt["sender"].get_string();
-                if (sender.error() == simdjson::SUCCESS) de.senderId = std::string(sender.value());
-                auto ts = evt["origin_server_ts"].get_int64();
-                if (ts.error() == simdjson::SUCCESS) de.originServerTs = ts.value();
-                auto cr = evt["content"];
-                if (cr.error() == simdjson::SUCCESS) de.contentJson = simdjson::to_string(cr.value());
-                if (!de.senderId.empty() && de.senderId[0] == '@') {
-                    auto c = de.senderId.find(':');
-                    de.senderName = (c != std::string::npos) ? de.senderId.substr(1, c-1) : de.senderId.substr(1);
-                }
+                parseEventFields(evt, de);
                 if (de.type == "m.room.member" && !de.contentJson.empty()) {
                     auto av = extractStringDec(de.contentJson, "avatar_url");
                     std::string stateKey;

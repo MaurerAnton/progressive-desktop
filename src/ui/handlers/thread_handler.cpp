@@ -6,6 +6,7 @@
 #include "core/sync_engine.hpp"
 #include "../timeline/timeline_model.hpp"
 #include "../room/room_store.hpp"
+#include "../room/event_parser.hpp"
 #include "../room_list_model.hpp"
 #include "../main_window.hpp"
 #include "core/debug_log.hpp"
@@ -82,22 +83,7 @@ void ThreadHandler::openThreadView(const QString& rootEventId, const std::string
             LOG(LogChannel::E2EE, "thread: origResult error=%d", (int)origResult.error());
             if (origResult.error() == simdjson::SUCCESS) {
                 DisplayedEvent root;
-                auto t = origResult.value()["type"].get_string();
-                if (t.error() == simdjson::SUCCESS) root.type = std::string(t.value());
-                auto eid = origResult.value()["event_id"].get_string();
-                if (eid.error() == simdjson::SUCCESS) root.eventId = std::string(eid.value());
-                auto sender = origResult.value()["sender"].get_string();
-                if (sender.error() == simdjson::SUCCESS) root.senderId = std::string(sender.value());
-                auto ts = origResult.value()["origin_server_ts"].get_int64();
-                if (ts.error() == simdjson::SUCCESS) root.originServerTs = ts.value();
-                auto contentResult = origResult.value()["content"];
-                if (contentResult.error() == simdjson::SUCCESS)
-                    root.contentJson = simdjson::to_string(contentResult.value());
-                if (!root.senderId.empty() && root.senderId[0] == '@') {
-                    auto colon = root.senderId.find(':');
-                    if (colon != std::string::npos) root.senderName = root.senderId.substr(1, colon - 1);
-                    else root.senderName = root.senderId.substr(1);
-                }
+                parseEventFields(origResult.value(), root);
                 if (root.type == "m.room.message") {
                     root.msgtype = msgType(root.contentJson);
                     root.body = msgBody(root.contentJson);
@@ -128,22 +114,7 @@ void ThreadHandler::openThreadView(const QString& rootEventId, const std::string
             std::vector<DisplayedEvent> events;
             for (auto evt : chunkResult.value()) {
                 DisplayedEvent de;
-                auto t = evt["type"].get_string();
-                if (t.error() == simdjson::SUCCESS) de.type = std::string(t.value());
-                auto eid = evt["event_id"].get_string();
-                if (eid.error() == simdjson::SUCCESS) de.eventId = std::string(eid.value());
-                auto sender = evt["sender"].get_string();
-                if (sender.error() == simdjson::SUCCESS) de.senderId = std::string(sender.value());
-                auto ts = evt["origin_server_ts"].get_int64();
-                if (ts.error() == simdjson::SUCCESS) de.originServerTs = ts.value();
-                auto contentResult = evt["content"];
-                if (contentResult.error() == simdjson::SUCCESS)
-                    de.contentJson = simdjson::to_string(contentResult.value());
-                if (!de.senderId.empty() && de.senderId[0] == '@') {
-                    auto colon = de.senderId.find(':');
-                    if (colon != std::string::npos) de.senderName = de.senderId.substr(1, colon - 1);
-                    else de.senderName = de.senderId.substr(1);
-                }
+                parseEventFields(evt, de);
                 if (de.type == "m.room.message") {
                     de.msgtype = msgType(de.contentJson);
                     de.body = msgBody(de.contentJson);

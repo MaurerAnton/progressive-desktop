@@ -80,6 +80,7 @@ add_library(progressive_ui_widgets STATIC
     src/ui/timeline/timeline_painter.cpp
     src/ui/room/room_store.cpp
     src/ui/room/room_data_loader.cpp
+    src/ui/room/event_parser.cpp
     src/ui/room_list_model.cpp
     src/ui/room_list_delegate.cpp
     src/ui/chat/chat_logger.cpp

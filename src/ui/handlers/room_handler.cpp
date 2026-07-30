@@ -5,6 +5,7 @@
 #include "../main_window.hpp"
 #include "core/debug_log.hpp"
 #include "../room/room_store.hpp"
+#include "../room/event_parser.hpp"
 #include "../room_list_model.hpp"
 #include "../timeline/timeline_model.hpp"
 #include "../timeline/timeline_handlers.hpp"
@@ -208,23 +209,7 @@ void RoomHandler::onLoadMoreClicked() {
             std::vector<DisplayedEvent> events;
             for (auto evt : chunkResult.value()) {
                 DisplayedEvent de;
-                auto t = evt["type"].get_string();
-                if (t.error() == simdjson::SUCCESS) de.type = std::string(t.value());
-                auto eid = evt["event_id"].get_string();
-                if (eid.error() == simdjson::SUCCESS) de.eventId = std::string(eid.value());
-                auto sender = evt["sender"].get_string();
-                if (sender.error() == simdjson::SUCCESS) de.senderId = std::string(sender.value());
-                auto ts = evt["origin_server_ts"].get_int64();
-                if (ts.error() == simdjson::SUCCESS) de.originServerTs = ts.value();
-                auto contentResult = evt["content"];
-                if (contentResult.error() == simdjson::SUCCESS) de.contentJson = simdjson::to_string(contentResult.value());
-
-                if (!de.senderId.empty() && de.senderId[0] == '@') {
-                    auto colon = de.senderId.find(':');
-                    if (colon != std::string::npos) de.senderName = de.senderId.substr(1, colon - 1);
-                    else de.senderName = de.senderId.substr(1);
-                }
-                // DEBT: load-more path doesn't decrypt m.room.encrypted events
+                parseEventFields(evt, de);
                 if (de.type == "m.room.message") {
                     de.msgtype = extractStringDec(de.contentJson, "msgtype");
                     de.body = extractStringDec(de.contentJson, "body");

@@ -1,0 +1,93 @@
+// src/core/crypto/verification.hpp — m.sas.v1 state machine + message builders.
+#pragma once
+#include "sas.hpp"
+#include "sas_emojis.hpp"
+#include <string>
+#include <vector>
+#include <memory>
+#include <chrono>
+#include <optional>
+
+namespace progressive::desktop {
+
+enum class VerificationState {
+    Idle, RequestSent, RequestReceived, Ready, Started, Accepted,
+    KeySent, KeyReceived, MacSent, MacReceived, Done, Cancelled
+};
+
+enum class CancelCode {
+    User, Timeout, UnknownTransaction, UnknownMethod, UnexpectedMessage,
+    KeyMismatch, UserMismatch, InvalidMessage, Accepted, Sasmismatch, Other
+};
+
+std::string cancelCodeToString(CancelCode code);
+
+struct VerificationTransaction {
+    std::string transactionId;
+    std::string otherUserId;
+    std::string otherDeviceId;
+    std::string ourDeviceId;
+    bool weInitiated = false;
+    bool isIncoming = false;
+    VerificationState state = VerificationState::Idle;
+    SasSession sas;
+    std::string theirSasPubkey;
+    std::string commitment;
+    std::chrono::steady_clock::time_point startTime;
+    std::optional<CancelCode> cancelCode;
+    std::string roomId;
+    std::string requestEventId;
+    std::string startContentJson;
+    bool isToDevice() const { return roomId.empty(); }
+    bool isExpired() const;
+};
+
+class VerificationManager {
+public:
+    static std::string generateTransactionId();
+
+    VerificationTransaction* startVerification(
+        const std::string& otherUserId, const std::string& otherDeviceId,
+        const std::string& ourDeviceId, bool toDevice = true,
+        const std::string& roomId = "", const std::string& requestEventId = "");
+
+    VerificationTransaction* findTransaction(const std::string& txnId);
+    void removeTransaction(const std::string& txnId);
+    std::vector<VerificationTransaction*> activeTransactions() const;
+
+    VerificationTransaction* handleEvent(const std::string& eventType,
+        const std::string& senderId, const std::string& contentJson,
+        const std::string& ourUserId, const std::string& ourEd25519,
+        const std::string& ourCurve25519);
+
+    std::string buildRequestContent(const std::string& ourDeviceId,
+        const std::string& txnId) const;
+    std::string buildReadyContent(const std::string& ourDeviceId,
+        const std::string& txnId) const;
+    std::string buildStartContent(const std::string& ourDeviceId,
+        const std::string& txnId) const;
+    std::string buildAcceptContent(const std::string& txnId,
+        const std::string& commitment) const;
+    std::string buildKeyContent(const std::string& txnId,
+        const std::string& sasPubkey) const;
+    std::string buildMacContent(const std::string& txnId,
+        const std::string& ourDeviceId, const std::string& ourEd25519,
+        const std::string& ourCurve25519, SasSession& sas) const;
+    std::string buildDoneContent(const std::string& txnId) const;
+    std::string buildCancelContent(const std::string& txnId, CancelCode code,
+        const std::string& reason = "") const;
+
+    std::vector<VerificationEmoji> computeEmojis(VerificationTransaction& txn) const;
+    bool verifyTheirMac(VerificationTransaction& txn,
+        const std::string& theirMacJson, const std::string& ourDeviceId,
+        const std::string& ourEd25519, const std::string& ourCurve25519) const;
+
+private:
+    std::vector<std::unique_ptr<VerificationTransaction>> transactions_;
+    std::string computeCommitment(const std::string& startContentJson,
+        const std::string& ourSasPubkey) const;
+    std::string macInfo(const std::string& txnId, const std::string& deviceId,
+        const std::string& ed25519, const std::string& curve25519) const;
+};
+
+} // namespace progressive::desktop

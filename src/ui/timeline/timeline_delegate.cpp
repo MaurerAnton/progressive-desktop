@@ -13,6 +13,9 @@
 #include <QApplication>
 #include <QDateTime>
 #include <QMouseEvent>
+#include <QKeyEvent>
+#include <QGuiApplication>
+#include <QClipboard>
 #include <QUrl>
 #include <QRegularExpression>
 #include <QGuiApplication>
@@ -75,6 +78,21 @@ bool TimelineDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
         auto* me = static_cast<QMouseEvent*>(event);
         emit doubleClicked(index.data(TimelineModel::EventIdRole).toString());
         return true;
+    }
+    if (event->type() == QEvent::KeyPress) {
+        auto* ke = static_cast<QKeyEvent*>(event);
+        if (ke->key() == Qt::Key_C && (ke->modifiers() & Qt::ControlModifier) &&
+            (ke->modifiers() & Qt::ShiftModifier)) {
+            auto* evt = qobject_cast<TimelineModel*>(model)->at(index.row());
+            if (!evt || evt->eventId.empty()) return false;
+            QDateTime dt = QDateTime::fromMSecsSinceEpoch(evt->originServerTs);
+            QString text = QString("[%1, %2]: %3")
+                .arg(QString::fromStdString(evt->senderName),
+                     dt.toString("HH:mm"),
+                     QString::fromStdString(evt->body));
+            QGuiApplication::clipboard()->setText(text);
+            return true;
+        }
     }
     if (event->type() != QEvent::MouseButtonRelease)
         return QStyledItemDelegate::editorEvent(event, model, option, index);

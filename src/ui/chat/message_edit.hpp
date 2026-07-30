@@ -8,6 +8,7 @@
 #include <QPushButton>
 #include <QCompleter>
 #include <QStringListModel>
+#include <QImage>
 #include <string>
 
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
@@ -39,6 +40,7 @@ signals:
     void attachFileRequested();
     void emojiPickerRequested();
     void quickReact(const QString& emoji);
+    void imagePasted(const QImage& image);
 
 private slots:
     void onAttachClicked();

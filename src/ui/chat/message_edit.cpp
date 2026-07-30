@@ -4,6 +4,9 @@
 
 #include <QHBoxLayout>
 #include <QKeyEvent>
+#include <QGuiApplication>
+#include <QClipboard>
+#include <QMimeData>
 #include <QFont>
 #include <QFontDatabase>
 #include <QMenu>
@@ -103,6 +106,17 @@ void MessageEdit::onEmojiClicked() {
 bool MessageEdit::eventFilter(QObject* obj, QEvent* event) {
     if (obj == textEdit_ && event->type() == QEvent::KeyPress) {
         auto* e = static_cast<QKeyEvent*>(event);
+        if (e->key() == Qt::Key_V && (e->modifiers() & Qt::ControlModifier) &&
+            !(e->modifiers() & Qt::ShiftModifier)) {
+            const QMimeData* md = QGuiApplication::clipboard()->mimeData();
+            if (md && md->hasImage()) {
+                QImage img = qvariant_cast<QImage>(md->imageData());
+                if (!img.isNull()) {
+                    emit imagePasted(img);
+                    return true;
+                }
+            }
+        }
         if (e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) {
             if (!(e->modifiers() & Qt::ShiftModifier)) {
                 // Send

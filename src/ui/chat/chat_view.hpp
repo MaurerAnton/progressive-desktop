@@ -22,6 +22,8 @@ public:
     void setClient(std::shared_ptr<MatrixClient> c) { client_ = std::move(c); }
     void setChatLogger(ChatLogger* l) { chatLogger_ = l; }
 
+    void onImagePasted(const QImage& image);
+
     void setCurrentRoom(const std::string& roomId, const std::string& threadRoot = "",
                         bool isEncrypted = false);
     void setRoomListModel(RoomListModel* m) { roomListModel_ = m; }

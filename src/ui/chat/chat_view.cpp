@@ -13,6 +13,7 @@
 #include <QDateTime>
 #include <QMimeDatabase>
 #include <QFileInfo>
+#include <QDir>
 #include <QTimer>
 
 #include "core/thread_pool.hpp"
@@ -297,6 +298,15 @@ void ChatView::doQuickReact(const QString& emoji) {
             guard->model_->addReaction(eid, em, guard->client_->account().userId, r.data);
         }, Qt::QueuedConnection);
     });
+}
+
+void ChatView::onImagePasted(const QImage& image) {
+    if (roomId_.empty() || !client_) return;
+    QString tempPath = QDir::tempPath() + "/progressive_paste_" +
+        QString::number(QDateTime::currentMSecsSinceEpoch()) + ".png";
+    if (!image.save(tempPath, "PNG")) return;
+    doAttachFile(tempPath);
+    // DEBT(UI): temp file cleanup — left in Qt temp dir, auto-cleaned on exit
 }
 
 } // namespace progressive::desktop

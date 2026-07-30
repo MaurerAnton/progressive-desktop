@@ -1,6 +1,7 @@
 // src/ui/profile_dialog.cpp — edit own display name + avatar.
 #include "profile_dialog.hpp"
 #include "core/version.h"
+#include "shared/theme.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>

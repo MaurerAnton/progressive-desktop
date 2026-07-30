@@ -7,6 +7,7 @@
 #include <string>
 
 class QPushButton;
+class QFormLayout;
 
 namespace progressive::desktop {
 

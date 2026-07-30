@@ -10,6 +10,7 @@
 #include "../timeline/timeline_model.hpp"
 #include "../room_list_model.hpp"
 #include "../profile/room_members_dialog.hpp"
+#include "../dialogs/prefs_dialog.hpp"
 #include "core/debug_log.hpp"
 
 #include <QMetaObject>
@@ -28,7 +29,7 @@ void RoomDataLoader::loadHistory(const std::string& roomId, TimelineModel* model
     auto c = client_;
     QPointer<RoomDataLoader> selfGuard(this);
     ThreadPool::instance().enqueue([selfGuard, c, roomId, model, callback, token, decryptor]() {
-        auto result = c->getMessages(roomId, "", 30);
+        auto result = c->getMessages(roomId, "", PrefsDialog::historyLoadLimit());
         QMetaObject::invokeMethod(selfGuard, [selfGuard, result, model, callback, token, roomId, decryptor]() {
             if (selfGuard.isNull() || !token || !*token) return;
             if (!result.ok) { if (callback) callback(0, ""); return; }

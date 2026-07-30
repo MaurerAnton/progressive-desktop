@@ -10,6 +10,7 @@
 #include "../timeline/timeline_model.hpp"
 #include "../timeline/timeline_handlers.hpp"
 #include "core/matrix_client.hpp"
+#include "../dialogs/prefs_dialog.hpp"
 #include "../chat/chat_view.hpp"
 #include "../dialogs/room_settings_dialog.hpp"
 #include "../profile/room_members_dialog.hpp"
@@ -170,7 +171,7 @@ void RoomHandler::onLoadMoreClicked() {
     QPointer<RoomHandler> self(this);
 
     ThreadPool::instance().enqueue([guard, self, client, roomId, from]() {
-        auto result = client->getMessages(roomId, from, 30);
+        auto result = client->getMessages(roomId, from, PrefsDialog::historyLoadLimit());
         QMetaObject::invokeMethod(guard, [guard, self, result]() {
             if (guard.isNull() || self.isNull()) return;
             if (!result.ok) {

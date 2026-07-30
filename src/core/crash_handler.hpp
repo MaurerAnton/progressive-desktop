@@ -1,7 +1,9 @@
 // src/core/crash_handler.hpp — signal handler with backtrace for SIGSEGV/SIGABRT.
 #pragma once
+#include <cstdio>  // for fprintf in stub
+
+#if defined(__linux__)
 #include <csignal>
-#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <execinfo.h>
@@ -45,3 +47,11 @@ inline void installCrashHandler() {
 }
 
 } // namespace
+
+#else
+namespace progressive::crash {
+inline void installCrashHandler() {
+    std::fprintf(stderr, "[crash] handler not installed (non-Linux platform)\n");
+}
+} // namespace
+#endif

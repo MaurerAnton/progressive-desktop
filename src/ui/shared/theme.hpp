@@ -2,6 +2,7 @@
 #pragma once
 
 #include <QColor>
+#include <vector>
 
 class QApplication;
 
@@ -82,6 +83,9 @@ struct Theme {
     static void load();     // read QSettings → Design:: tokens
     static void save();     // write Design:: tokens → QSettings
     static void reapply();  // re-apply palette + stylesheet after token changes
+
+    struct TokenEntry { const char* qkey; QColor* field; };
+    static const std::vector<TokenEntry>& tokenRegistry();
 };
 
 // Deterministic color from user ID — unified across all delegates.

@@ -70,20 +70,58 @@ void applyDarkTheme(QApplication& app) {
 
 void Theme::load() {
     QSettings s;
-    Design::incomingBubble = QColor(s.value("theme/incomingBubble", Design::incomingBubble.name()).toString());
-    Design::outgoingBubble = QColor(s.value("theme/outgoingBubble", Design::outgoingBubble.name()).toString());
-    Design::accentColor   = QColor(s.value("theme/accentColor",   Design::accentColor.name()).toString());
-    Design::viewBg         = QColor(s.value("theme/viewBg",        Design::viewBg.name()).toString());
-    Design::textColor      = QColor(s.value("theme/textColor",     Design::textColor.name()).toString());
+    for (const auto& e : tokenRegistry()) {
+        *e.field = QColor(s.value(e.qkey, e.field->name()).toString());
+    }
 }
 
 void Theme::save() {
     QSettings s;
-    s.setValue("theme/incomingBubble", Design::incomingBubble.name());
-    s.setValue("theme/outgoingBubble", Design::outgoingBubble.name());
-    s.setValue("theme/accentColor",    Design::accentColor.name());
-    s.setValue("theme/viewBg",         Design::viewBg.name());
-    s.setValue("theme/textColor",      Design::textColor.name());
+    for (const auto& e : tokenRegistry()) {
+        s.setValue(e.qkey, e.field->name());
+    }
+}
+
+const std::vector<Theme::TokenEntry>& Theme::tokenRegistry() {
+    static const std::vector<TokenEntry> reg = {
+        {"theme/viewBg",            &Design::viewBg},
+        {"theme/inputBg",           &Design::inputBg},
+        {"theme/selectedBg",        &Design::selectedBg},
+        {"theme/inviteRowBg",       &Design::inviteRowBg},
+        {"theme/incomingBubble",    &Design::incomingBubble},
+        {"theme/outgoingBubble",    &Design::outgoingBubble},
+        {"theme/textColor",         &Design::textColor},
+        {"theme/timeColor",         &Design::timeColor},
+        {"theme/systemTextColor",   &Design::systemTextColor},
+        {"theme/mutedTextColor",    &Design::mutedTextColor},
+        {"theme/dimTextColor",      &Design::dimTextColor},
+        {"theme/reactionTextColor", &Design::reactionTextColor},
+        {"theme/inviteTextColor",   &Design::inviteTextColor},
+        {"theme/deletedTextColor",  &Design::deletedTextColor},
+        {"theme/accentColor",       &Design::accentColor},
+        {"theme/pinnedColor",       &Design::pinnedColor},
+        {"theme/threadColor",       &Design::threadColor},
+        {"theme/typingColor",       &Design::typingColor},
+        {"theme/emoteColor",        &Design::emoteColor},
+        {"theme/linkOnOutgoing",    &Design::linkOnOutgoing},
+        {"theme/unreadBadgeColor",  &Design::unreadBadgeColor},
+        {"theme/playBtnOverlay",    &Design::playBtnOverlay},
+        {"theme/dangerText",        &Design::dangerText},
+        {"theme/dangerBg",          &Design::dangerBg},
+        {"theme/acceptBg",          &Design::acceptBg},
+        {"theme/borderColor",       &Design::borderColor},
+        {"theme/hoverBorder",       &Design::hoverBorder},
+        {"theme/replyLineColor",    &Design::replyLineColor},
+        {"theme/fileCardBg",        &Design::fileCardBg},
+        {"theme/fileCardBorder",    &Design::fileCardBorder},
+        {"theme/fileCardIconText",  &Design::fileCardIconText},
+        {"theme/fileCardFileName",  &Design::fileCardFileName},
+        {"theme/fileAudioBar",      &Design::fileAudioBar},
+        {"theme/fileFileBar",       &Design::fileFileBar},
+        {"theme/imgPlaceholderBg",  &Design::imgPlaceholderBg},
+        {"theme/trayIconBg",        &Design::trayIconBg},
+    };
+    return reg;
 }
 
 void Theme::reapply() {

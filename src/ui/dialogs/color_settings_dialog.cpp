@@ -76,11 +76,10 @@ void ColorSettingsDialog::addRow(const std::string& label, QColor* target,
 
     auto* row = new QHBoxLayout;
     row->addWidget(btn);
-    row->addWidget(new QLabel(QString::fromStdString(label), this));
     row->addStretch();
 
     auto* form = findChild<QFormLayout*>();
-    if (form) form->addRow(row);
+    if (form) form->addRow(QString::fromStdString(label), row);
 }
 
 void ColorSettingsDialog::onSave() {

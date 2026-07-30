@@ -2,6 +2,7 @@
 #include "main_window.hpp"
 #include "handlers/toolbar_handler.hpp"
 #include "handlers/room_handler.hpp"
+#include "handlers/thread_handler.hpp"
 #include "handlers/e2ee_init_handler.hpp"
 #include "ui_layout_builder.hpp"
 #include "dialogs/login_dialog.hpp"
@@ -119,6 +120,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     messageEdit_ = ui.messageEdit;
     splitter_ = ui.splitter;
     roomListHeader_ = ui.roomListHeader;
+
+    roomList_->setFocusPolicy(Qt::StrongFocus);
+    timelineView_->setFocusPolicy(Qt::StrongFocus);
+    messageEdit_->setFocusPolicy(Qt::StrongFocus);
+    if (splitter_) splitter_->setFocusPolicy(Qt::ClickFocus);
 
     roomModel_->setHeaderLabels(roomListHeader_, inviteHeader_);
 
@@ -327,8 +333,11 @@ void MainWindow::keyPressEvent(QKeyEvent* e) {
         !(e->modifiers() & Qt::ShiftModifier)) {
         QModelIndex idx = timelineView_->currentIndex();
         QString eid = idx.data(TimelineModel::EventIdRole).toString();
-        if (!eid.isEmpty() && roomHandler_)
-            roomHandler_->openThreadView(eid);
+        if (!eid.isEmpty() && roomHandler_) {
+            std::string roomId = roomHandler_->currentRoomId();
+            if (!roomId.empty() && roomHandler_->threadHandler())
+                roomHandler_->threadHandler()->replyInThread(eid, roomId);
+        }
         e->accept(); return;
     }
     if (e->key() == Qt::Key_K && (e->modifiers() & Qt::ControlModifier) &&

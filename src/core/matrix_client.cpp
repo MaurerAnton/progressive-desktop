@@ -1093,7 +1093,7 @@ ApiResult<AccountInfo> MatrixClient::registerAccount(const std::string& username
     if (!regToken.empty()) {
         body << R"({"username":")" << jsonEscape(username) << R"(","password":")"
              << jsonEscape(password) << R"(","auth":{"type":"m.login.registration_token",)"
-             << R"("registration_token":")" << jsonEscape(regToken) << R"("}})";
+             << R"("token":")" << jsonEscape(regToken) << R"("}})";
     } else {
         body << R"({"username":")" << jsonEscape(username) << R"(","password":")"
              << jsonEscape(password) << R"(","auth":{"type":"m.login.dummy"}})";
@@ -1130,7 +1130,11 @@ ApiResult<AccountInfo> MatrixClient::registerAccount(const std::string& username
             body2 << R"({"username":")" << jsonEscape(username) << R"(","password":")"
                   << jsonEscape(password) << R"(","auth":{"type":")"
                   << (regToken.empty() ? "m.login.dummy" : "m.login.registration_token")
-                  << R"(","session":")" << jsonEscape(session) << R"("}})";
+                  << R"(","session":")" << jsonEscape(session) << R"(")";
+            if (!regToken.empty()) {
+                body2 << R"(,"token":")" << jsonEscape(regToken) << R"(")";
+            }
+            body2 << R"(}})";
             auto resp2 = httpPost(homeserverUrl + "/_matrix/client/v3/register?kind=user",
                                   body2.str(), hdrs, 15000);
             if (resp2.success) {

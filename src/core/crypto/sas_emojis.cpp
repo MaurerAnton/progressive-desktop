@@ -2,6 +2,7 @@
 #include "sas_emojis.hpp"
 #include <sstream>
 #include <iomanip>
+#include <cstdint>
 
 namespace progressive::desktop {
 

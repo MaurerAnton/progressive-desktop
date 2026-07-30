@@ -95,6 +95,7 @@ target_link_libraries(progressive_ui_widgets PUBLIC progressive_core Qt6::Widget
 # --- UI dialogs layer (no deps on other UI libs) ---
 add_library(progressive_ui_dialogs STATIC
     src/ui/dialogs/login_dialog.cpp
+    src/ui/dialogs/color_settings_dialog.cpp
     src/ui/dialogs/image_viewer_dialog.cpp
     src/ui/dialogs/room_directory_dialog.cpp
     src/ui/dialogs/threads_dialog.cpp

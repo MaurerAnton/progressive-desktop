@@ -16,6 +16,7 @@
 #include "../dialogs/room_directory_dialog.hpp"
 #include "../dialogs/threads_dialog.hpp"
 #include "../dialogs/prefs_dialog.hpp"
+#include "../dialogs/color_settings_dialog.hpp"
 #include "../dialogs/network_log_dialog.hpp"
 #include "../shared/image_loader.hpp"
 #include "../chat/chat_logger.hpp"
@@ -189,6 +190,7 @@ void ToolbarHandler::onSettings() {
     auto* profileAction = menu.addAction("My profile...");
     auto* prefsAction = menu.addAction("Preferences...");
     menu.addSeparator();
+    auto* colorsAction = menu.addAction("Colors...");
     auto* netLogAction = menu.addAction("Network log");
     menu.addSeparator();
     auto* resetKeysAction = menu.addAction("Reset device keys");
@@ -205,6 +207,9 @@ void ToolbarHandler::onSettings() {
     } else if (selected == prefsAction) {
         PrefsDialog dlg(parentWidget_);
         connect(&dlg, &PrefsDialog::settingsChanged, this, &ToolbarHandler::prefsChanged);
+        dlg.exec();
+    } else if (selected == colorsAction) {
+        ColorSettingsDialog dlg(parentWidget_);
         dlg.exec();
     } else if (selected == netLogAction) {
         NetworkLogDialog dlg(parentWidget_);

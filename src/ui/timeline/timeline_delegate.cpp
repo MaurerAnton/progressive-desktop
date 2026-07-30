@@ -33,6 +33,24 @@ void TimelineDelegate::paint(QPainter* p, const QStyleOptionViewItem& opt,
     p->save();
     p->setRenderHint(QPainter::Antialiasing);
 
+    auto* evt = qobject_cast<const TimelineModel*>(idx.model())->at(idx.row());
+    if (evt && evt->isDateDivider) {
+        QRect r = opt.rect;
+        QString label = QString::fromStdString(evt->dividerLabel);
+        int labelW = qMax(20, opt.fontMetrics.horizontalAdvance(label));
+        int lineY = r.center().y();
+        int textX = r.center().x() - labelW / 2;
+        int lineGap = 8;
+        p->setPen(QColor(102, 102, 102));
+        p->drawLine(r.left() + 12, lineY, textX - lineGap, lineY);
+        p->setPen(QColor(153, 153, 153));
+        p->drawText(textX, r.top(), labelW, r.height(), Qt::AlignCenter, label);
+        p->setPen(QColor(102, 102, 102));
+        p->drawLine(textX + labelW + lineGap, lineY, r.right() - 12, lineY);
+        p->restore();
+        return;
+    }
+
     if (opt.state & QStyle::State_Selected) {
         p->fillRect(opt.rect, Design::selectedBg);
     } else {
@@ -56,6 +74,11 @@ void TimelineDelegate::paint(QPainter* p, const QStyleOptionViewItem& opt,
 
 QSize TimelineDelegate::sizeHint(const QStyleOptionViewItem& opt,
                                    const QModelIndex& idx) const {
+    auto* evt = qobject_cast<const TimelineModel*>(idx.model())->at(idx.row());
+    if (evt && evt->isDateDivider) {
+        return QSize(opt.rect.width(), 28);
+    }
+
     QString type = idx.data(TimelineModel::TypeRole).toString();
     if (type == "progressive.system") {
         return QSize(opt.rect.width() > kMinUsableViewW ? opt.rect.width() : kFallbackViewW, 28);

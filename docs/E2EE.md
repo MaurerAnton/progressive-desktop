@@ -2,7 +2,7 @@
 
 > **Who this is for:** Developers implementing Matrix E2EE with libolm in any language.
 > Written from hard-won experience implementing E2EE from scratch in a pure C++20 Matrix client.
-> **Last updated:** July 29, 2026 — Multi-account E2EE, shared flag pattern, OTK count tracking, device_lists tracking, device reset, 10+ commits.
+> **Last updated:** July 30, 2026 — Phase 1 complete (ed25519 verify, Olm plaintext validation, OTK/device key signature verified). Phase 2 in progress (SAS verification state machine + dialog).
 > See `docs/E2EE-troubleshooting.md` for diagnostic guide (log patterns → root cause → fix).
 
 ---
@@ -406,14 +406,20 @@ std::string pickleOlmSessions(const std::string& key) {
 | m.room.encrypted (room) | ✅ Working | Megolm encrypted events |
 | m.room.encrypted (to-device) | ✅ Working | Olm encrypted to-device |
 | device_keys / one-time_keys | ✅ Working | /keys/upload |
-| Olm session persistence | ✅ Working | Multiple sessions per sender |
-| Megolm inbound persistence | ✅ Working | SQLite |
-| Megolm outbound persistence | ❌ | Sessions lost on restart |
-| Device verification (SAS) | ❌ | Red shield in Element |
-| Cross-signing | ❌ | No device trust chain |
-| SSSS key backup | ❌ | No history recovery |
-| m.forwarded_room_key | ❌ | Don't handle forwarded keys |
-| Megolm rotation | ❌ | No forward secrecy |
+| Olm session persistence | ✅ Working | Multiple sessions per sender, dedup, cap 20/sender |
+| Megolm inbound persistence | ✅ Working | SQLite, scoped per-account |
+| Megolm outbound persistence | ✅ Working | SQLite, scoped per-account, roomKeysShared flag restored |
+| Ed25519 signature verification | ✅ Working | `olm_ed25519_verify` (PUBLIC libolm API) — replaces submodule stub |
+| Olm plaintext validation | ✅ Working | sender/recipient/recipient_keys per m.olm.v1 |
+| OTK signature verification | ✅ Working | signed_curve25519 verified on /keys/claim |
+| Device key signature verification | ✅ Working | device_keys signatures verified on /keys/query |
+| Device verification (SAS) | 🔄 In Progress | Phase 2 — state machine + dialog (6 commits pushed, fix pending) |
+| Cross-signing | ❌ | No device trust chain (Phase 6, depends on ed25519 verify ✅) |
+| SSSS key backup | ❌ | No history recovery (Phase 7) |
+| m.forwarded_room_key | ❌ | Don't handle forwarded keys (submodule has real code, ready to port) |
+| m.room_key_request incoming | ❌ | Don't re-share keys when asked (submodule has real code, ready to port) |
+| Megolm rotation | ❌ | No forward secrecy (submodule has real code, ready to port) |
+| Fallback keys | ❌ | API available (submodule OlmAccountData), needs port to OlmAccount class |
 
 ---
 
@@ -587,6 +593,82 @@ When a user has multiple devices (e.g., Progressive on PineTab + Element on phon
 6. Sends via `/sendToDevice`
 
 **Known issue**: FluffyChat multi-device OTK claim — if a friend has 2+ devices and one has no available OTKs, the server returns nothing for that device → we skip it → that device doesn't get the room_key. FluffyChat's workaround: re-upload OTKs regularly.
+
+### Phase 1 — Signature Verification Foundation (Complete, July 30, 2026)
+
+Three new capabilities that form the cryptographic foundation for all future E2EE features:
+
+**Ed25519 Signature Verification (`olm_ed25519_verify`):**
+libolm exports `olm_ed25519_verify` as a PUBLIC stable API (`olm.h:516`):
+```c
+size_t olm_ed25519_verify(OlmUtility*, void const* key, size_t keyLen,
+    void const* message, size_t msgLen, void* signature, size_t sigLen);
+```
+- All inputs are base64 (key, signature). Message is raw bytes. Returns 0 on success.
+- The progressive submodule's `ed25519Verify` was a STUB returning `true`. Replaced with real libolm call.
+- The foundation for: OTK sig verify, device key sig verify, cross-signing signature verification, SAS MAC verification.
+- Implementation: `src/core/crypto/ed25519.hpp` (free functions `ed25519Verify` / `ed25519VerifyJson`).
+
+**Olm Plaintext Validation (per m.olm.v1 spec):**
+After Olm decryption succeeds, verify four fields in the plaintext JSON:
+- `sender` = the to-device event sender
+- `recipient` = our userId
+- `recipient_keys.ed25519` = our ed25519 key
+- `keys.ed25519` = sender's device ed25519 (logged, not enforced — needs device key cache)
+
+Implementation: `decryptor.cpp:handleOlmEncryptedToDevice` — validation before `handleRoomKey`.
+
+**OTK + Device Key Signature Verification:**
+- Device key signatures verified on `/keys/query` responses (canonical JSON ← buildDeviceKeysCanonical)
+- OTK signatures verified on `/keys/claim` responses (canonical JSON = `{"key":"<curve25519>"}`)
+- Both use the `ed25519Verify` primitive
+- Untrusted devices/OTKs are SKIPPED (logged, not crashed)
+- Implementation: `src/core/crypto/sig_verify.hpp` (free functions), wired into `shareRoomKey`
+
+### Phase 2 — SAS Verification (In Progress, July 30, 2026)
+
+Full `m.sas.v1` device verification (the "make the red shield go away" feature).
+
+**Ported from submodule (REAL):**
+- `sas_verification.cpp` (212L) — OlmSAS wrapper: sasCreate, sasSetTheirKey, sasGetEmojis (6 bytes → 6 emojis), sasCalculateMac, sasCalculateMacLongKdf, sasVerifyMac. 13 `olm_sas_*` calls.
+- `verification_utils.cpp` (156L) — 64-emoji table (spec-compliant), computeSasEmojis, computeSasDecimals, buildVerificationStartBody/MacBody/CancelBody.
+
+**Written from scratch (submodule's sas_manager.cpp is FAKE):**
+- `VerificationManager` — state machine (Idle→RequestSent→Ready→Started→Accepted→KeySent/Received→MacSent/Received→Done/Cancelled), transaction tracking, commitment hash verification, MAC verification
+- `SasDialog` — Qt dialog: 7 emoji display, "They match"/"They don't match" buttons, cancel/timeout
+- Self-verification entry point (Settings → "Verify this device")
+- User verification entry point (User profile → "Verify")
+- To-device + in-room event routing for `m.key.verification.*`
+
+**Known bugs found in self-review (fix prompt written, not yet applied):**
+1. SasSession double-free (needs move ctor — `void* sas` ownership)
+2. MAC info string: uses pipe separators + both keys. Spec: no separators, per-key, keyId not keyValue
+3. computeSasDecimals: 2 values from 6 bytes (non-overlapping 3-byte windows). Spec: 7 values from overlapping 13-bit windows
+4. No mutex in VerificationManager (data race between sync + UI threads)
+5. MAC not verified before transitioning to Done
+6. Commitment verification missing (stored, never checked)
+7. In-room routing not wired (room_data_loader.cpp filter skips verification events)
+8. Initiator doesn't store own start JSON for commitment verification
+9. ourDeviceId not set on incoming request
+10. verifyTheirMac passes JSON object to sasVerifyMac which expects base64 string
+
+### FAKE Boilerplate Trap Warning — DO NOT PORT THESE FILES
+
+The progressive submodule has ~30+ FAKE files that look like implementations but are auto-generated JSON-echo no-ops. A filename-and-line-count audit badly overstates what's there.
+
+**FAKE files (DO NOT PORT):**
+- All `*_v4.cpp` files (~220 KB total): `verification_v4.cpp`, `cross_sign_v4.cpp`, `key_backup_v4.cpp`, `secret_store_v4.cpp`, etc.
+- `crypto_ops.cpp` (34 KB)
+- `sas_manager.cpp`, `backup_controller.cpp`, `gossip_manager.cpp`
+- Most `*_utils.cpp`, `*_manager.cpp`, `backup_*`, `cross_sign_*`, `device_*`
+- `verification_request_utils.cpp`, `key_export_utils.cpp`, `dehydrate_utils.cpp`
+- `secret_*` files
+
+**REAL files (SAFE to port):** `sas_verification.cpp`, `verification_utils.cpp` (1 known bug), `keyshare.cpp`, `room_encryption.cpp`, `key_backup.cpp` (recovery key format only — not backup crypto), `cross_signing_manager.cpp` (data model only — not crypto), `crypto_algorithms.cpp`, `olm_session.cpp:157` (fallback key on OlmAccountData API), `megolm_decryptor.cpp`.
+
+### Fallback Keys — NOT Blocked on Submodule
+
+Previously marked "blocked on submodule" (P4). The submodule HAS a real implementation — but on the `OlmAccountData` API in `olm_session.cpp:157`, not on the `OlmAccount` class the desktop wraps. `device_unused_fallback_key_types` from /sync parsing also exists (`sync_models.cpp`). The remaining work is an API alignment/port: add `generateFallbackKey` + `fallbackKey()` getter + `markFallbackKeyPublished()` to the `OlmAccount` class (or migrate desktop to `OlmAccountData`). This is a porting task, not a "write from scratch" task.
 
 ### Architecture Comparison — Multi-Account E2EE
 

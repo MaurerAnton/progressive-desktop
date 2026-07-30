@@ -2,7 +2,7 @@
 
 **Read this file, code_map.json, and memory/REFERENCE.md before any code change.**
 **memory/DREAM.md explains WHY the architecture exists.**
-**Last updated: July 29, 2026**
+**Last updated: July 30, 2026**
 
 ---
 
@@ -242,14 +242,15 @@ If a class calls `httpPost`/`httpPut` with auth headers (`makeAuthHeaders(token)
 
 ---
 
-## E2EE Implementation Status (July 29, 2026)
+## E2EE Implementation Status (July 30, 2026)
 
 ### Working ✓
 - Inbound decryption (Olm + Megolm, recovery chain via m.dummy + m.room_key_request)
 - Outbound encryption (Megolm + Olm, room_key sharing via /sendToDevice)
 - Self-echo decryption (outbound imported as inbound)
-- Olm session persistence (multiple sessions per senderKey, vector storage, scoped per-account)
+- Olm session persistence (multiple sessions per senderKey, vector storage, scoped per-account, dedup, cap 20/sender)
 - Megolm inbound session persistence (SQLite, scoped per-account)
+- Outbound Megolm persistence (SQLite, scoped per-account, roomKeysShared flag)
 - Token rotation handling (setCryptoContext re-call at refresh sites)
 - Bug A recovery verified (Element re-shares room_key via fresh Olm session)
 - Bug B outbound verified (Element decrypts; room_id in Megolm plaintext)
@@ -257,23 +258,34 @@ If a class calls `httpPost`/`httpPut` with auth headers (`makeAuthHeaders(token)
 - **OTK count tracking** — `uploadedKeyCount_` updated from /sync, smart generation (`max(0, 100 - serverCount)`)
 - **device_lists tracking** — parse `device_lists:{changed,left}` from /sync, mark stale users
 - **Device reset** — "Reset device keys" action clears stale OTKs via `POST /delete_devices`
+- **Ed25519 signature verification** — `olm_ed25519_verify` (PUBLIC stable libolm API, olm.h:516). Replaces submodule stub.
+- **Olm plaintext validation** — verify sender/recipient/recipient_keys per m.olm.v1 spec
+- **OTK + device key signature verification** — verify signed_curve25519 OTK signatures + device_keys signatures on /keys/query + /keys/claim
+
+### In Progress 🔄
+- **SAS verification (Phase 2)** — m.key.verification.* state machine + to-device/in-room routing + Qt SAS dialog. 6 commits pushed, bugs found in self-review, fix prompt written. Depends on: ed25519 verify (Complete), SasSession move semantics (bug found), MAC info string format correction (bug found), computeSasDecimals algorithm rewrite (bug found).
 
 ### Gaps
 | Gap | What | Priority |
 |---|---|---|
-| Outbound Megolm persistence | Sessions lost on restart; new session per run | MEDIUM |
-| Device verification (cross-signing/SAS) | Red shield in Element; device not verified | Future sprint |
+| Device verification (cross-signing/SAS) | Red shield in Element; SAS in progress, cross-signing deferred | In Progress (SAS) / Future (cross-signing) |
 | SSSS key backup | Can't recover history after re-login | Future sprint |
-| Fallback keys | No fallback when OTKs exhausted | P4 (blocked on submodule) |
-| m.room_key_request incoming | Don't re-share keys when another device requests | LOW |
-| m.forwarded_room_key | Don't handle forwarded keys | LOW |
-| Megolm rotation | No forward secrecy | LOW |
-| Olm plaintext validation | Don't verify sender/recipient/keys | LOW |
-| OTK signature verification | Don't verify signed_curve25519 signatures | LOW |
+| Fallback keys | No fallback when OTKs exhausted | P4 (REAL in submodule's OlmAccountData API — needs API port to OlmAccount class; NOT "blocked on submodule" anymore) |
+| m.room_key_request incoming | Don't re-share keys when another device requests | LOW (REAL in submodule keyshare.cpp — ready to port) |
+| m.forwarded_room_key | Don't handle forwarded keys | LOW (REAL in submodule keyshare.cpp — ready to port) |
+| Megolm rotation | No forward secrecy | LOW (REAL in submodule room_encryption.cpp — ready to port) |
 | Threading: HTTP on UI thread | requestRoomKey blocks UI for 1-3s | LOW |
 | Option A refactor | ctxToken_ works but is stale-prone; inject MatrixClient | LOW |
 | FluffyChat multi-device OTK | Only claim 1 OTK for 2+ devices | LOW |
 | Proactive Olm session creation | get_missing_sessions() between syncs | P5 (deferred) |
+| Ed25519 signature verification | Submodule stub returned true — replaced with real libolm API | ✅ DONE (Phase 1) |
+| Olm plaintext validation | Verify sender/recipient/keys per spec | ✅ DONE (Phase 1) |
+| OTK signature verification | Verify signed_curve25519 signatures | ✅ DONE (Phase 1) |
+| Outbound Megolm persistence | Sessions lost on restart | ✅ DONE (Phase 1 bonus) |
+| Olm session exponential growth | 30000+ sessions from switchAccount append-without-clear | ✅ DONE (fixed: clear before load + dedup + cap 20/sender) |
+| SIGSEGV on close | Detached sync thread use-after-free | ✅ DONE (join() instead of detach()) |
+| Ctrl+Tab → Logout | Account cycling landed on "Logout" combo item | ✅ DONE (cycle accounts only) |
+| clearAccount() nukes all accounts | DELETE FROM account with no WHERE | ✅ DONE (WHERE user_id = ?) |
 
 ### Multi-Account E2EE Patterns (AGENTS.md #7)
 1. **`shared` flag**: Stored on OlmAccountStore (matches matrix-rust-sdk `Account.shared`). `false` = new account → upload device_keys. `true` = already uploaded → skip. Persisted in `olm_account.shared` column.
@@ -284,6 +296,19 @@ If a class calls `httpPost`/`httpPut` with auth headers (`makeAuthHeaders(token)
 6. **`markOneTimeKeysPublished()` before generate**: Always discard old unpublished OTKs before generating new ones. Prevents sequential ID collisions (400 "already exists").
 7. **`device_lists` from /sync**: Parse `device_lists:{changed,left}` in `fast_sync.cpp`. Mark users as stale in `Decryptor::staleDeviceUsers_`. LOG on next `shareRoomKey` call.
 See `docs/E2EE.md` for full multi-account E2EE architecture and the 167 stale OTKs cautionary tale.
+
+### E2EE Submodule Audit — FAKE Boilerplate Trap Warning
+The `third_party/progressive-android-experiments/` submodule has ~90 E2EE-relevant files. ~12 are REAL (libolm-backed, safe to port). ~30+ are FAKE (auto-generated JSON-echo boilerplate). **Do NOT port files named `*_v4.cpp`, `crypto_ops.cpp`, `sas_manager.cpp`, `backup_controller.cpp`, `gossip_manager.cpp`, `key_export_utils.cpp`, `dehydrate_utils.cpp`, or `secret_*` without verifying they contain real crypto logic.** These have plausible names and large file sizes but are no-ops. A filename-based audit badly overstates what's there. See `docs/E2EE.md` for the full REAL/FAKE inventory.
+
+### REAL submodule files safe to port:
+- `sas_verification.cpp` (212L) — OlmSAS wrapper (13 `olm_sas_*` calls)
+- `verification_utils.cpp` (156L) — 64-emoji table + computeSasEmojis + builders (1 known bug: formatSasDecimals)
+- `keyshare.cpp` (103L) — incoming m.room_key_request handling + m.forwarded_room_key builders
+- `room_encryption.cpp` (123L) — Megolm rotation policy (`isEncryptionRotationDue`)
+- `key_backup.cpp` (329L) — recovery key format (base58, parity, curve-key) — NOT backup crypto
+- `cross_signing_manager.cpp` (342L) — trust-chain DATA MODEL only (no crypto — keygen/sign/verify are STUBS)
+- `crypto_algorithms.cpp` — SHA/HMAC/HKDF primitives
+- `olm_session.cpp:157` — fallback key (on OlmAccountData API, needs port to OlmAccount class)
 
 ### libolm Quirks Documented (AGENTS.md #6) — full details in docs/E2EE.md
 1. olm_create_inbound_session expects BASE64

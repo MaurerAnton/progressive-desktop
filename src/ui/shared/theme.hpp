@@ -10,38 +10,45 @@ namespace progressive::desktop {
 // Design tokens — single source of truth for all visual constants.
 // Used by timeline delegate, room list delegate, and future UI components.
 struct Design {
+    // Backgrounds
+    static inline QColor viewBg          = QColor(0x1e, 0x1e, 0x1e);
+    static inline QColor selectedBg      = QColor(50, 80, 130);
+    static inline QColor inviteRowBg     = QColor(40, 30, 20);
+    static inline QColor inputBg         = QColor(20, 20, 20);    // #141414
+
     // Bubble colors
     static inline QColor incomingBubble  = QColor("#2a2a3e");
     static inline QColor outgoingBubble  = QColor("#0f3460");
+
+    // Text
     static inline QColor textColor       = QColor("#f0f0f0");
     static inline QColor timeColor       = QColor("#aaa");
     static inline QColor systemTextColor = QColor("#777");
-
-    // Backgrounds
-    static inline QColor rowBgDark  = QColor(20, 20, 20);
-    static inline QColor selectedBg = QColor(50, 80, 130);
-
-    // Reactions
-    static inline QColor reactionBg       = QColor("#2a2a2a");
-    static inline QColor reactionBorder   = QColor("#3a3a3a");
-    static inline QColor linkOnOutgoing   = QColor("#6bb4ff");
+    static inline QColor mutedTextColor  = QColor("#888");
+    static inline QColor dimTextColor    = QColor("#969696");
+    static inline QColor reactionTextColor = QColor("#e8e8e8");
+    static inline QColor inviteTextColor = QColor("#ffaa44");
+    static inline QColor deletedTextColor = QColor("#666");
 
     // Accents
-    static inline QColor pinnedColor      = QColor("#ffaa00");
-    static inline QColor threadColor      = QColor("#6699cc");
-    static inline QColor typingColor      = QColor("#6c6");
-    static inline QColor emoteColor       = QColor("#c0c0c0");
-    static inline QColor inviteRowBg      = QColor(40, 30, 20);
-    static inline QColor inviteTextColor  = QColor("#ffaa44");
-    static inline QColor viewBg           = QColor(0x1e, 0x1e, 0x1e);
-    static inline QColor rowBgNormal      = QColor(0x1e, 0x1e, 0x1e);
+    static inline QColor accentColor     = QColor("#2a82da");    // Matrix blue
+    static inline QColor pinnedColor     = QColor("#ffaa00");
+    static inline QColor threadColor     = QColor("#6699cc");
+    static inline QColor typingColor     = QColor("#6c6");
+    static inline QColor emoteColor      = QColor("#c0c0c0");
+    static inline QColor linkOnOutgoing  = QColor("#6bb4ff");
     static inline QColor unreadBadgeColor = QColor(50, 130, 220);
+    static inline QColor playBtnOverlay  = QColor(255, 255, 255, 80);
 
-    // Timestamp + muted text
-    static inline QColor mutedTextColor   = QColor("#888");
-    static inline QColor dimTextColor     = QColor("#969696");
-    static inline QColor replyLineColor   = QColor("#555");
-    static inline QColor reactionTextColor = QColor("#e8e8e8");
+    // Status / semantic
+    static inline QColor dangerText      = QColor("#f66");
+    static inline QColor dangerBg        = QColor("#6a2d2d");
+    static inline QColor acceptBg        = QColor("#2d6a2d");
+
+    // Borders
+    static inline QColor borderColor     = QColor("#3a3a3a");
+    static inline QColor hoverBorder     = QColor("#4a4a4a");
+    static inline QColor replyLineColor  = QColor("#555");
 
     // File card
     static inline QColor fileCardBg       = QColor("#1e1e2e");
@@ -52,28 +59,12 @@ struct Design {
     static inline QColor fileFileBar      = QColor("#48a");
 
     // Image placeholder
-    static inline QColor imgPlaceholderBg   = QColor("#1a1a1a");
-    static inline QColor imgPlaceholderText = QColor("#888");
-
-    // Invite buttons
-    static inline QColor acceptButtonBg = QColor("#2d6a2d");
-    static inline QColor rejectButtonBg = QColor("#6a2d2d");
-    static inline QColor rejectButtonText = QColor("#f66");
+    static inline QColor imgPlaceholderBg = QColor("#1a1a1a");
 
     // Tray icon
     static inline QColor trayIconBg   = QColor("#1a1a2e");
-    static inline QColor trayIconText = QColor("#6699cc");
 
-    // Emoji picker
-    static inline QColor emojiHoverBg = QColor("#3a3a3a");
-
-    // Play button overlay
-    static inline QColor playBtnOverlay    = QColor(255, 255, 255, 80);
-
-    // Deleted message
-    static inline QColor deletedTextColor  = QColor("#666");
-
-    // Avatar
+    // Dimensions
     static constexpr int avatarSize    = 36;
     static constexpr int bubbleRadius  = 12;
     static constexpr int bubblePadding = 10;

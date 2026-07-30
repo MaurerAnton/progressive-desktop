@@ -38,7 +38,7 @@ bool DesktopNotifier::init() {
     pp.setRenderHint(QPainter::Antialiasing);
     QFont iconFont; iconFont.setBold(true); iconFont.setPixelSize(kTrayFontPx);
     pp.setFont(iconFont);
-    pp.setPen(Design::trayIconText);
+    pp.setPen(Design::threadColor);
     pp.drawText(pix.rect(), Qt::AlignCenter, "P");
     pp.end();
     tray_->setIcon(QIcon(pix));

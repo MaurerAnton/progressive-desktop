@@ -352,10 +352,10 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
             }
         } else {
             QRect placeholderRect(bubbleX + kBubblePadding, curY, maxW, kImagePlaceholderH);
-            p->setPen(QPen(Design::reactionBorder, 1));
+            p->setPen(QPen(Design::borderColor, 1));
             p->setBrush(Design::imgPlaceholderBg);
             p->drawRoundedRect(placeholderRect, 6, 6);
-            p->setPen(Design::imgPlaceholderText);
+            p->setPen(Design::mutedTextColor);
             QFont pf = p->font(); pf.setPointSize(ds(kFontSizeBody)); p->setFont(pf);
             p->drawText(placeholderRect, Qt::AlignCenter,
                         msgtype == "m.video" ? "🎬 loading..." : "🖼 loading...");
@@ -408,8 +408,8 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
         auto rows = computeReactionLayout(reactions, bubbleX, baseY, bubbleW, fm);
         for (const auto& row : rows) {
             if (row.isOverflow) {
-                p->setPen(Design::reactionBorder);
-                p->setBrush(Design::reactionBg);
+                p->setPen(Design::borderColor);
+                p->setBrush(Design::viewBg);
                 p->drawRoundedRect(row.rect, 8, 8);
                 p->setPen(Design::reactionTextColor);
                 p->drawText(row.rect, Qt::AlignCenter, row.text);

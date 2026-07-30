@@ -89,7 +89,7 @@ private:
     std::string computeCommitment(const std::string& startContentJson,
         const std::string& ourSasPubkey) const;
     std::string macInfo(const std::string& txnId, const std::string& deviceId,
-        const std::string& ed25519, const std::string& curve25519) const;
+        const std::string& keyId) const;
 };
 
 } // namespace progressive::desktop

@@ -41,16 +41,17 @@ std::vector<VerificationEmoji> computeSasEmojis(const std::string& sasBytes) {
 }
 
 std::vector<int> computeSasDecimals(const std::string& sasBytes) {
-    std::vector<int> decimals;
-    // 3 bytes → 3-digit number (mod 1000, pad to 3 digits with 1000+val pattern)
-    for (size_t i = 0; i + 2 < sasBytes.size(); i += 3) {
-        int value = ((unsigned char)sasBytes[i] << 16) |
-                    ((unsigned char)sasBytes[i + 1] << 8) |
-                    (unsigned char)sasBytes[i + 2];
-        int decimal = value % 1000;
-        if (decimal < 100) decimal += 1000;
-        decimals.push_back(decimal);
-        if (decimals.size() >= 7) break;
+    std::vector<int> decimals(7);
+    if (sasBytes.size() < 6) return decimals;
+
+    uint64_t num = 0;
+    for (int i = 0; i < 6; i++) {
+        num = (num << 8) | static_cast<uint8_t>(sasBytes[i]);
+    }
+    for (int i = 0; i < 7; i++) {
+        int shift = 48 - (i + 1) * 13;
+        if (shift < 0) shift = 0;
+        decimals[i] = static_cast<int>(((num >> shift) & 0x1FFF) % 10000);
     }
     return decimals;
 }

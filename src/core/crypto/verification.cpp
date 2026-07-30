@@ -247,9 +247,12 @@ std::string VerificationManager::buildKeyContent(const std::string& txnId,
 std::string VerificationManager::buildMacContent(const std::string& txnId,
     const std::string& ourDeviceId, const std::string& ourEd25519,
     const std::string& ourCurve25519, SasSession& sas) const {
-    std::string infoKey = macInfo(txnId, ourDeviceId, ourEd25519, ourCurve25519);
-    std::string ed25519mac = sasCalculateMac(sas, ourEd25519, infoKey);
-    std::string curve25519mac = sasCalculateMac(sas, ourCurve25519, infoKey);
+    std::string ed25519KeyId = "ed25519:" + ourDeviceId;
+    std::string curve25519KeyId = "curve25519:" + ourDeviceId;
+    std::string ed25519Info = macInfo(txnId, ourDeviceId, ed25519KeyId);
+    std::string curve25519Info = macInfo(txnId, ourDeviceId, curve25519KeyId);
+    std::string ed25519mac = sasCalculateMac(sas, ourEd25519, ed25519Info);
+    std::string curve25519mac = sasCalculateMac(sas, ourCurve25519, curve25519Info);
     return "{\"transaction_id\":\"" + esc(txnId) + "\","
            "\"mac\":{\"ed25519:" + esc(ourDeviceId) + "\":\"" + esc(ed25519mac) + "\","
            "\"curve25519:" + esc(ourDeviceId) + "\":\"" + esc(curve25519mac) + "\"},"
@@ -280,7 +283,8 @@ bool VerificationManager::verifyTheirMac(VerificationTransaction& txn,
     const std::string& theirMacJson, const std::string& ourDeviceId,
     const std::string& ourEd25519, const std::string& ourCurve25519) const {
     if (!txn.sas.valid) return false;
-    std::string infoKey = macInfo(txn.transactionId, ourDeviceId, ourEd25519, ourCurve25519);
+    std::string ed25519KeyId = "ed25519:" + ourDeviceId;
+    std::string infoKey = macInfo(txn.transactionId, ourDeviceId, ed25519KeyId);
     return sasVerifyMac(txn.sas, theirMacJson, ourEd25519, infoKey);
 }
 
@@ -310,10 +314,8 @@ std::string VerificationManager::computeCommitment(const std::string& startConte
 }
 
 std::string VerificationManager::macInfo(const std::string& txnId,
-    const std::string& deviceId, const std::string& ed25519,
-    const std::string& curve25519) const {
-    return "MATRIX_KEY_VERIFICATION_MAC|" + txnId + "|" + deviceId + "|"
-           + ed25519 + "|" + curve25519;
+    const std::string& deviceId, const std::string& keyId) const {
+    return "MATRIX_KEY_VERIFICATION_MAC" + txnId + deviceId + keyId;
 }
 
 } // namespace progressive::desktop

@@ -128,7 +128,6 @@ VerificationTransaction* VerificationManager::handleEvent(
         t->transactionId = txnId;
         t->otherUserId = senderId;
         t->otherDeviceId = otherDeviceId;
-        t->ourDeviceId = ourDeviceId;  // placeholder
         t->isIncoming = true;
         t->state = VerificationState::RequestReceived;
         t->startTime = std::chrono::steady_clock::now();

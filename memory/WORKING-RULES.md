@@ -2,7 +2,7 @@
 
 > How to work with this user. Not project code rules — see AGENTS.md for those.
 > Not prompt-writing rules — see PROMPTER.md for those.
-> Last updated: July 29, 2026
+> Last updated: July 30, 2026
 
 ---
 

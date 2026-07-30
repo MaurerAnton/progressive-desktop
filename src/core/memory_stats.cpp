@@ -9,9 +9,9 @@
 #include <sstream>
 #include <string>
 
-// mallinfo2 is glibc >= 2.33; older versions use mallinfo (32-bit fields).
-// We use mallinfo2 if available, fall back to mallinfo otherwise.
+#if defined(__linux__)
 #include <malloc.h>
+#endif
 
 // forward-declare key structs for sizeof() logging
 #include "../core/fast_sync.hpp"
@@ -23,7 +23,7 @@ namespace progressive::desktop {
 
 MemSnapshot takeMemorySnapshot() {
     MemSnapshot s;
-    // Read /proc/self/status
+#if defined(__linux__)
     std::ifstream f("/proc/self/status");
     if (!f.is_open()) return s;
     std::string line;
@@ -43,7 +43,6 @@ MemSnapshot takeMemorySnapshot() {
         }
     }
 
-    // Get heap info via mallinfo2
 #if defined(__GLIBC__) && defined(__GLIBC_MINOR__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 33))
     struct mallinfo2 mi = mallinfo2();
     s.heapUsed_kb = static_cast<long>(mi.uordblks / 1024);
@@ -54,6 +53,7 @@ MemSnapshot takeMemorySnapshot() {
     s.heapUsed_kb = static_cast<long>(mi.uordblks / 1024);
     s.heapFree_kb = static_cast<long>(mi.fordblks / 1024);
     s.heapTotal_kb = static_cast<long>(mi.arena / 1024);
+#endif
 #endif
     return s;
 }
@@ -78,8 +78,11 @@ void logStructSizes() {
 }
 
 int trimMemory() {
-    // malloc_trim returns 1 if memory was released to OS
+#if defined(__linux__)
     return malloc_trim(0);
+#else
+    return 0;  // no-op on non-Linux
+#endif
 }
 
 } // namespace progressive::desktop

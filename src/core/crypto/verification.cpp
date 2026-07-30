@@ -45,6 +45,7 @@ VerificationTransaction* VerificationManager::startVerification(
     const std::string& otherUserId, const std::string& otherDeviceId,
     const std::string& ourDeviceId, bool toDevice,
     const std::string& roomId, const std::string& requestEventId) {
+    std::lock_guard<std::mutex> lk(mtx_);
     auto txn = std::make_unique<VerificationTransaction>();
     txn->transactionId = generateTransactionId();
     txn->otherUserId = otherUserId;
@@ -61,6 +62,7 @@ VerificationTransaction* VerificationManager::startVerification(
 }
 
 VerificationTransaction* VerificationManager::findTransaction(const std::string& txnId) {
+    std::lock_guard<std::mutex> lk(mtx_);
     for (auto& t : transactions_) {
         if (t->transactionId == txnId || t->requestEventId == txnId) return t.get();
     }
@@ -68,6 +70,7 @@ VerificationTransaction* VerificationManager::findTransaction(const std::string&
 }
 
 void VerificationManager::removeTransaction(const std::string& txnId) {
+    std::lock_guard<std::mutex> lk(mtx_);
     for (auto it = transactions_.begin(); it != transactions_.end(); ++it) {
         if ((*it)->transactionId == txnId) {
             transactions_.erase(it);
@@ -77,6 +80,7 @@ void VerificationManager::removeTransaction(const std::string& txnId) {
 }
 
 std::vector<VerificationTransaction*> VerificationManager::activeTransactions() const {
+    std::lock_guard<std::mutex> lk(mtx_);
     std::vector<VerificationTransaction*> result;
     for (auto& t : transactions_) {
         if (t->state != VerificationState::Done &&
@@ -94,6 +98,7 @@ VerificationTransaction* VerificationManager::handleEvent(
     const std::string& contentJson, const std::string& ourUserId,
     const std::string& ourEd25519, const std::string& ourCurve25519) {
 
+    std::lock_guard<std::mutex> lk(mtx_);
     simdjson::dom::parser p;
     auto doc = p.parse(contentJson);
     if (doc.error() != simdjson::SUCCESS) return nullptr;
@@ -264,6 +269,7 @@ std::string VerificationManager::buildCancelContent(const std::string& txnId,
 
 std::vector<VerificationEmoji> VerificationManager::computeEmojis(
     VerificationTransaction& txn) const {
+    std::lock_guard<std::mutex> lk(mtx_);
     if (!txn.sas.valid || !txn.sas.theirKeySet) return {};
     std::string bytes = sasGenerateBytes(txn.sas, "MATRIX_KEY_VERIFICATION_SAS");
     if (bytes.empty()) return {};

@@ -2,6 +2,8 @@
 #pragma once
 #include <string>
 #include <cstdint>
+#include <olm/olm.h>
+#include <olm/sas.h>
 
 namespace progressive::desktop {
 
@@ -10,7 +12,26 @@ struct SasSession {
     std::string ourPubkey;
     bool theirKeySet = false;
     bool valid = false;
+
+    SasSession() = default;
     ~SasSession();
+
+    SasSession(SasSession&& other) noexcept
+        : sas(other.sas), ourPubkey(std::move(other.ourPubkey)),
+          theirKeySet(other.theirKeySet), valid(other.valid) {
+        other.sas = nullptr;
+    }
+    SasSession& operator=(SasSession&& other) noexcept {
+        if (this != &other) {
+            if (sas) { olm_clear_sas(static_cast<OlmSAS*>(sas)); free(sas); }
+            sas = other.sas; ourPubkey = std::move(other.ourPubkey);
+            theirKeySet = other.theirKeySet; valid = other.valid;
+            other.sas = nullptr;
+        }
+        return *this;
+    }
+    SasSession(const SasSession&) = delete;
+    SasSession& operator=(const SasSession&) = delete;
 };
 
 SasSession sasCreate();

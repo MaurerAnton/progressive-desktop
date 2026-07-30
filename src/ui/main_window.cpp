@@ -10,6 +10,7 @@
 #include "dialogs/image_viewer_dialog.hpp"
 #include "dialogs/threads_dialog.hpp"
 #include "dialogs/prefs_dialog.hpp"
+#include "dialogs/room_switcher_dialog.hpp"
 #include "chat/emoji_picker.hpp"
 
 #include <QCloseEvent>
@@ -352,6 +353,17 @@ void MainWindow::keyPressEvent(QKeyEvent* e) {
             if (!roomId.empty() && roomHandler_->threadHandler())
                 roomHandler_->threadHandler()->replyInThread(eid, roomId);
         }
+        e->accept(); return;
+    }
+    if (e->key() == Qt::Key_K && (e->modifiers() & Qt::ControlModifier) &&
+        !(e->modifiers() & Qt::ShiftModifier)) {
+        RoomSwitcherDialog dlg(roomModel_, this);
+        connect(&dlg, &RoomSwitcherDialog::roomSelected, this, [this](const QString& roomId) {
+            int row = roomModel_->findRowByRoomId(roomId.toStdString());
+            if (row >= 0 && roomHandler_)
+                roomHandler_->onRoomClicked(roomModel_->index(row));
+        });
+        dlg.exec();
         e->accept(); return;
     }
     if (e->key() == Qt::Key_K && (e->modifiers() & Qt::ControlModifier) &&

@@ -103,8 +103,9 @@ add_library(progressive_ui_dialogs STATIC
     src/ui/dialogs/color_settings_dialog.cpp
     src/ui/dialogs/image_viewer_dialog.cpp
     src/ui/dialogs/room_directory_dialog.cpp
-    src/ui/dialogs/threads_dialog.cpp
     src/ui/dialogs/room_settings_dialog.cpp
+    src/ui/dialogs/room_switcher_dialog.cpp
+    src/ui/dialogs/threads_dialog.cpp
     src/ui/dialogs/shortcuts_dialog.cpp
     src/ui/dialogs/prefs_dialog.cpp
     src/ui/dialogs/network_log_dialog.cpp

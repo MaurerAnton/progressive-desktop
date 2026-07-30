@@ -101,7 +101,7 @@ static void test_session_store_memory() {
     CHECK(s.clearSyncToken(), "clear sync token");
     CHECK(!s.loadSyncToken().has_value(), "sync token cleared");
 
-    CHECK(s.clearAccount(), "clear account");
+    CHECK(s.clearAccount("@user:server"), "clear account");
     CHECK(!s.loadAccount().has_value(), "account cleared");
 }
 

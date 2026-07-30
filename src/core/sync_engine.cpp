@@ -298,6 +298,15 @@ void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
                 std::cerr << "[e2ee] Olm 1:1 decryption failed from "
                           << evt.senderId << "\n";
             }
+        } else if (evt.type.find("m.key.verification.") == 0) {
+            LOG(LogChannel::E2EE, "processToDevice: verification event type=%s from=%s",
+                std::string(evt.type).c_str(), std::string(evt.senderId).c_str());
+            std::string contentStr(evt.contentJson);
+            std::string senderStr(evt.senderId);
+            std::string userId = client_ ? client_->account().userId : "";
+            verificationManager_.handleEvent(
+                std::string(evt.type), senderStr, contentStr,
+                userId, decryptor_.ed25519Key(), decryptor_.curve25519Key());
         }
     }
 }

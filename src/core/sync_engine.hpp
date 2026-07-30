@@ -11,6 +11,7 @@
 #include "session_store.hpp"
 #include "fast_sync.hpp"
 #include "crypto/decryptor.hpp"
+#include "crypto/verification.hpp"
 #include <functional>
 #include <string>
 
@@ -64,6 +65,7 @@ public:
 
     // Access the E2EE decryptor (for setup at login time).
     Decryptor* decryptor() { return &decryptor_; }
+    VerificationManager& verificationManager() { return verificationManager_; }
     void setPollTimeout(int ms) { syncTimeoutMs_ = ms; }
     void setBackupPathProvider(std::function<std::string()> provider) {
         backupPathProvider_ = std::move(provider);
@@ -101,6 +103,7 @@ private:
     AuthErrorCallback authErrCb_;
 
     Decryptor decryptor_;
+    VerificationManager verificationManager_;
 
     std::thread worker_;
     std::mutex mtx_;

@@ -33,11 +33,12 @@ UserProfileDialog::UserProfileDialog(MatrixClient* client, const std::string& ro
     avatarLabel_ = new QLabel(this);
     avatarLabel_->setFixedSize(72, 72);
     avatarLabel_->setAlignment(Qt::AlignCenter);
-    avatarLabel_->setStyleSheet("background:" + Design::viewBg.name() + "; border-radius:36px; color:" + Design::mutedTextColor.name() + ";");
+    avatarLabel_->setStyleSheet("background:" + Design::reactionBg.name() + "; border-radius:36px; color:" + Design::mutedTextColor.name() + ";");
+
 
 
     nameLabel_ = new QLabel("...", this);
-    nameLabel_->setStyleSheet("font-size:14pt; font-weight:bold; color:" + Design::reactionTextColor.name() + ";");
+    nameLabel_->setStyleSheet("font-size:14pt; font-weight:bold; color:" + Design::textColor.name() + ";");
     idLabel_ = new QLabel("", this);
     idLabel_->setStyleSheet("color:" + Design::mutedTextColor.name() + "; font-size:10pt;");
     powerLabel_ = new QLabel("", this);

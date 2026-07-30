@@ -47,6 +47,9 @@ struct Design {
     static inline QColor dangerBg        = QColor("#6a2d2d");
     static inline QColor acceptBg        = QColor("#2d6a2d");
 
+    // Reactions
+    static inline QColor reactionBg       = QColor("#2a2a2a");
+
     // Network log
     static inline QColor logViewBg         = QColor("#0d0d0d");
     static inline QColor logViewText       = QColor("#dddddd");

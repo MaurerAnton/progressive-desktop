@@ -109,6 +109,7 @@ const std::vector<Theme::TokenEntry>& Theme::tokenRegistry() {
         {"theme/dangerText",        &Design::dangerText},
         {"theme/dangerBg",          &Design::dangerBg},
         {"theme/acceptBg",          &Design::acceptBg},
+        {"theme/reactionBg",        &Design::reactionBg},
         {"theme/borderColor",       &Design::borderColor},
         {"theme/hoverBorder",       &Design::hoverBorder},
         {"theme/replyLineColor",    &Design::replyLineColor},

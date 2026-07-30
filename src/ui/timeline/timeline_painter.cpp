@@ -409,13 +409,13 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
         for (const auto& row : rows) {
             if (row.isOverflow) {
                 p->setPen(Design::borderColor);
-                p->setBrush(Design::viewBg);
+                p->setBrush(Design::reactionBg);
                 p->drawRoundedRect(row.rect, 8, 8);
                 p->setPen(Design::reactionTextColor);
                 p->drawText(row.rect, Qt::AlignCenter, row.text);
             } else {
                 p->setPen(Design::borderColor);
-                p->setBrush(Design::viewBg);
+                p->setBrush(Design::reactionBg);
                 p->drawRoundedRect(row.rect, 8, 8);
                 p->setPen(Design::reactionTextColor);
                 p->drawText(row.rect, Qt::AlignCenter, row.text);

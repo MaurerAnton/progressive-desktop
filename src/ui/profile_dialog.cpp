@@ -35,7 +35,7 @@ ProfileDialog::ProfileDialog(MatrixClient* client, QWidget* parent)
     avatarPreview_ = new QLabel(this);
     avatarPreview_->setFixedSize(80, 80);
     avatarPreview_->setAlignment(Qt::AlignCenter);
-    avatarPreview_->setStyleSheet("background:" + Design::viewBg.name() + "; border-radius:40px;");
+    avatarPreview_->setStyleSheet("background:" + Design::reactionBg.name() + "; border-radius:40px;");
     avatarPreview_->setText("No avatar");
 
     saveNameBtn_ = new QPushButton("Save name", this);

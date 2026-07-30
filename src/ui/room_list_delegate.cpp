@@ -195,7 +195,7 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
         painter->setBrush(Design::dangerBg);
         painter->setPen(Qt::NoPen);
         painter->drawRoundedRect(rejectRect, 4, 4);
-        painter->setPen(QColor("#f66"));
+        painter->setPen(Design::dangerText);
         painter->drawText(rejectRect, Qt::AlignCenter, "✗");
     } else if (hasTyping && !typingUsers.isEmpty()) {
         painter->setPen(Design::typingColor);

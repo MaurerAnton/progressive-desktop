@@ -67,7 +67,7 @@ void ColorSettingsDialog::addRow(const std::string& label, QColor* target,
     auto* btn = new QPushButton(this);
     btn->setFixedSize(32, 24);
     auto updateBtn = [btn, target]() {
-        btn->setStyleSheet(QString("background:%1; border:1px solid #555;")
+        btn->setStyleSheet(QString("background:%1; border:1px solid " + Design::hoverBorder.name() + ";")
             .arg(target->name()));
     };
     updateBtn();

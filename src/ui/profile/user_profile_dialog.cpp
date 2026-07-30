@@ -1,5 +1,6 @@
 // src/ui/user_profile_dialog.cpp
 #include "user_profile_dialog.hpp"
+#include "../shared/theme.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -31,20 +32,21 @@ UserProfileDialog::UserProfileDialog(MatrixClient* client, const std::string& ro
     avatarLabel_ = new QLabel(this);
     avatarLabel_->setFixedSize(72, 72);
     avatarLabel_->setAlignment(Qt::AlignCenter);
-    avatarLabel_->setStyleSheet("background:#2a2a2a; border-radius:36px; color:#888;");
+    avatarLabel_->setStyleSheet("background:" + Design::viewBg.name() + "; border-radius:36px; color:" + Design::mutedTextColor.name() + ";");
+
 
     nameLabel_ = new QLabel("...", this);
-    nameLabel_->setStyleSheet("font-size:14pt; font-weight:bold; color:#eee;");
+    nameLabel_->setStyleSheet("font-size:14pt; font-weight:bold; color:" + Design::reactionTextColor.name() + ";");
     idLabel_ = new QLabel("", this);
-    idLabel_->setStyleSheet("color:#888; font-size:10pt;");
+    idLabel_->setStyleSheet("color:" + Design::mutedTextColor.name() + "; font-size:10pt;");
     powerLabel_ = new QLabel("", this);
-    powerLabel_->setStyleSheet("color:#888; font-size:10pt;");
+    powerLabel_->setStyleSheet("color:" + Design::mutedTextColor.name() + "; font-size:10pt;");
 
     dmBtn_ = new QPushButton("Send message", this);
     kickBtn_ = new QPushButton("Kick", this);
-    kickBtn_->setStyleSheet("color:#f88;");
+    kickBtn_->setStyleSheet("color:" + Design::dangerText.name() + ";");
     banBtn_ = new QPushButton("Ban", this);
-    banBtn_->setStyleSheet("color:#f44;");
+    banBtn_->setStyleSheet("color:" + Design::dangerText.name() + ";");
     promoteBtn_ = new QPushButton("Promote", this);
     demoteBtn_ = new QPushButton("Demote", this);
     copyBtn_ = new QPushButton("Copy MXID", this);
@@ -57,7 +59,7 @@ UserProfileDialog::UserProfileDialog(MatrixClient* client, const std::string& ro
     demoteBtn_->hide();
 
     statusLabel_ = new QLabel("", this);
-    statusLabel_->setStyleSheet("color:#888; font-size:10pt;");
+    statusLabel_->setStyleSheet("color:" + Design::mutedTextColor.name() + "; font-size:10pt;");
 
     auto* infoRow = new QHBoxLayout;
     infoRow->addWidget(avatarLabel_);

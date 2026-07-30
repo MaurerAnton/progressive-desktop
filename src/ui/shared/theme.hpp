@@ -47,6 +47,21 @@ struct Design {
     static inline QColor dangerBg        = QColor("#6a2d2d");
     static inline QColor acceptBg        = QColor("#2d6a2d");
 
+    // Network log
+    static inline QColor logViewBg         = QColor("#0d0d0d");
+    static inline QColor logViewText       = QColor("#dddddd");
+    static inline QColor httpGetColor      = QColor("#66aaff");
+    static inline QColor httpPostColor     = QColor("#66ff66");
+    static inline QColor httpPutColor      = QColor("#ffaa66");
+    static inline QColor httpErrorColor    = QColor("#ff6666");
+    static inline QColor http2xxColor      = QColor("#66cc66");
+    static inline QColor httpOtherStatusColor = QColor("#ffcc66");
+    static inline QColor httpOtherMethodColor = QColor("#cccccc");
+
+    // Account combo
+    static inline QColor accountComboBg    = QColor("#1a1a1a");
+    static inline QColor accountComboText  = QColor("#cccccc");
+
     // Borders
     static inline QColor borderColor     = QColor("#3a3a3a");
     static inline QColor hoverBorder     = QColor("#4a4a4a");

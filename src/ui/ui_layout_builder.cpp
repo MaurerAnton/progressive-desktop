@@ -119,17 +119,17 @@ UILayout buildMainWindowLayout(QWidget* window,
     ui.chatLogBtn = new QPushButton(" Save", rightPanel);
     ui.chatLogBtn->setCheckable(true);
     ui.chatLogBtn->setStyleSheet(
-        "QPushButton{background:#2a2a3a;color:#888;border:1px solid #3a3a3a;"
+        "QPushButton{background:" + Design::incomingBubble.name() + ";color:" + Design::mutedTextColor.name() + ";border:1px solid " + Design::borderColor.name() + ";"
         "padding:2px 10px;border-radius:3px;font-size:11px;}"
-        "QPushButton:checked{color:#6c6;border-color:#4a6;}"
-        "QPushButton:hover{color:#ccc;}");
+        "QPushButton:checked{color:" + Design::typingColor.name() + ";border-color:" + Design::fileAudioBar.name() + ";}"
+        "QPushButton:hover{color:" + Design::httpOtherMethodColor.name() + ";}");
     ui.chatLogBtn->hide();
 
     ui.threadBtn = new QPushButton(" Threads", rightPanel);
     ui.threadBtn->setStyleSheet(
-        "QPushButton{background:#2a2a3a;color:#888;border:1px solid #3a3a3a;"
+        "QPushButton{background:" + Design::incomingBubble.name() + ";color:" + Design::mutedTextColor.name() + ";border:1px solid " + Design::borderColor.name() + ";"
         "padding:2px 10px;border-radius:3px;font-size:11px;}"
-        "QPushButton:hover{color:#ccc;border-color:#555;}");
+        "QPushButton:hover{color:" + Design::httpOtherMethodColor.name() + ";border-color:" + Design::replyLineColor.name() + ";}");
     ui.threadBtn->hide();
 
     timelineToolbarLayout->addWidget(ui.loadMoreBtn);

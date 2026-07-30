@@ -1,5 +1,6 @@
 // src/ui/room_members_dialog.cpp
 #include "room_members_dialog.hpp"
+#include "../shared/theme.hpp"
 #include "user_profile_dialog.hpp"
 
 #include <QVBoxLayout>
@@ -27,15 +28,15 @@ RoomMembersDialog::RoomMembersDialog(MatrixClient* client, const std::string& ro
 
     searchEdit_ = new QLineEdit(this);
     searchEdit_->setPlaceholderText("Search members...");
-    searchEdit_->setStyleSheet("padding:6px; background:#1a1a1a; border:1px solid #333; color:#ddd; border-radius:4px;");
+    searchEdit_->setStyleSheet("padding:6px; background:" + Design::accountComboBg.name() + "; border:1px solid " + Design::borderColor.name() + "; color:" + Design::logViewText.name() + "; border-radius:4px;");
 
     list_ = new QListWidget(this);
-    list_->setStyleSheet("QListWidget{background:#141414; border:1px solid #333;} "
-                         "QListWidget::item{color:#ddd; padding:6px;} "
-                         "QListWidget::item:hover{background:#2a2a3a;}");
+    list_->setStyleSheet("QListWidget{background:" + Design::inputBg.name() + "; border:1px solid " + Design::borderColor.name() + ";} "
+                         "QListWidget::item{color:" + Design::logViewText.name() + "; padding:6px;} "
+                         "QListWidget::item:hover{background:" + Design::incomingBubble.name() + ";}");
 
     statusLabel_ = new QLabel("Loading members...", this);
-    statusLabel_->setStyleSheet("color:#888;");
+    statusLabel_->setStyleSheet("color:" + Design::mutedTextColor.name() + ";");
     closeBtn_ = new QPushButton("Close", this);
 
     auto* root = new QVBoxLayout(this);

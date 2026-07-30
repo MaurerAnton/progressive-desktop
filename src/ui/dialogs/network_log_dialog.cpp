@@ -1,5 +1,6 @@
 // src/ui/network_log_dialog.cpp
 #include "network_log_dialog.hpp"
+#include "../shared/theme.hpp"
 #include "core/http_client.hpp"
 
 #include <QVBoxLayout>
@@ -26,8 +27,8 @@ NetworkLogDialog::NetworkLogDialog(QWidget* parent) : QDialog(parent) {
     logView_ = new QTextEdit(this);
     logView_->setReadOnly(true);
     logView_->setStyleSheet(
-        "QTextEdit{background:#0d0d0d; color:#ddd; font-family:monospace; font-size:11pt; "
-        "border:1px solid #333;}");
+        "QTextEdit{background:" + Design::logViewBg.name() + "; color:" + Design::logViewText.name() + "; font-family:monospace; font-size:11pt; "
+        "border:1px solid " + Design::borderColor.name() + ";}");
 
     refreshBtn_ = new QPushButton("Refresh", this);
     clearBtn_ = new QPushButton("Clear", this);
@@ -71,24 +72,24 @@ void NetworkLogDialog::onRefresh() {
     bool atBottom = (scrollPos >= logView_->verticalScrollBar()->maximum() - 10);
 
     QString html;
-    html += "<html><body style='font-family:monospace;font-size:11pt;color:#ccc;'>";
+    html += "<html><body style='font-family:monospace;font-size:11pt;color:" + Design::httpOtherMethodColor.name() + ";'>";
     html += "<table cellspacing=0 cellpadding=2>";
 
     int i = 0;
     for (const auto& e : entries) {
-        QString rowColor = (i++ % 2 == 0) ? "#1a1a1a" : "#141414";
+        QString rowColor = (i++ % 2 == 0) ? Design::accountComboBg.name() : Design::inputBg.name();
         QString statusColor;
-        if (e.statusCode >= 200 && e.statusCode < 300) statusColor = "#6c6";
-        else if (e.statusCode >= 400) statusColor = "#f66";
-        else if (e.statusCode > 0) statusColor = "#fc6";
-        else statusColor = "#888";
+        if (e.statusCode >= 200 && e.statusCode < 300) statusColor = Design::http2xxColor.name();
+        else if (e.statusCode >= 400) statusColor = Design::httpErrorColor.name();
+        else if (e.statusCode > 0) statusColor = Design::httpOtherStatusColor.name();
+        else statusColor = Design::mutedTextColor.name();
 
         QString method = QString::fromStdString(e.method);
         QString methodColor;
-        if (method == "GET") methodColor = "#6af";
-        else if (method == "PUT") methodColor = "#fa6";
-        else if (method == "POST") methodColor = "#6f6";
-        else methodColor = "#ccc";
+        if (method == "GET") methodColor = Design::httpGetColor.name();
+        else if (method == "PUT") methodColor = Design::httpPutColor.name();
+        else if (method == "POST") methodColor = Design::httpPostColor.name();
+        else methodColor = Design::httpOtherMethodColor.name();
 
         QString url = QString::fromStdString(e.url).toHtmlEscaped();
         QString time = QString::number(e.elapsedMs) + "ms";
@@ -102,15 +103,15 @@ void NetworkLogDialog::onRefresh() {
 
         QString error = QString::fromStdString(e.error);
         if (!error.isEmpty()) {
-            error = "<span style='color:#f66'>" + error.toHtmlEscaped() + "</span>";
+            error = "<span style='color:" + Design::httpErrorColor.name() + "'>" + error.toHtmlEscaped() + "</span>";
         }
 
         html += QString("<tr style='background:%1'>"
                         "<td><span style='color:%2'>%3</span></td>"
-                        "<td style='color:#aaa'>%4</td>"
+                        "<td style='color:" + Design::timeColor.name() + "'>%4</td>"
                         "<td><span style='color:%5'>%6</span></td>"
-                        "<td style='color:#888'>%7</td>"
-                        "<td style='color:#888'>%8</td>"
+                        "<td style='color:" + Design::systemTextColor.name() + "'>%7</td>"
+                        "<td style='color:" + Design::systemTextColor.name() + "'>%8</td>"
                         "<td>%9</td>"
                         "</tr>")
             .arg(rowColor, methodColor, method,

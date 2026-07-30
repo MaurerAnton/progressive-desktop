@@ -120,6 +120,17 @@ const std::vector<Theme::TokenEntry>& Theme::tokenRegistry() {
         {"theme/fileFileBar",       &Design::fileFileBar},
         {"theme/imgPlaceholderBg",  &Design::imgPlaceholderBg},
         {"theme/trayIconBg",        &Design::trayIconBg},
+        {"theme/logViewBg",         &Design::logViewBg},
+        {"theme/logViewText",       &Design::logViewText},
+        {"theme/httpGetColor",      &Design::httpGetColor},
+        {"theme/httpPostColor",     &Design::httpPostColor},
+        {"theme/httpPutColor",      &Design::httpPutColor},
+        {"theme/httpErrorColor",    &Design::httpErrorColor},
+        {"theme/http2xxColor",      &Design::http2xxColor},
+        {"theme/httpOtherStatusColor", &Design::httpOtherStatusColor},
+        {"theme/httpOtherMethodColor", &Design::httpOtherMethodColor},
+        {"theme/accountComboBg",    &Design::accountComboBg},
+        {"theme/accountComboText",  &Design::accountComboText},
     };
     return reg;
 }

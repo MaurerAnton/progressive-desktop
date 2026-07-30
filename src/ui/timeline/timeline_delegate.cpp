@@ -71,6 +71,11 @@ QSize TimelineDelegate::sizeHint(const QStyleOptionViewItem& opt,
 bool TimelineDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
                                      const QStyleOptionViewItem& option,
                                      const QModelIndex& index) {
+    if (event->type() == QEvent::MouseButtonDblClick) {
+        auto* me = static_cast<QMouseEvent*>(event);
+        emit doubleClicked(index.data(TimelineModel::EventIdRole).toString());
+        return true;
+    }
     if (event->type() != QEvent::MouseButtonRelease)
         return QStyledItemDelegate::editorEvent(event, model, option, index);
 

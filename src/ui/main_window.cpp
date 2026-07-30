@@ -187,6 +187,16 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         });
     });
 
+    connect(timelineDelegate_, &TimelineDelegate::doubleClicked, this, [this](const QString& eventId) {
+        if (roomHandler_->currentRoomId().empty() || !client_) return;
+        auto client = client_;
+        std::string roomId = roomHandler_->currentRoomId();
+        std::string eid = eventId.toStdString();
+        ThreadPool::instance().enqueue([client, roomId, eid]() {
+            client->sendReaction(roomId, eid, "\xe2\x9d\xa4\xef\xb8\x8f");
+        });
+    });
+
     connect(timelineView_, &QListView::customContextMenuRequested, roomHandler_, &RoomHandler::onTimelineContextMenu);
     connect(timelineDelegate_, &TimelineDelegate::threadIndicatorClicked, roomHandler_, &RoomHandler::openThreadView);
 

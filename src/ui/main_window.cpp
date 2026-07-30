@@ -148,6 +148,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     accountCombo_ = new QComboBox(this);
     accountCombo_->setMinimumWidth(kAccountComboW);
     accountCombo_->setStyleSheet("QComboBox{background:" + Design::accountComboBg.name() + ";color:" + Design::accountComboText.name() + ";border:1px solid " + Design::borderColor.name() + ";padding:2px 4px;} QComboBox::drop-down{border:none;} QComboBox QAbstractItemView{background:" + Design::accountComboBg.name() + ";color:" + Design::accountComboText.name() + ";}");
+    Theme::addListener([guard = QPointer<QComboBox>(accountCombo_)]() {
+        if (!guard) return;
+        guard->setStyleSheet("QComboBox{background:" + Design::accountComboBg.name() + ";color:" + Design::accountComboText.name() + ";border:1px solid " + Design::borderColor.name() + ";padding:2px 4px;} QComboBox::drop-down{border:none;} QComboBox QAbstractItemView{background:" + Design::accountComboBg.name() + ";color:" + Design::accountComboText.name() + ";}");
+    });
     toolbar_->addWidget(accountCombo_);
 
     connect(threadBanner_, &QLabel::linkActivated, this, [this](const QString& link) {

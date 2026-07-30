@@ -1,6 +1,7 @@
 // src/ui/room_members_dialog.cpp
 #include "room_members_dialog.hpp"
 #include "../shared/theme.hpp"
+#include <QPointer>
 #include "user_profile_dialog.hpp"
 
 #include <QVBoxLayout>
@@ -34,6 +35,12 @@ RoomMembersDialog::RoomMembersDialog(MatrixClient* client, const std::string& ro
     list_->setStyleSheet("QListWidget{background:" + Design::inputBg.name() + "; border:1px solid " + Design::borderColor.name() + ";} "
                          "QListWidget::item{color:" + Design::logViewText.name() + "; padding:6px;} "
                          "QListWidget::item:hover{background:" + Design::incomingBubble.name() + ";}");
+    Theme::addListener([guard = QPointer<QListWidget>(list_)]() {
+        if (!guard) return;
+        guard->setStyleSheet("QListWidget{background:" + Design::inputBg.name() + "; border:1px solid " + Design::borderColor.name() + ";} "
+                             "QListWidget::item{color:" + Design::logViewText.name() + "; padding:6px;} "
+                             "QListWidget::item:hover{background:" + Design::incomingBubble.name() + ";}");
+    });
 
     statusLabel_ = new QLabel("Loading members...", this);
     statusLabel_->setStyleSheet("color:" + Design::mutedTextColor.name() + ";");

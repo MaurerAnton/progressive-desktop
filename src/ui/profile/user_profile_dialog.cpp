@@ -2,6 +2,7 @@
 #include "user_profile_dialog.hpp"
 #include "../shared/theme.hpp"
 
+#include <QPointer>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QMetaObject>
@@ -47,6 +48,10 @@ UserProfileDialog::UserProfileDialog(MatrixClient* client, const std::string& ro
     kickBtn_->setStyleSheet("color:" + Design::dangerText.name() + ";");
     banBtn_ = new QPushButton("Ban", this);
     banBtn_->setStyleSheet("color:" + Design::dangerText.name() + ";");
+    Theme::addListener([guard = QPointer<QPushButton>(kickBtn_)]() {
+        if (!guard) return;
+        guard->setStyleSheet("color:" + Design::dangerText.name() + ";");
+    });
     promoteBtn_ = new QPushButton("Promote", this);
     demoteBtn_ = new QPushButton("Demote", this);
     copyBtn_ = new QPushButton("Copy MXID", this);

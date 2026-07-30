@@ -1,6 +1,7 @@
 // src/ui/dialogs/shortcuts_dialog.cpp
 #include "shortcuts_dialog.hpp"
 #include <QTableWidget>
+#include <QTableWidgetItem>
 #include <QVBoxLayout>
 #include <QHeaderView>
 

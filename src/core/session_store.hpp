@@ -39,7 +39,7 @@ public:
 
     bool saveAccount(const AccountInfo& acct);
     std::optional<AccountInfo> loadAccount();
-    bool clearAccount();
+    bool clearAccount(const std::string& userId);
 
     // List all saved accounts (for switcher UI)
     std::vector<AccountInfo> listAccounts();

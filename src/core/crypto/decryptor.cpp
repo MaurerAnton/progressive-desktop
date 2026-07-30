@@ -1226,6 +1226,7 @@ std::string Decryptor::pickleOlmSessions(const std::string& key) {
 
 bool Decryptor::unpickleOlmSessions(const std::string& key, const std::string& data) {
     std::lock_guard<std::mutex> lk(olmMtx_);
+    olmSessions_.clear();
     if (data.empty() || data == "[]") return true;
     (void)key;
     // Parse JSON array with simdjson (fixes bug #11: manual brace-matching
@@ -1250,9 +1251,20 @@ bool Decryptor::unpickleOlmSessions(const std::string& key, const std::string& d
             char h = (char)strtol(hexPickle.substr(i, 2).c_str(), nullptr, 16);
             pickle += h;
         }
-        olmSessions_[senderKey].push_back(pickle);
-        std::fprintf(stderr, "[e2ee] olm: loaded session %.30s (pickleLen=%zu)\n",
-                     senderKey.c_str(), pickle.size());
+        auto& vec = olmSessions_[senderKey];
+        bool dup = false;
+        for (const auto& existing : vec) {
+            if (existing == pickle) { dup = true; break; }
+        }
+        if (!dup && vec.size() < 20) {
+            vec.push_back(pickle);
+            std::fprintf(stderr, "[e2ee] olm: loaded session %.30s (pickleLen=%zu)\n",
+                         senderKey.c_str(), pickle.size());
+        } else if (dup) {
+        } else {
+            LOG(LogChannel::E2EE, "olm: cap reached for sender=%.30s, skipping",
+                senderKey.c_str());
+        }
     }
     size_t total = 0;
     for (const auto& [k, v] : olmSessions_) total += v.size();

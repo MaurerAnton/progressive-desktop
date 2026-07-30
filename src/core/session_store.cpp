@@ -161,10 +161,16 @@ std::vector<AccountInfo> SessionStore::listAccounts() {
     return result;
 }
 
-bool SessionStore::clearAccount() {
+bool SessionStore::clearAccount(const std::string& userId) {
     if (!db_) return false;
-    int rc = sqlite3_exec(db_, "DELETE FROM account;", nullptr, nullptr, nullptr);
-    if (rc != SQLITE_OK) return false;
+    if (userId.empty()) return false;
+    const char* sql = "DELETE FROM account WHERE user_id = ?;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, userId.c_str(), -1, SQLITE_TRANSIENT);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) return false;
     checkpoint();
     return true;
 }

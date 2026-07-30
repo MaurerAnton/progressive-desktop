@@ -48,7 +48,7 @@ void AuthHandler::forceReLogin() {
 void AuthHandler::logout() {
     sync_->stop();
     if (client_) client_->logout();
-    if (store_) store_->clearAccount();
+    if (store_ && client_) store_->clearAccount(client_->account().userId);
     userLabel_->setText(" Not logged in ");
     statusLabel_->setText("Logged out.");
     emit loggedOut();

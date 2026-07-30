@@ -388,12 +388,17 @@ void MainWindow::keyPressEvent(QKeyEvent* e) {
         roomList_->setFocus();
         e->accept(); return;
     }
-    // Ctrl+Tab — next account
+    // Ctrl+Tab — next account (accounts only, skip separator/Add/Logout)
     if (e->key() == Qt::Key_Tab && (e->modifiers() & Qt::ControlModifier)) {
         if (accountSwitcher_) {
+            int accountCount = accountSwitcher_->accountCount();
+            if (accountCount <= 1) { e->accept(); return; }
             int next = accountCombo_->currentIndex() + 1;
-            if (next >= accountCombo_->count()) next = 0;
+            if (next >= accountCount) next = 0;
+            accountCombo_->blockSignals(true);
             accountCombo_->setCurrentIndex(next);
+            accountCombo_->blockSignals(false);
+            accountSwitcher_->switchAccount(next);
         }
         e->accept(); return;
     }

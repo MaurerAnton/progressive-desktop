@@ -39,7 +39,7 @@ void SyncEngine::stop() {
     // and ~thread() calls std::terminate().
     running_ = false;
     cv_.notify_all();
-    if (worker_.joinable()) worker_.detach();
+    if (worker_.joinable()) worker_.join();
 }
 
 void SyncEngine::pause() {
@@ -221,12 +221,14 @@ void SyncEngine::run() {
         // Process to-device events (E2EE): m.room_key adds megolm sessions,
         // m.room.encrypted handles Olm 1:1 (decrypts room_key delivery).
         processToDeviceEvents(result.data);
+        if (!running_) break;
 
         if (!result.data.deviceListChanged.empty()) {
             decryptor_.markDevicesStale(result.data.deviceListChanged);
             LOG(LogChannel::E2EE, "device_lists: marked %zu users as stale",
                 result.data.deviceListChanged.size());
         }
+        if (!running_) break;
 
         // Persist token.
         if (store_ && !sinceToken_.empty()) {
@@ -237,11 +239,13 @@ void SyncEngine::run() {
         if (syncCb_) syncCb_(result.data);
 
         // Update OTK count tracking from sync response
+        if (!running_) break;
         if (result.data.signedCurve25519Count > 0) {
             decryptor_.account()->setUploadedKeyCount(result.data.signedCurve25519Count);
         }
 
         // Auto-upload one-time keys if running low
+        if (!running_) break;
         if (result.data.signedCurve25519Count >= 0 && result.data.signedCurve25519Count < 50) {
             LOG(LogChannel::E2EE, "sync: OTK count=%d (<50) — uploading fresh keys",
                 result.data.signedCurve25519Count);

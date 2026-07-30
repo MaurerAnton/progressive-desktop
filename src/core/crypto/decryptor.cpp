@@ -3,6 +3,7 @@
 #include "decryptor.hpp"
 #include "olm_account.hpp"
 #include "random.hpp"
+#include "sig_verify.hpp"
 
 #include <progressive/olm.hpp>
 #include <olm/olm.h>
@@ -823,12 +824,23 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
                         }
                     }
                 }
-                if (!info.curve25519.empty()) {
+                if (!info.curve25519.empty() && !info.ed25519.empty()) {
+                    auto sigResult = devField.value["signatures"][uid]["ed25519:" + info.deviceId].get_string();
+                    std::string deviceSig = (sigResult.error() == simdjson::SUCCESS)
+                        ? std::string(sigResult.value()) : "";
+                    if (!deviceSig.empty()) {
+                        if (!verifyDeviceKeys(uid, info.deviceId, info.curve25519, info.ed25519, deviceSig)) {
+                            LOG(LogChannel::E2EE, "shareRoomKey: device key sig INVALID for %s/%s — SKIPPING",
+                                uid.c_str(), info.deviceId.c_str());
+                            continue;
+                        }
+                    }
                     devices.push_back(info);
                     userDeviceCount++;
-                    std::fprintf(stderr, "[e2ee] found device: %s/%s curve=%s...\n",
+                    std::fprintf(stderr, "[e2ee] found device: %s/%s curve=%s... (verified=%d)\n",
                                  uid.c_str(), info.deviceId.c_str(),
-                                 info.curve25519.substr(0, 8).c_str());
+                                 info.curve25519.substr(0, 8).c_str(),
+                                 !deviceSig.empty() ? 1 : 0);
                 }
             }
             LOG(LogChannel::E2EE, "shareRoomKey: user=%s deviceCount=%zu",
@@ -905,6 +917,23 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
                         }
                     }
                     if (!ck.oneTimeKey.empty()) {
+                        auto otkSigResult = k.value["signatures"][uid]["ed25519:" + devId].get_string();
+                        std::string otkSig = (otkSigResult.error() == simdjson::SUCCESS)
+                            ? std::string(otkSigResult.value()) : "";
+                        std::string devEd25519;
+                        for (const auto& d : devices) {
+                            if (d.userId == ck.userId && d.deviceId == ck.deviceId) {
+                                devEd25519 = d.ed25519;
+                                break;
+                            }
+                        }
+                        if (!otkSig.empty() && !devEd25519.empty()) {
+                            if (!verifyOtk(devEd25519, ck.oneTimeKey, otkSig)) {
+                                LOG(LogChannel::E2EE, "shareRoomKey: OTK sig INVALID for %s/%s — SKIPPING",
+                                    ck.userId.c_str(), ck.deviceId.c_str());
+                                break;
+                            }
+                        }
                         claimedKeys.push_back(ck);
                     }
                     break;  // only one key per device

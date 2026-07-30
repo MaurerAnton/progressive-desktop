@@ -76,6 +76,13 @@ struct Design {
 // Apply the default dark theme. Call once after QApplication is constructed.
 void applyDarkTheme(QApplication& app);
 
+// Load/save Design tokens from QSettings under theme/ keys.
+// Called at startup (load, before applyDarkTheme) and on picker save.
+struct Theme {
+    static void load();   // read QSettings → Design:: tokens
+    static void save();   // write Design:: tokens → QSettings
+};
+
 // Deterministic color from user ID — unified across all delegates.
 inline QColor colorFromId(const QString& id) {
     uint hash = 0;

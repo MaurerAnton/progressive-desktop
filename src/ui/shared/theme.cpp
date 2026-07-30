@@ -12,76 +12,77 @@
 #include <QPalette>
 #include <QColor>
 #include <QStyleFactory>
+#include <QSettings>
 
 namespace progressive::desktop {
 
 void applyDarkTheme(QApplication& app) {
-    // Fusion style — looks identical on X11, Wayland, PineTab 2, macOS.
-    // Without this, Qt uses the platform default (e.g. GtkStyle on Linux),
-    // which may not respect QPalette for widgets.
     app.setStyle(QStyleFactory::create("Fusion"));
 
     QPalette p;
 
-    // Window background — slightly off-black to avoid smearing
-    const QColor bg(30, 30, 30);          // #1e1e1e
-    const QColor altBg(45, 45, 45);       // #2d2d2d — for alternating rows
-    const QColor base(20, 20, 20);       // #141414 — input/list background
-    const QColor text(232, 232, 232);    // #e8e8e8 — not pure white (no halation)
-    const QColor textDim(150, 150, 150); // #969696 — timestamps, hints
-    const QColor accent(42, 130, 218);   // #2a82da — Matrix blue, links/highlights
-    const QColor highlight(50, 80, 130); // darker selection on dark
-
-    p.setColor(QPalette::Window,          bg);
-    p.setColor(QPalette::WindowText,      text);
-    p.setColor(QPalette::Base,            base);
-    p.setColor(QPalette::AlternateBase,   altBg);
+    p.setColor(QPalette::Window,          Design::viewBg);
+    p.setColor(QPalette::WindowText,      Design::reactionTextColor);
+    p.setColor(QPalette::Base,            Design::inputBg);
+    p.setColor(QPalette::AlternateBase,   QColor(45, 45, 45));
     p.setColor(QPalette::ToolTipBase,     QColor(0, 0, 0));
-    p.setColor(QPalette::ToolTipText,     text);
-    p.setColor(QPalette::PlaceholderText, textDim);
-    p.setColor(QPalette::Text,            text);
-    p.setColor(QPalette::Button,          altBg);
-    p.setColor(QPalette::ButtonText,      text);
+    p.setColor(QPalette::ToolTipText,     Design::reactionTextColor);
+    p.setColor(QPalette::PlaceholderText, Design::dimTextColor);
+    p.setColor(QPalette::Text,            Design::reactionTextColor);
+    p.setColor(QPalette::Button,          QColor(45, 45, 45));
+    p.setColor(QPalette::ButtonText,      Design::reactionTextColor);
     p.setColor(QPalette::BrightText,      Qt::red);
-    p.setColor(QPalette::Link,            accent);
+    p.setColor(QPalette::Link,            Design::accentColor);
     p.setColor(QPalette::LinkVisited,     QColor(150, 50, 200));
 
-    // Selection (e.g. clicked room in the list)
-    p.setColor(QPalette::Highlight,       highlight);
-    p.setColor(QPalette::HighlightedText, text);
+    p.setColor(QPalette::Highlight,       Design::selectedBg);
+    p.setColor(QPalette::HighlightedText, Design::reactionTextColor);
 
-    // Disabled state — slightly dimmer
-    p.setColor(QPalette::Disabled, QPalette::WindowText, textDim);
-    p.setColor(QPalette::Disabled, QPalette::Text,       textDim);
-    p.setColor(QPalette::Disabled, QPalette::ButtonText, textDim);
+    p.setColor(QPalette::Disabled, QPalette::WindowText, Design::dimTextColor);
+    p.setColor(QPalette::Disabled, QPalette::Text,       Design::dimTextColor);
+    p.setColor(QPalette::Disabled, QPalette::ButtonText, Design::dimTextColor);
 
     app.setPalette(p);
 
-    // Also apply a small stylesheet for widgets that don't respect QPalette
-    // by default (e.g. QTextBrowser's link color, QListView's border).
-    // font-weight:400 (normal) on body text prevents the "thin/stroke" look
-    // some users see on dark backgrounds with subpixel rendering.
-    app.setStyleSheet(
-        "QListView { border: none; background: #1e1e1e; }"
-        "QListView::item { padding: 6px 8px; }"
-        "QListView::item:selected { background: #325082; color: #ffffff; }"
-        "QTextBrowser { background: #141414; color: #e8e8e8; border: none; font-weight:400; }"
-        "QLineEdit, QTextEdit { background: #141414; color: #e8e8e8; border: 1px solid #3a3a3a; }"
-        "QLineEdit:focus, QTextEdit:focus { border: 1px solid #2a82da; }"
-        "QPushButton { background: #2d2d2d; color: #e8e8e8; border: 1px solid #3a3a3a; padding: 6px 16px; }"
-        "QPushButton:hover { background: #383838; border: 1px solid #4a4a4a; }"
-        "QPushButton:pressed { background: #1e1e1e; }"
-        "QScrollBar:vertical { border: none; background: #1e1e1e; width: 10px; }"
-        "QScrollBar::handle:vertical { background: #4a4a4a; border-radius: 5px; min-height: 20px; }"
-        "QScrollBar::handle:vertical:hover { background: #5a5a5a; }"
-        "QScrollBar::add-line, QScrollBar::sub-line { height: 0; }"
-        "QStatusBar { background: #1e1e1e; color: #969696; }"
-        "QStatusBar::item { border: none; }"
-        "QSplitter::handle { background: #2d2d2d; }"
-        "QLabel { color: #e8e8e8; }"
-        "QToolBar { background: #1e1e1e; border: none; spacing: 4px; }"
-        "QToolBar QLabel { color: #e8e8e8; padding: 0 8px; }"
-    );
+    QString ss;
+    ss += "QListView { border: none; background: " + Design::viewBg.name() + "; }";
+    ss += "QListView::item { padding: 6px 8px; }";
+    ss += "QListView::item:selected { background: #325082; color: #ffffff; }";
+    ss += "QTextBrowser { background: " + Design::inputBg.name() + "; color: " + Design::reactionTextColor.name() + "; border: none; font-weight:400; }";
+    ss += "QLineEdit, QTextEdit { background: " + Design::inputBg.name() + "; color: " + Design::reactionTextColor.name() + "; border: 1px solid " + Design::borderColor.name() + "; }";
+    ss += "QLineEdit:focus, QTextEdit:focus { border: 1px solid " + Design::accentColor.name() + "; }";
+    ss += "QPushButton { background: #2d2d2d; color: " + Design::reactionTextColor.name() + "; border: 1px solid " + Design::borderColor.name() + "; padding: 6px 16px; }";
+    ss += "QPushButton:hover { background: #383838; border: 1px solid " + Design::hoverBorder.name() + "; }";
+    ss += "QPushButton:pressed { background: " + Design::viewBg.name() + "; }";
+    ss += "QScrollBar:vertical { border: none; background: " + Design::viewBg.name() + "; width: 10px; }";
+    ss += "QScrollBar::handle:vertical { background: #4a4a4a; border-radius: 5px; min-height: 20px; }";
+    ss += "QScrollBar::handle:vertical:hover { background: #5a5a5a; }";
+    ss += "QScrollBar::add-line, QScrollBar::sub-line { height: 0; }";
+    ss += "QStatusBar { background: " + Design::viewBg.name() + "; color: " + Design::dimTextColor.name() + "; }";
+    ss += "QStatusBar::item { border: none; }";
+    ss += "QSplitter::handle { background: #2d2d2d; }";
+    ss += "QLabel { color: " + Design::reactionTextColor.name() + "; }";
+    ss += "QToolBar { background: " + Design::viewBg.name() + "; border: none; spacing: 4px; }";
+    ss += "QToolBar QLabel { color: " + Design::reactionTextColor.name() + "; padding: 0 8px; }";
+    app.setStyleSheet(ss);
+}
+
+void Theme::load() {
+    QSettings s;
+    Design::incomingBubble = QColor(s.value("theme/incomingBubble", Design::incomingBubble.name()).toString());
+    Design::outgoingBubble = QColor(s.value("theme/outgoingBubble", Design::outgoingBubble.name()).toString());
+    Design::accentColor   = QColor(s.value("theme/accentColor",   Design::accentColor.name()).toString());
+    Design::viewBg         = QColor(s.value("theme/viewBg",        Design::viewBg.name()).toString());
+    Design::textColor      = QColor(s.value("theme/textColor",     Design::textColor.name()).toString());
+}
+
+void Theme::save() {
+    QSettings s;
+    s.setValue("theme/incomingBubble", Design::incomingBubble.name());
+    s.setValue("theme/outgoingBubble", Design::outgoingBubble.name());
+    s.setValue("theme/accentColor",    Design::accentColor.name());
+    s.setValue("theme/viewBg",         Design::viewBg.name());
+    s.setValue("theme/textColor",      Design::textColor.name());
 }
 
 } // namespace progressive::desktop

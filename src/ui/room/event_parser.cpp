@@ -1,6 +1,7 @@
 // src/ui/room/event_parser.cpp
 #include "event_parser.hpp"
 #include "../timeline/timeline_model.hpp"
+#include <QDateTime>
 
 namespace progressive::desktop {
 
@@ -24,6 +25,14 @@ bool parseEventFields(simdjson::dom::element evt, DisplayedEvent& out) {
                                                   : out.senderId.substr(1);
     }
     return !out.type.empty();
+}
+
+std::string dateDividerLabel(int64_t originServerTs) {
+    QDateTime dt = QDateTime::fromMSecsSinceEpoch(originServerTs);
+    QDateTime now = QDateTime::currentDateTime();
+    if (dt.date() == now.date()) return "Today";
+    if (dt.date() == now.date().addDays(-1)) return "Yesterday";
+    return dt.toString("ddd dd MMM").toStdString();
 }
 
 } // namespace progressive::desktop

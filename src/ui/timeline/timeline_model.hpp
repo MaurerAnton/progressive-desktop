@@ -38,6 +38,8 @@ struct DisplayedEvent {
     int threadReplyCount = 0;
     bool isThreadReply = false;    // this message is a reply in a thread
     std::string threadRootId;      // root event_id if isThreadReply
+    bool isDateDivider = false;
+    std::string dividerLabel;
     bool isPinned = false;
     bool groupFirst = true;         // first message in same-sender group
     bool groupLast  = true;         // last message in same-sender group

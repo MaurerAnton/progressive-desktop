@@ -164,7 +164,22 @@ void RoomDataLoader::loadHistory(const std::string& roomId, TimelineModel* model
             }
             LOG(LogChannel::DBG, "loadHistory: appended %zu events, %zu pending reactions",
                 events.size(), pendingReactions.size());
-            model->appendBackBatch(events);
+            // DEBT(UI): insert date dividers before events on day boundaries
+            std::vector<DisplayedEvent> withDividers;
+            int64_t prevDay = 0;
+            for (const auto& evt : events) {
+                int64_t day = (evt.originServerTs / 86400000LL) * 86400000LL;
+                if (prevDay > 0 && day != prevDay) {
+                    DisplayedEvent divider;
+                    divider.isDateDivider = true;
+                    divider.dividerLabel = dateDividerLabel(evt.originServerTs);
+                    divider.originServerTs = evt.originServerTs;
+                    withDividers.push_back(divider);
+                }
+                prevDay = day;
+                withDividers.push_back(evt);
+            }
+            model->appendBackBatch(withDividers);
             for (const auto& [eid, emoji, senderId] : pendingReactions) {
                 model->addReaction(eid, emoji, senderId);
                 int row = model->findRow(eid);

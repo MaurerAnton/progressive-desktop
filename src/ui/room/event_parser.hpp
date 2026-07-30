@@ -13,4 +13,7 @@ struct DisplayedEvent;
 // Returns true if type was found.
 bool parseEventFields(simdjson::dom::element evt, DisplayedEvent& out);
 
+// Returns a date divider label for a timestamp ("Today", "Yesterday", "Mon 12 Aug").
+std::string dateDividerLabel(int64_t originServerTs);
+
 } // namespace progressive::desktop

@@ -289,6 +289,83 @@ void MainWindow::closeEvent(QCloseEvent* e) {
 }
 
 void MainWindow::keyPressEvent(QKeyEvent* e) {
+    // Room switching
+    if (e->key() == Qt::Key_Down && (e->modifiers() & Qt::AltModifier)) {
+        int row = roomList_->currentIndex().row() + 1;
+        if (row < roomModel_->rowCount())
+            roomList_->setCurrentIndex(roomModel_->index(row));
+        e->accept(); return;
+    }
+    if (e->key() == Qt::Key_Up && (e->modifiers() & Qt::AltModifier)) {
+        int row = roomList_->currentIndex().row() - 1;
+        if (row >= 0)
+            roomList_->setCurrentIndex(roomModel_->index(row));
+        e->accept(); return;
+    }
+    // Jump to Nth room
+    if (e->modifiers() & Qt::ControlModifier && e->key() >= Qt::Key_1 && e->key() <= Qt::Key_9) {
+        int n = e->key() - Qt::Key_1;
+        if (n < roomModel_->rowCount())
+            roomList_->setCurrentIndex(roomModel_->index(n));
+        e->accept(); return;
+    }
+    // Message navigation
+    if (e->key() == Qt::Key_Down && (e->modifiers() & Qt::ControlModifier)) {
+        int row = timelineView_->currentIndex().row() + 1;
+        if (row < timelineModel_->rowCount())
+            timelineView_->setCurrentIndex(timelineModel_->index(row));
+        e->accept(); return;
+    }
+    if (e->key() == Qt::Key_Up && (e->modifiers() & Qt::ControlModifier)) {
+        int row = timelineView_->currentIndex().row() - 1;
+        if (row >= 0)
+            timelineView_->setCurrentIndex(timelineModel_->index(row));
+        e->accept(); return;
+    }
+    // Quick reply + react on selected message
+    if (e->key() == Qt::Key_R && (e->modifiers() & Qt::ControlModifier) &&
+        !(e->modifiers() & Qt::ShiftModifier)) {
+        QModelIndex idx = timelineView_->currentIndex();
+        QString eid = idx.data(TimelineModel::EventIdRole).toString();
+        if (!eid.isEmpty() && roomHandler_)
+            roomHandler_->openThreadView(eid);
+        e->accept(); return;
+    }
+    if (e->key() == Qt::Key_K && (e->modifiers() & Qt::ControlModifier) &&
+        (e->modifiers() & Qt::ShiftModifier)) {
+        QModelIndex idx = timelineView_->currentIndex();
+        QString eid = idx.data(TimelineModel::EventIdRole).toString();
+        if (!eid.isEmpty() && roomHandler_ && client_) {
+            auto client = client_;
+            std::string roomId = roomHandler_->currentRoomId();
+            std::string eidStr = eid.toStdString();
+            ThreadPool::instance().enqueue([client, roomId, eidStr]() {
+                client->sendReaction(roomId, eidStr, "\xe2\x9d\xa4\xef\xb8\x8f");
+            });
+        }
+        e->accept(); return;
+    }
+    // Esc — close thread view
+    if (e->key() == Qt::Key_Escape) {
+        if (roomHandler_) roomHandler_->closeThreadView();
+        timelineView_->clearSelection();
+        e->accept(); return;
+    }
+    // Ctrl+L — focus room list
+    if (e->key() == Qt::Key_L && (e->modifiers() & Qt::ControlModifier)) {
+        roomList_->setFocus();
+        e->accept(); return;
+    }
+    // Ctrl+Tab — next account
+    if (e->key() == Qt::Key_Tab && (e->modifiers() & Qt::ControlModifier)) {
+        if (accountSwitcher_) {
+            int next = accountCombo_->currentIndex() + 1;
+            if (next >= accountCombo_->count()) next = 0;
+            accountCombo_->setCurrentIndex(next);
+        }
+        e->accept(); return;
+    }
+
     if (e->key() == Qt::Key_F11) { toolbarHandler_->doFullscreen(); e->accept(); return; }
     if (e->key() == Qt::Key_F12) {
         std::fprintf(stderr, "\n=== F12 DEBUG DUMP ===\n");

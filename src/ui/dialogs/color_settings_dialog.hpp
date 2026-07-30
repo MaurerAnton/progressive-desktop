@@ -26,7 +26,7 @@ private:
     };
     std::vector<Row> rows_;
     void addRow(const std::string& label, QColor* target,
-                const std::string& qsettingsKey);
+                 const std::string& qsettingsKey, QFormLayout* form);
 };
 
 } // namespace progressive::desktop

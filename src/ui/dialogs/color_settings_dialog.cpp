@@ -21,28 +21,28 @@ ColorSettingsDialog::ColorSettingsDialog(QWidget* parent) : QDialog(parent) {
     auto* formContainer = new QWidget;
     auto* form = new QFormLayout(formContainer);
 
-    addRow("View background",      &Design::viewBg,         "theme/viewBg");
-    addRow("Input background",     &Design::inputBg,        "theme/inputBg");
-    addRow("Text",                 &Design::textColor,      "theme/textColor");
-    addRow("Muted text",           &Design::mutedTextColor, "theme/mutedTextColor");
-    addRow("Dim text",             &Design::dimTextColor,   "theme/dimTextColor");
-    addRow("Reaction text",        &Design::reactionTextColor, "theme/reactionTextColor");
-    addRow("System text",          &Design::systemTextColor,"theme/systemTextColor");
-    addRow("Time",                 &Design::timeColor,      "theme/timeColor");
-    addRow("Accent",               &Design::accentColor,    "theme/accentColor");
-    addRow("Incoming bubble",      &Design::incomingBubble, "theme/incomingBubble");
-    addRow("Outgoing bubble",      &Design::outgoingBubble, "theme/outgoingBubble");
-    addRow("Selected bg",          &Design::selectedBg,     "theme/selectedBg");
-    addRow("Invite row bg",        &Design::inviteRowBg,    "theme/inviteRowBg");
-    addRow("Invite text",          &Design::inviteTextColor,"theme/inviteTextColor");
-    addRow("Danger text (red)",    &Design::dangerText,     "theme/dangerText");
-    addRow("Danger bg",            &Design::dangerBg,       "theme/dangerBg");
-    addRow("Accept bg (green)",    &Design::acceptBg,       "theme/acceptBg");
-    addRow("Border",               &Design::borderColor,    "theme/borderColor");
-    addRow("Hover border",         &Design::hoverBorder,    "theme/hoverBorder");
-    addRow("Pinned color",         &Design::pinnedColor,    "theme/pinnedColor");
-    addRow("Thread color",         &Design::threadColor,    "theme/threadColor");
-    addRow("Unread badge",         &Design::unreadBadgeColor,"theme/unreadBadgeColor");
+    addRow("View background",      &Design::viewBg,         "theme/viewBg", form);
+    addRow("Input background",     &Design::inputBg,        "theme/inputBg", form);
+    addRow("Text",                 &Design::textColor,      "theme/textColor", form);
+    addRow("Muted text",           &Design::mutedTextColor, "theme/mutedTextColor", form);
+    addRow("Dim text",             &Design::dimTextColor,   "theme/dimTextColor", form);
+    addRow("Reaction text",        &Design::reactionTextColor, "theme/reactionTextColor", form);
+    addRow("System text",          &Design::systemTextColor,"theme/systemTextColor", form);
+    addRow("Time",                 &Design::timeColor,      "theme/timeColor", form);
+    addRow("Accent",               &Design::accentColor,    "theme/accentColor", form);
+    addRow("Incoming bubble",      &Design::incomingBubble, "theme/incomingBubble", form);
+    addRow("Outgoing bubble",      &Design::outgoingBubble, "theme/outgoingBubble", form);
+    addRow("Selected bg",          &Design::selectedBg,     "theme/selectedBg", form);
+    addRow("Invite row bg",        &Design::inviteRowBg,    "theme/inviteRowBg", form);
+    addRow("Invite text",          &Design::inviteTextColor,"theme/inviteTextColor", form);
+    addRow("Danger text (red)",    &Design::dangerText,     "theme/dangerText", form);
+    addRow("Danger bg",            &Design::dangerBg,       "theme/dangerBg", form);
+    addRow("Accept bg (green)",    &Design::acceptBg,       "theme/acceptBg", form);
+    addRow("Border",               &Design::borderColor,    "theme/borderColor", form);
+    addRow("Hover border",         &Design::hoverBorder,    "theme/hoverBorder", form);
+    addRow("Pinned color",         &Design::pinnedColor,    "theme/pinnedColor", form);
+    addRow("Thread color",         &Design::threadColor,    "theme/threadColor", form);
+    addRow("Unread badge",         &Design::unreadBadgeColor,"theme/unreadBadgeColor", form);
 
     auto* scroll = new QScrollArea(this);
     scroll->setWidgetResizable(true);
@@ -63,7 +63,7 @@ ColorSettingsDialog::ColorSettingsDialog(QWidget* parent) : QDialog(parent) {
 }
 
 void ColorSettingsDialog::addRow(const std::string& label, QColor* target,
-                                   const std::string& qsettingsKey) {
+                                   const std::string& qsettingsKey, QFormLayout* form) {
     auto* btn = new QPushButton(this);
     btn->setFixedSize(32, 24);
     auto updateBtn = [btn, target]() {
@@ -86,8 +86,7 @@ void ColorSettingsDialog::addRow(const std::string& label, QColor* target,
     row->addWidget(btn);
     row->addStretch();
 
-    auto* form = findChild<QFormLayout*>();
-    if (form) form->addRow(QString::fromStdString(label), row);
+    form->addRow(QString::fromStdString(label), row);
 }
 
 void ColorSettingsDialog::onSave() {

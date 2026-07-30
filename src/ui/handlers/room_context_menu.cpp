@@ -215,7 +215,32 @@ void RoomContextMenu::showTimelineContextMenu(const QString& eventId,
     std::string eidStr = eventId.toStdString();
     int row = timelineModel_->findRow(eidStr);
     std::string myUserId = client_ ? client_->account().userId : "";
+    bool isOwnMessage = false;
+    bool isPinned = false;
+    bool isSystemEvent = false;
+    bool canViewThread = false;
     bool hasReactions = false;
+    QString threadRootForView;
+    if (row >= 0) {
+        auto* evt = timelineModel_->at(row);
+        if (evt) {
+            isOwnMessage = (evt->senderId == myUserId);
+            isPinned = evt->isPinned;
+            isSystemEvent = (evt->type == "progressive.system");
+            if (evt->threadReplyCount > 0) { canViewThread = true; threadRootForView = eventId; }
+            else if (evt->isThreadReply && !evt->threadRootId.empty()) {
+                canViewThread = true; threadRootForView = QString::fromStdString(evt->threadRootId);
+            }
+        }
+    }
+    bool isEncryptedRoom = false;
+    if (roomModel_) {
+        int rr = roomModel_->findRowByRoomId(roomId);
+        if (rr >= 0) {
+            auto* rd = roomModel_->at(rr);
+            if (rd) isEncryptedRoom = rd->isEncrypted;
+        }
+    }
     if (row >= 0) {
         auto* evt = timelineModel_->at(row);
         if (evt) {
@@ -248,25 +273,15 @@ void RoomContextMenu::showTimelineContextMenu(const QString& eventId,
     auto* unpinAction = menu.addAction("Unpin message");
     auto* replyThreadAction = menu.addAction("Reply in thread");
     auto* viewThreadAction = menu.addAction("View thread replies");
-    bool canViewThread = false;
-    QString threadRootForView;
-    {
-        int r = timelineModel_->findRow(eventId.toStdString());
-        if (r >= 0) {
-            auto* evt = timelineModel_->at(r);
-            if (evt) {
-                if (evt->threadReplyCount > 0) { canViewThread = true; threadRootForView = eventId; }
-                else if (evt->isThreadReply && !evt->threadRootId.empty()) {
-                    canViewThread = true; threadRootForView = QString::fromStdString(evt->threadRootId);
-                }
-            }
-        }
-    }
     if (!canViewThread) viewThreadAction->setEnabled(false);
+    if (isSystemEvent) replyThreadAction->setEnabled(false);
+    if (!isPinned) unpinAction->setEnabled(false);
+    if (isPinned) pinAction->setEnabled(false);
     auto* copyLinkAction = menu.addAction("Copy permalink");
     menu.addSeparator();
     auto* editAction = menu.addAction("Edit");
     auto* deleteAction = menu.addAction("Delete");
+    if (!isOwnMessage) editAction->setEnabled(false);
 
     auto* selected = menu.exec(globalPos);
     if (!selected) return;

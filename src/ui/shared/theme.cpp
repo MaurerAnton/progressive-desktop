@@ -13,6 +13,7 @@
 #include <QColor>
 #include <QStyleFactory>
 #include <QSettings>
+#include <QCoreApplication>
 
 namespace progressive::desktop {
 
@@ -83,6 +84,12 @@ void Theme::save() {
     s.setValue("theme/accentColor",    Design::accentColor.name());
     s.setValue("theme/viewBg",         Design::viewBg.name());
     s.setValue("theme/textColor",      Design::textColor.name());
+}
+
+void Theme::reapply() {
+    auto* app = qobject_cast<QApplication*>(QCoreApplication::instance());
+    if (!app) return;
+    applyDarkTheme(*app);
 }
 
 } // namespace progressive::desktop

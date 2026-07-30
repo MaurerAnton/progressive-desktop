@@ -79,8 +79,9 @@ void applyDarkTheme(QApplication& app);
 // Load/save Design tokens from QSettings under theme/ keys.
 // Called at startup (load, before applyDarkTheme) and on picker save.
 struct Theme {
-    static void load();   // read QSettings → Design:: tokens
-    static void save();   // write Design:: tokens → QSettings
+    static void load();     // read QSettings → Design:: tokens
+    static void save();     // write Design:: tokens → QSettings
+    static void reapply();  // re-apply palette + stylesheet after token changes
 };
 
 // Deterministic color from user ID — unified across all delegates.

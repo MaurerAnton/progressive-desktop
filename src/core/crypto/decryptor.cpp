@@ -1309,6 +1309,8 @@ std::string Decryptor::pickleOutboundSessions(const std::string& key) {
 
 bool Decryptor::unpickleOutboundSessions(const std::string& key, const std::string& data) {
     std::lock_guard<std::mutex> lk(outboundMtx_);
+    outboundSessions_.clear();
+    roomKeysShared_.clear();
     if (data.empty() || data == "[]") return true;
     (void)key;
     simdjson::dom::parser parser;

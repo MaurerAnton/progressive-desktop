@@ -84,10 +84,9 @@ void E2eeInitHandler::init(MatrixClient* client, SessionStore* store,
                     sync->decryptor()->unpickleOlmSessions(pickleKey, *olmSessionsData);
                     std::cerr << "[e2ee] loaded olm sessions: "
                               << sync->decryptor()->olmSessionCount() << "\n";
-                    size_t sc = sync->decryptor()->olmSessionCount();
-                    if (sc > 1000) {
-                        LOG(LogChannel::E2EE, "cleanup: loaded %zu olm sessions (>1000) — "
-                            "purging and re-saving trimmed version", sc);
+                    if (olmSessionsData->size() > 500000) {
+                        LOG(LogChannel::E2EE, "cleanup: olm sessions pickle is %zu bytes (>500KB) — "
+                            "saving trimmed version", olmSessionsData->size());
                         std::string trimmed = sync->decryptor()->pickleOlmSessions(pickleKey);
                         store->saveOlmSessions(trimmed, pickleKey);
                         LOG(LogChannel::E2EE, "cleanup: re-saved %zu olm sessions",

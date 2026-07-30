@@ -123,6 +123,7 @@ void ThreadHandler::openThreadView(const QString& rootEventId, const std::string
                     }
                 }
                 de.isThreadReply = true;
+                de.threadRootId = rootEid;
                 events.push_back(std::move(de));
             }
             for (const auto& de : events)

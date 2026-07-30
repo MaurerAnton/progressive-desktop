@@ -114,6 +114,10 @@ public:
                       const std::string& myUserId = "");
     void removeReaction(const std::string& eventId, const std::string& emoji, const std::string& userId);
 
+    std::string myReactionId(const std::string& eventId,
+                               const std::string& emoji,
+                               const std::string& myUserId) const;
+
     // Mark an event as pinned/unpinned.
     void setPinned(const std::string& eventId, bool pinned);
 

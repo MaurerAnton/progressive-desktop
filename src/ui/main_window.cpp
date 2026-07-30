@@ -218,9 +218,18 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         auto client = client_;
         std::string roomId = roomHandler_->currentRoomId();
         std::string eid = eventId.toStdString();
-        ThreadPool::instance().enqueue([client, roomId, eid]() {
-            client->sendReaction(roomId, eid, "\xe2\x9d\xa4\xef\xb8\x8f");
-        });
+        std::string myUserId = client_->account().userId;
+        std::string emoji = "\xe2\x9d\xa4\xef\xb8\x8f";
+        std::string existingId = timelineModel_->myReactionId(eid, emoji, myUserId);
+        if (!existingId.empty()) {
+            ThreadPool::instance().enqueue([client, roomId, existingId]() {
+                client->redactEvent(roomId, existingId, "toggle");
+            });
+        } else {
+            ThreadPool::instance().enqueue([client, roomId, eid, emoji]() {
+                client->sendReaction(roomId, eid, emoji);
+            });
+        }
     });
 
     connect(timelineView_, &QListView::customContextMenuRequested, roomHandler_, &RoomHandler::onTimelineContextMenu);
@@ -348,9 +357,18 @@ void MainWindow::keyPressEvent(QKeyEvent* e) {
             auto client = client_;
             std::string roomId = roomHandler_->currentRoomId();
             std::string eidStr = eid.toStdString();
-            ThreadPool::instance().enqueue([client, roomId, eidStr]() {
-                client->sendReaction(roomId, eidStr, "\xe2\x9d\xa4\xef\xb8\x8f");
-            });
+            std::string myUserId = client_->account().userId;
+            std::string emoji = "\xe2\x9d\xa4\xef\xb8\x8f";
+            std::string existingId = timelineModel_->myReactionId(eidStr, emoji, myUserId);
+            if (!existingId.empty()) {
+                ThreadPool::instance().enqueue([client, roomId, existingId]() {
+                    client->redactEvent(roomId, existingId, "toggle");
+                });
+            } else {
+                ThreadPool::instance().enqueue([client, roomId, eidStr, emoji]() {
+                    client->sendReaction(roomId, eidStr, emoji);
+                });
+            }
         }
         e->accept(); return;
     }

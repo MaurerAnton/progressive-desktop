@@ -7,6 +7,21 @@ Q_DECLARE_METATYPE(progressive::desktop::ReactionData)
 
 namespace progressive::desktop {
 
+static std::string normEmoji(const std::string& e) {
+    std::string out;
+    for (size_t i = 0; i < e.size(); ++i) {
+        unsigned char c = e[i];
+        if (c == 0xEF && i + 2 < e.size() && e[i+1] == 0xB8 && e[i+2] == 0x8F) {
+            i += 2; continue;
+        }
+        if (c == 0xE2 && i + 2 < e.size() && e[i+1] == 0x80 && e[i+2] == 0x8D) {
+            i += 2; continue;
+        }
+        out += c;
+    }
+    return out;
+}
+
 TimelineModel::TimelineModel(QObject* parent) : QAbstractListModel(parent) {}
 
 int TimelineModel::rowCount(const QModelIndex& parent) const {
@@ -263,7 +278,7 @@ void TimelineModel::addReaction(const std::string& eventId, const std::string& e
     if (row < 0) return;
     auto& reactions = events_[row].reactions;
     for (auto& r : reactions) {
-        if (r.emoji == emoji) {
+        if (normEmoji(r.emoji) == normEmoji(emoji)) {
             for (const auto& u : r.userIds) {
                 if (u == userId) return;
             }
@@ -285,7 +300,7 @@ void TimelineModel::removeReaction(const std::string& eventId, const std::string
     if (row < 0) return;
     auto& reactions = events_[row].reactions;
     for (auto it = reactions.begin(); it != reactions.end(); ++it) {
-        if (it->emoji == emoji) {
+        if (normEmoji(it->emoji) == normEmoji(emoji)) {
             auto& users = it->userIds;
             users.erase(std::remove(users.begin(), users.end(), userId), users.end());
             it->count = static_cast<int>(users.size());
@@ -294,6 +309,21 @@ void TimelineModel::removeReaction(const std::string& eventId, const std::string
             return;
         }
     }
+}
+
+std::string TimelineModel::myReactionId(const std::string& eventId,
+                                          const std::string& emoji,
+                                          const std::string& myUserId) const {
+    int row = findRow(eventId);
+    if (row < 0) return {};
+    for (const auto& r : events_[row].reactions) {
+        if (normEmoji(r.emoji) == normEmoji(emoji)) {
+            for (const auto& u : r.userIds) {
+                if (u == myUserId) return r.reactionEventId;
+            }
+        }
+    }
+    return {};
 }
 
 void TimelineModel::setPinned(const std::string& eventId, bool pinned) {

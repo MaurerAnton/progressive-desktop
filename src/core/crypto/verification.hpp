@@ -7,6 +7,7 @@
 #include <memory>
 #include <chrono>
 #include <optional>
+#include <mutex>
 
 namespace progressive::desktop {
 
@@ -83,6 +84,7 @@ public:
         const std::string& ourEd25519, const std::string& ourCurve25519) const;
 
 private:
+    mutable std::mutex mtx_;
     std::vector<std::unique_ptr<VerificationTransaction>> transactions_;
     std::string computeCommitment(const std::string& startContentJson,
         const std::string& ourSasPubkey) const;

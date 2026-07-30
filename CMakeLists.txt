@@ -58,6 +58,8 @@ add_library(progressive_core STATIC
     src/core/crypto/olm_account.cpp
     src/core/crypto/random.cpp
     src/core/crypto/sig_verify.cpp
+    src/core/crypto/sas.cpp
+    src/core/crypto/sas_emojis.cpp
     src/core/crypto/megolm_store.cpp
     src/core/crypto/decryptor.cpp
 )

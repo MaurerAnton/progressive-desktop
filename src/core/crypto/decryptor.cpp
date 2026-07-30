@@ -17,8 +17,12 @@
 #include <sstream>
 #include <vector>
 #include <random>
+#include <atomic>
+#include <chrono>
 
 namespace progressive::desktop {
+
+static std::atomic<uint64_t> g_txnCounter{0};
 
 Decryptor::Decryptor()
     : account_(std::make_unique<OlmAccountStore>()),
@@ -980,7 +984,9 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
     }
 
     // Step 4: Send m.room.encrypted to-device event.
-    std::string txnId = "pdkey" + std::to_string(std::time(nullptr) * 1000 + (rand() % 1000));
+    std::string txnId = "pdkey" + std::to_string(
+        static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count())
+        + g_txnCounter.fetch_add(1));
     std::string url = homeserverUrl + "/_matrix/client/v3/sendToDevice/m.room.encrypted/" + txnId;
     auto sendResp = httpPut(url, sendBody.str(), hdrs, 15000);
     if (!sendResp.success) {
@@ -1019,7 +1025,9 @@ void Decryptor::requestRoomKey(const std::string& roomId, const std::string& sen
         if (requestedKeys_.count(key)) return;
         requestedKeys_.insert(key);
     }
-    std::string reqId = "pdrkr" + std::to_string(std::time(nullptr) * 1000 + (rand() % 1000));
+    std::string reqId = "pdrkr" + std::to_string(
+        static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count())
+        + g_txnCounter.fetch_add(1));
     std::ostringstream body;
     body << "{\"messages\":{\""
          << senderId << "\":{\"*\":{\"action\":\"request\","
@@ -1173,7 +1181,9 @@ void Decryptor::forceNewOlmSession(const std::string& senderId, const std::strin
                      senderKey.c_str());
     }
 
-    std::string txnId = "pddmy" + std::to_string(std::time(nullptr) * 1000 + (rand() % 1000));
+    std::string txnId = "pddmy" + std::to_string(
+        static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count())
+        + g_txnCounter.fetch_add(1));
     std::ostringstream sendBody;
     sendBody << "{\"messages\":{\""
              << senderId << "\":{\""

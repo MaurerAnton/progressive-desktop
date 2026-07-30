@@ -100,6 +100,15 @@ git pull && cmake --preset pinetab2 && cmake --build build -j4 && ./build/progre
 | `src/ui/shared/` | Theme, images, notifications | ✅ Shared utilities |
 | `tests/` | Test files | ✅ New tests |
 
+### src/core/ portability (Qt-free)
+
+`src/core/` MUST remain Qt-free. Rationale: Android NDK and WebAssembly
+builds link `progressive_core` without Qt — any Qt include in core fails
+the build (link-time enforcement: `progressive_core` does not link Qt).
+CI guard: `scripts/check_no_qt_in_core.sh` (grep-based, runs in <1s).
+This protects the sister-project design (`progressive-android-next`)
+and a future WASM target (JS UI + Embind to progressive_core).
+
 ## Code Rules
 
 ### Every .hpp file

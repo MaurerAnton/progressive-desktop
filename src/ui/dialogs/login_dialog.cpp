@@ -59,6 +59,10 @@ LoginDialog::LoginDialog(MatrixClient* client, SessionStore* store, QWidget* par
 
     tokenEdit_ = new QLineEdit(this);
     tokenEdit_->setPlaceholderText("registration token (if required by server)");
+    tokenEdit_->setToolTip("Registration token (for closed servers that require "
+                           "one). Leave empty if your server doesn't require a "
+                           "token. NOT used for login — registration tokens are "
+                           "only for creating new accounts.");
     form->addRow("Reg token:", tokenEdit_);
 
     auto* loginBtn = new QPushButton("Login", this);
@@ -154,6 +158,12 @@ void LoginDialog::onRegisterClicked() {
         return;
     }
 
+    if (result.error.code == "M_REGISTRATION_TOKEN_INVALID") {
+        statusLabel_->setText("Invalid or expired registration token.\n"
+                              "Check with your server admin.");
+        return;
+    }
+
     // If captcha is needed, fall back to browser
     if (result.error.code == "M_NEEDS_CAPTCHA") {
         QString regUrl;
@@ -207,6 +217,9 @@ void LoginDialog::onLoginClicked() {
             .arg(QString::fromStdString(discovered.error.message)));
         return;
     }
+
+    QSettings s;
+    s.setValue("login/lastServer", serverCombo_->currentText());
 
     // Set the discovered URL on the client so login goes to the right server.
     auto current = client_->account();

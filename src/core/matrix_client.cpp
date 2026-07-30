@@ -1151,6 +1151,16 @@ ApiResult<AccountInfo> MatrixClient::registerAccount(const std::string& username
                          "Please register via browser (app.element.io/#/register).";
         return r;
     }
+    // 403 with registration token error
+    if ((resp.statusCode == 403 || resp.statusCode == 401)
+        && !regToken.empty()) {
+        auto errBody = progressive::parseMatrixErrorJson(resp.body);
+        if (errBody.message.find("registration_token") != std::string::npos) {
+            r.error.code = "M_REGISTRATION_TOKEN_INVALID";
+            r.error.message = "Invalid or expired registration token.";
+            return r;
+        }
+    }
     // Other error
     if (!resp.body.empty()) {
         r.error = progressive::parseMatrixErrorJson(resp.body);

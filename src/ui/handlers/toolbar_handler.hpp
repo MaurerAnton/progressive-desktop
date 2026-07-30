@@ -48,6 +48,7 @@ public:
 
 signals:
     void fullscreenToggled();
+    void prefsChanged();
 
 public slots:
     void doFullscreen();

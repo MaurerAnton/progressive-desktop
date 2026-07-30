@@ -74,6 +74,7 @@ void PrefsDialog::onSave() {
     s.setValue("sync/historyLoadLimit", historySpin_->value());
     s.setValue("privacy/invisibleMode", invisibleCheck_->isChecked());
     accept();
+    emit settingsChanged();
 }
 
 } // namespace progressive::desktop

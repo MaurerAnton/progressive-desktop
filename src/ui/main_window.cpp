@@ -151,6 +151,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     toolbarHandler_->setRoomHandler(roomHandler_);
     toolbarHandler_->setAuthHandler(auth_);
     toolbarHandler_->setInterfaceElements(chatLogBtn_, threadBtn_);
+    connect(toolbarHandler_, &ToolbarHandler::prefsChanged, this, [this]() {
+        sync_.setPollTimeout(PrefsDialog::pollTimeoutMs());
+        client_->setInvisibleMode(PrefsDialog::invisibleMode());
+    });
     connect(chatLogBtn_, &QPushButton::clicked, toolbarHandler_, &ToolbarHandler::onToggleChatLog);
     connect(threadBtn_, &QPushButton::clicked, toolbarHandler_, &ToolbarHandler::toggleThreadPanel);
 

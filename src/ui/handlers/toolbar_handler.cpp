@@ -204,6 +204,7 @@ void ToolbarHandler::onSettings() {
         dlg.exec();
     } else if (selected == prefsAction) {
         PrefsDialog dlg(parentWidget_);
+        connect(&dlg, &PrefsDialog::settingsChanged, this, &ToolbarHandler::prefsChanged);
         dlg.exec();
     } else if (selected == netLogAction) {
         NetworkLogDialog dlg(parentWidget_);

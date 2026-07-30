@@ -35,6 +35,9 @@ public:
 private slots:
     void onSave();
 
+signals:
+    void settingsChanged();
+
 private:
     QSpinBox* cacheSpin_;
     QSpinBox* syncTimeoutSpin_ = nullptr;

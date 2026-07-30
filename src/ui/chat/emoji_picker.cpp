@@ -1,6 +1,6 @@
 // src/ui/emoji_picker.cpp — emoji picker with search + font fallback.
 #include "emoji_picker.hpp"
-#include "shared/theme.hpp"
+#include "../shared/theme.hpp"
 
 #include <QVBoxLayout>
 #include <QLabel>

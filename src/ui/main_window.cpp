@@ -1,5 +1,6 @@
 // src/ui/main_window.cpp — Phase 3 full UI.
 #include "main_window.hpp"
+#include "shared/theme.hpp"
 #include "handlers/toolbar_handler.hpp"
 #include "handlers/room_handler.hpp"
 #include "handlers/thread_handler.hpp"

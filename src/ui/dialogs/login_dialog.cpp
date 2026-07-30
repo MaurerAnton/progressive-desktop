@@ -11,6 +11,7 @@
 #include <QTimer>
 #include <QString>
 #include <QCheckBox>
+#include <QSettings>
 
 #include "core/utils.hpp"
 #include "core/debug_log.hpp"
@@ -28,7 +29,17 @@ LoginDialog::LoginDialog(MatrixClient* client, SessionStore* store, QWidget* par
     setWindowTitle("Progressive Chat — Login");
     setModal(true);
 
-    serverEdit_ = new QLineEdit("matrix.org", this);
+    serverCombo_ = new QComboBox(this);
+    serverCombo_->setEditable(true);
+    serverCombo_->setInsertPolicy(QComboBox::NoInsert);
+    serverCombo_->addItem("matrix.org");
+    serverCombo_->addItem("envs.net");
+    serverCombo_->addItem("tchncs.de");
+    serverCombo_->addItem("chat.kde.org");
+    serverCombo_->addItem("mozilla.org");
+    QSettings s;
+    QString lastServer = s.value("login/lastServer", "matrix.org").toString();
+    serverCombo_->setCurrentText(lastServer);
     userEdit_ = new QLineEdit(this);
     userEdit_->setPlaceholderText("username (NOT @user:server — just the name)");
     passEdit_ = new QLineEdit(this);
@@ -41,10 +52,14 @@ LoginDialog::LoginDialog(MatrixClient* client, SessionStore* store, QWidget* par
     statusLabel_->setWordWrap(true);
 
     auto* form = new QFormLayout;
-    form->addRow("Server:", serverEdit_);
+    form->addRow("Server:", serverCombo_);
     form->addRow("User:", userEdit_);
     form->addRow("Password:", passEdit_);
     form->addRow("", showPassCheck_);
+
+    tokenEdit_ = new QLineEdit(this);
+    tokenEdit_->setPlaceholderText("registration token (if required by server)");
+    form->addRow("Reg token:", tokenEdit_);
 
     auto* loginBtn = new QPushButton("Login", this);
     loginBtn->setDefault(true);
@@ -74,9 +89,10 @@ void LoginDialog::onShowPasswordToggled(bool checked) {
 }
 
 void LoginDialog::onRegisterClicked() {
-    auto server = serverEdit_->text().trimmed();
+    auto server = serverCombo_->currentText().trimmed();
     auto user = userEdit_->text().trimmed();
     auto pass = passEdit_->text();
+    auto token = tokenEdit_->text().trimmed();
 
     if (server.isEmpty()) {
         statusLabel_->setText("Enter a server name first.");
@@ -111,8 +127,12 @@ void LoginDialog::onRegisterClicked() {
         QString::fromStdString(discovered.data)));
     QApplication::processEvents();
 
+    QSettings s;
+    s.setValue("login/lastServer", serverCombo_->currentText());
+
     // Try in-app registration
-    auto result = client_->registerAccount(userStr, pass.toStdString(), discovered.data);
+    auto result = client_->registerAccount(userStr, pass.toStdString(),
+                                            discovered.data, token.toStdString());
     if (result.ok) {
         // Registration succeeded — we're logged in!
         client_->setAccount(result.data);
@@ -157,7 +177,7 @@ void LoginDialog::onRegisterClicked() {
 }
 
 void LoginDialog::onLoginClicked() {
-    auto server = serverEdit_->text().trimmed();
+    auto server = serverCombo_->currentText().trimmed();
     auto user = userEdit_->text().trimmed();
     auto pass = passEdit_->text();
 

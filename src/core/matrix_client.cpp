@@ -1086,12 +1086,18 @@ ApiResult<std::string> MatrixClient::uploadMedia(const std::vector<uint8_t>& dat
 
 ApiResult<AccountInfo> MatrixClient::registerAccount(const std::string& username,
                                                         const std::string& password,
-                                                        const std::string& homeserverUrl) {
+                                                        const std::string& homeserverUrl,
+                                                        const std::string& regToken) {
     ApiResult<AccountInfo> r;
-    // Try m.login.dummy flow first (works for servers without captcha)
     std::ostringstream body;
-    body << R"({"username":")" << jsonEscape(username) << R"(","password":")"
-         << jsonEscape(password) << R"(","auth":{"type":"m.login.dummy"}})";
+    if (!regToken.empty()) {
+        body << R"({"username":")" << jsonEscape(username) << R"(","password":")"
+             << jsonEscape(password) << R"(","auth":{"type":"m.login.registration_token",)"
+             << R"("registration_token":")" << jsonEscape(regToken) << R"("}})";
+    } else {
+        body << R"({"username":")" << jsonEscape(username) << R"(","password":")"
+             << jsonEscape(password) << R"(","auth":{"type":"m.login.dummy"}})";
+    }
 
     auto hdrs = std::unordered_map<std::string, std::string>{
         {"Content-Type", "application/json"}
@@ -1122,8 +1128,9 @@ ApiResult<AccountInfo> MatrixClient::registerAccount(const std::string& username
             // Retry with the session
             std::ostringstream body2;
             body2 << R"({"username":")" << jsonEscape(username) << R"(","password":")"
-                  << jsonEscape(password) << R"(","auth":{"type":"m.login.dummy","session":")"
-                  << jsonEscape(session) << R"("}})";
+                  << jsonEscape(password) << R"(","auth":{"type":")"
+                  << (regToken.empty() ? "m.login.dummy" : "m.login.registration_token")
+                  << R"(","session":")" << jsonEscape(session) << R"("}})";
             auto resp2 = httpPost(homeserverUrl + "/_matrix/client/v3/register?kind=user",
                                   body2.str(), hdrs, 15000);
             if (resp2.success) {

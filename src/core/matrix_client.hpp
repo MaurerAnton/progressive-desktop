@@ -329,8 +329,9 @@ public:
     // this works in-app. For matrix.org (requires captcha), falls back to browser.
     // Returns true on success (account created + logged in).
     ApiResult<AccountInfo> registerAccount(const std::string& username,
-                                              const std::string& password,
-                                              const std::string& homeserverUrl);
+                                               const std::string& password,
+                                               const std::string& homeserverUrl,
+                                               const std::string& regToken = "");
 
     // ---- Profile ----
 

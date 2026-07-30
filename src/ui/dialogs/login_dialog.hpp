@@ -10,6 +10,7 @@
 
 #include <QDialog>
 #include <QLineEdit>
+#include <QComboBox>
 #include <QLabel>
 #include <QPushButton>
 #include <QCheckBox>
@@ -35,9 +36,10 @@ private:
     SessionStore* store_;
     bool logged_in_ = false;
 
-    QLineEdit* serverEdit_;
+    QComboBox* serverCombo_ = nullptr;
     QLineEdit* userEdit_;
     QLineEdit* passEdit_;
+    QLineEdit* tokenEdit_ = nullptr;
     QLabel* statusLabel_;
     QCheckBox* showPassCheck_;
 };

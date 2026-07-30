@@ -1,6 +1,7 @@
 // src/ui/ui_layout_builder.cpp
 #include "ui_layout_builder.hpp"
 #include "shared/theme.hpp"
+#include <QPointer>
 #include "shared/image_loader.hpp"
 #include "room_list_model.hpp"
 #include "room_list_delegate.hpp"

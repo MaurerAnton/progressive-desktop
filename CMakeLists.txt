@@ -55,6 +55,7 @@ add_library(progressive_core STATIC
     src/core/memory_stats.cpp
     src/core/thread_pool.cpp
     src/core/crypto/olm_account.cpp
+    src/core/crypto/random.cpp
     src/core/crypto/megolm_store.cpp
     src/core/crypto/decryptor.cpp
 )

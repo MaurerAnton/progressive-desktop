@@ -513,8 +513,39 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
         auto pd = pp.parse(plaintext);
         if (pd.error() == simdjson::SUCCESS) {
             auto t = pd.value()["type"].get_string();
-            if (t.error() == simdjson::SUCCESS &&
-                std::string_view(t.value()) == "m.room_key") {
+            if (t.error() == simdjson::SUCCESS) {
+                std::string_view typeVal(t.value());
+
+                // Olm plaintext validation per m.olm.v1 spec
+                auto senderVal = pd.value()["sender"].get_string();
+                auto recipVal = pd.value()["recipient"].get_string();
+                auto recipKeys = pd.value()["recipient_keys"]["ed25519"].get_string();
+                auto senderKeys = pd.value()["keys"]["ed25519"].get_string();
+
+                std::string ourUserId = ctxUserId_;
+                std::string ourEd25519 = account_ ? account_->ed25519Key() : std::string();
+
+                if (recipVal.error() == simdjson::SUCCESS && !ourUserId.empty() &&
+                    std::string(recipVal.value()) != ourUserId) {
+                    LOG(LogChannel::E2EE, "Olm: plaintext recipient mismatch — REJECTING");
+                    return {};
+                }
+                if (recipKeys.error() == simdjson::SUCCESS && !ourEd25519.empty() &&
+                    std::string(recipKeys.value()) != ourEd25519) {
+                    LOG(LogChannel::E2EE, "Olm: plaintext recipient_keys mismatch — REJECTING");
+                    return {};
+                }
+                if (senderVal.error() == simdjson::SUCCESS &&
+                    std::string(senderVal.value()) != senderId) {
+                    LOG(LogChannel::E2EE, "Olm: plaintext sender mismatch — REJECTING");
+                    return {};
+                }
+                if (senderKeys.error() == simdjson::SUCCESS) {
+                    LOG(LogChannel::E2EE, "Olm: sender keys.ed25519=%s (not yet verified — needs device key cache)",
+                        std::string(senderKeys.value()).c_str());
+                }
+
+                if (typeVal == "m.room_key") {
                 std::fprintf(stderr, "[E2EE] Olm plaintext: size=%zu full='%.400s'\n",
                     plaintext.size(), plaintext.c_str());
                 LOG(LogChannel::E2EE, "Olm: inner type=m.room_key — calling handleRoomKey (simdjson)");
@@ -528,6 +559,7 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
                     handleRoomKey(innerContent);
                 }
             }
+        }
         }
         return plaintext;
     }

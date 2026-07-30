@@ -106,26 +106,20 @@ std::string sasCalculateMac(SasSession& sas, const std::string& message,
     auto* olmSas = static_cast<OlmSAS*>(sas.sas);
     size_t macLen = olm_sas_mac_length(olmSas);
     std::string mac(macLen, '\0');
-    size_t ret = olm_sas_calculate_mac(olmSas,
+    size_t ret = olm_sas_calculate_mac_fixed_base64(olmSas,
         reinterpret_cast<const uint8_t*>(message.data()), message.size(),
         info.data(), info.size(),
         &mac[0], macLen);
     if (ret == olm_error()) return {};
-    mac.resize(ret);
-    return b64Encode(reinterpret_cast<const uint8_t*>(mac.data()), mac.size());
+    mac.resize(ret - 1);  // strip trailing newline from fixed_base64
+    return mac;
 }
 
 bool sasVerifyMac(SasSession& sas, const std::string& theirMacBase64,
                    const std::string& message, const std::string& info) {
     auto ourMac = sasCalculateMac(sas, message, info);
     if (ourMac.empty()) return false;
-    auto theirMac = b64Decode(theirMacBase64);
-    auto ourMacBytes = b64Decode(ourMac);
-    if (theirMac.size() != ourMacBytes.size()) return false;
-    for (size_t i = 0; i < theirMac.size(); i++) {
-        if (theirMac[i] != ourMacBytes[i]) return false;
-    }
-    return true;
+    return ourMac == theirMacBase64;
 }
 
 } // namespace progressive::desktop

@@ -58,6 +58,7 @@ void MainWindow::setClient(std::shared_ptr<MatrixClient> client) {
     client_ = std::move(client);
     sync_.setClient(client_);
     sync_.setPollTimeout(PrefsDialog::pollTimeoutMs());
+    client_->setInvisibleMode(PrefsDialog::invisibleMode());
     if (imageLoader_) imageLoader_->setClient(client_);
     if (chatView_) chatView_->setClient(client_);
     if (roomStore_) roomStore_->setClient(client_);
@@ -165,6 +166,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         setWindowTitle("Progressive Chat — Desktop");
         auth_->showLoginDialog();
     });
+
+    connect(messageEdit_, &MessageEdit::imagePasted, chatView_, &ChatView::onImagePasted);
+
     connect(messageEdit_, &MessageEdit::emojiPickerRequested, this, [this]() {
         EmojiPicker picker(this);
         connect(&picker, &EmojiPicker::emojiSelected, this, [this](const QString& emoji) {

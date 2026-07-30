@@ -40,6 +40,19 @@ PrefsDialog::PrefsDialog(QWidget* parent) : QDialog(parent) {
         "Lower = faster message delivery but more requests. Default 3000 (3s).");
     form->addRow("Sync poll timeout:", syncTimeoutSpin_);
 
+    historySpin_ = new QSpinBox(this);
+    historySpin_->setRange(20, 100);
+    historySpin_->setSingleStep(10);
+    historySpin_->setSuffix(" msgs");
+    historySpin_->setValue(historyLoadLimit());
+    historySpin_->setToolTip("Messages loaded per 'Load more' click. Lower = faster on slow connections. Default 50.");
+    form->addRow("History load limit:", historySpin_);
+
+    invisibleCheck_ = new QCheckBox("Suppress read receipts", this);
+    invisibleCheck_->setChecked(invisibleMode());
+    invisibleCheck_->setToolTip("Don't send read markers. Others won't see when you've read their messages. Default off.");
+    form->addRow("Invisible mode:", invisibleCheck_);
+
     root->addLayout(form);
 
     auto* btnRow = new QHBoxLayout;
@@ -58,6 +71,8 @@ void PrefsDialog::onSave() {
     QSettings s;
     s.setValue("cache/imageCount", cacheSpin_->value());
     s.setValue("sync/pollTimeoutMs", syncTimeoutSpin_->value());
+    s.setValue("sync/historyLoadLimit", historySpin_->value());
+    s.setValue("privacy/invisibleMode", invisibleCheck_->isChecked());
     accept();
 }
 

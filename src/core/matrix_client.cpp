@@ -337,6 +337,10 @@ ApiResult<bool> MatrixClient::setReadMarker(const std::string& roomId,
         r.error.message = "not logged in";
         return r;
     }
+    if (invisibleMode_) {
+        r.ok = true; r.data = true;
+        return r;
+    }
     std::ostringstream url;
     url << account().homeserverUrl << "/_matrix/client/v3/rooms/" << roomId << "/read_markers";
     std::string body = R"({"m.read":")" + eventId + R"("})";

@@ -280,6 +280,7 @@ public:
 
     void setSessionStore(SessionStore* store) { sessionStore_ = store; }
     SessionStore* sessionStore() { return sessionStore_; }
+    void setInvisibleMode(bool b) { invisibleMode_ = b; }
 
     // Persist current account to the session store (if set).
     bool persistSession();
@@ -374,6 +375,7 @@ public:
 private:
     std::atomic<std::shared_ptr<AccountInfo>> accountPtr_{std::make_shared<AccountInfo>()};
     SessionStore* sessionStore_ = nullptr;
+    bool invisibleMode_ = false;
 
     // Build the standard auth header if logged in.
     std::unordered_map<std::string, std::string> authHeaders() const;

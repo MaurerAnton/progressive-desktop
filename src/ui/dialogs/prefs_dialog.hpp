@@ -2,6 +2,7 @@
 #pragma once
 #include <QDialog>
 #include <QSpinBox>
+#include <QCheckBox>
 #include <QSettings>
 
 namespace progressive::desktop {
@@ -21,12 +22,24 @@ public:
         return s.value("sync/pollTimeoutMs", 3000).toInt();
     }
 
+    static int historyLoadLimit() {
+        QSettings s;
+        return s.value("sync/historyLoadLimit", 50).toInt();
+    }
+
+    static bool invisibleMode() {
+        QSettings s;
+        return s.value("privacy/invisibleMode", false).toBool();
+    }
+
 private slots:
     void onSave();
 
 private:
     QSpinBox* cacheSpin_;
     QSpinBox* syncTimeoutSpin_ = nullptr;
+    QSpinBox* historySpin_ = nullptr;
+    QCheckBox* invisibleCheck_ = nullptr;
 };
 
 } // namespace progressive::desktop

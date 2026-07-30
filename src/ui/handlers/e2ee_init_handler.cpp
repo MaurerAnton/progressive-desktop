@@ -75,6 +75,10 @@ void E2eeInitHandler::init(MatrixClient* client, SessionStore* store,
                     std::cerr << "[e2ee] loaded megolm sessions: "
                               << sync->decryptor()->megolm()->sessionCount() << "\n";
                 }
+                auto outboundData = store->loadOutboundSessions(pickleKey);
+                if (outboundData) {
+                    sync->decryptor()->unpickleOutboundSessions(pickleKey, *outboundData);
+                }
                 auto olmSessionsData = store->loadOlmSessions(pickleKey);
                 if (olmSessionsData && !olmSessionsData->empty()) {
                     sync->decryptor()->unpickleOlmSessions(pickleKey, *olmSessionsData);
@@ -103,12 +107,17 @@ void E2eeInitHandler::persistCrypto(MatrixClient* client, SessionStore* store,
 
     std::string pickleKey = client->account().userId + "/" + client->account().deviceId;
     auto megolmPickle = sync->decryptor()->megolm()->pickleAll(pickleKey);
-    if (!megolmPickle.empty()) {
-        store->saveMegolmSessions(megolmPickle, pickleKey);
-        std::fprintf(stderr, "[e2ee] persistCrypto: saved %d megolm sessions\n",
-            sync->decryptor()->megolm()->sessionCount());
-    }
-    auto olmSessionsPickle = sync->decryptor()->pickleOlmSessions(pickleKey);
+        if (!megolmPickle.empty()) {
+            store->saveMegolmSessions(megolmPickle, pickleKey);
+            std::fprintf(stderr, "[e2ee] persistCrypto: saved %d megolm sessions\n",
+                sync->decryptor()->megolm()->sessionCount());
+        }
+        auto outboundPickle = sync->decryptor()->pickleOutboundSessions(pickleKey);
+        if (!outboundPickle.empty() && outboundPickle != "[]") {
+            store->saveOutboundSessions(outboundPickle, pickleKey);
+            LOG(LogChannel::E2EE, "persistCrypto: saved outbound sessions");
+        }
+        auto olmSessionsPickle = sync->decryptor()->pickleOlmSessions(pickleKey);
     std::fprintf(stderr, "[e2ee] persistCrypto: saving %zu olm sessions\n",
                  sync->decryptor()->olmSessionCount());
     if (!olmSessionsPickle.empty()) store->saveOlmSessions(olmSessionsPickle, pickleKey);

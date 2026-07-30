@@ -50,6 +50,8 @@ void AccountSwitcher::switchAccount(int index) {
         if (!mp.empty()) store_->saveMegolmSessions(mp, oldKey);
         auto op = sync_->decryptor()->pickleOlmSessions(oldKey);
         if (!op.empty()) store_->saveOlmSessions(op, oldKey);
+        auto obp = sync_->decryptor()->pickleOutboundSessions(oldKey);
+        if (!obp.empty() && obp != "[]") store_->saveOutboundSessions(obp, oldKey);
         auto ap = sync_->decryptor()->saveAccountPickle(oldKey);
         if (!ap.empty()) store_->saveOlmAccount(ap, oldKey,
                                                  sync_->decryptor()->accountShared(),
@@ -81,6 +83,8 @@ void AccountSwitcher::switchAccount(int index) {
             if (md) sync_->decryptor()->megolm()->unpickleAll(newKey, *md);
             auto od = store_->loadOlmSessions(newKey);
             if (od) sync_->decryptor()->unpickleOlmSessions(newKey, *od);
+            auto obd = store_->loadOutboundSessions(newKey);
+            if (obd) sync_->decryptor()->unpickleOutboundSessions(newKey, *obd);
         } else {
             sync_->decryptor()->init();
         }
@@ -110,6 +114,8 @@ void AccountSwitcher::addAccount() {
         if (!mp.empty()) store_->saveMegolmSessions(mp, oldKey);
         auto op = sync_->decryptor()->pickleOlmSessions(oldKey);
         if (!op.empty()) store_->saveOlmSessions(op, oldKey);
+        auto obp = sync_->decryptor()->pickleOutboundSessions(oldKey);
+        if (!obp.empty() && obp != "[]") store_->saveOutboundSessions(obp, oldKey);
         auto ap = sync_->decryptor()->saveAccountPickle(oldKey);
         if (!ap.empty()) store_->saveOlmAccount(ap, oldKey,
                                                  sync_->decryptor()->accountShared(),

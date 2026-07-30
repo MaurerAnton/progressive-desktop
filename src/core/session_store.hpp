@@ -63,6 +63,10 @@ public:
     bool saveOlmSessions(const std::string& data, const std::string& pickleKey);
     std::optional<std::string> loadOlmSessions(const std::string& pickleKey);
 
+    // ---- Outbound Megolm sessions (E2EE) ----
+    bool saveOutboundSessions(const std::string& data, const std::string& pickleKey);
+    std::optional<std::string> loadOutboundSessions(const std::string& pickleKey);
+
     // ---- E2EE flags ----
     bool saveE2eeFlag(const std::string& key, bool value);
     std::optional<bool> loadE2eeFlag(const std::string& key);

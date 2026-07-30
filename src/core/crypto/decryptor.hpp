@@ -159,6 +159,10 @@ public:
     bool unpickleOlmSessions(const std::string& key, const std::string& data);
     size_t olmSessionCount();
 
+    // Outbound Megolm session persistence.
+    std::string pickleOutboundSessions(const std::string& key);
+    bool unpickleOutboundSessions(const std::string& key, const std::string& data);
+
     // Set credentials for to-device HTTP calls (called once at E2EE init).
     void setCryptoContext(const std::string& ourUserId, const std::string& ourDeviceId,
                           const std::string& homeserverUrl, const std::string& accessToken);

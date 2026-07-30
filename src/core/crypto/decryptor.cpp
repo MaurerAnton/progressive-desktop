@@ -1250,4 +1250,96 @@ bool Decryptor::unpickleOlmSessions(const std::string& key, const std::string& d
     return true;
 }
 
+std::string Decryptor::pickleOutboundSessions(const std::string& key) {
+    std::lock_guard<std::mutex> lk(outboundMtx_);
+    if (outboundSessions_.empty()) return "[]";
+    std::ostringstream os;
+    os << "[";
+    bool first = true;
+    for (const auto& [roomId, out] : outboundSessions_) {
+        auto* olmSession = static_cast<::OlmOutboundGroupSession*>(out.session);
+        if (!olmSession) continue;
+        if (!first) os << ",";
+        first = false;
+        os << "{\"roomId\":\"" << roomId << "\","
+           << "\"sessionId\":\"" << out.sessionId << "\","
+           << "\"sessionKey\":\"" << out.sessionKey << "\","
+           << "\"messageIndex\":" << out.messageIndex << ","
+           << "\"shared\":" << (roomKeysShared_[roomId] ? "true" : "false");
+        size_t len = olm_pickle_outbound_group_session_length(olmSession);
+        if (len > 0) {
+            std::vector<uint8_t> pickled(len);
+            size_t ret = olm_pickle_outbound_group_session(olmSession, "", 0, pickled.data(), len);
+            if (ret != olm_error()) {
+                os << ",\"pickle\":\"";
+                for (size_t i = 0; i < len; i++) {
+                    static const char hex[] = "0123456789abcdef";
+                    os << hex[pickled[i] >> 4] << hex[pickled[i] & 15];
+                }
+                os << "\"";
+            }
+        }
+        os << "}";
+    }
+    os << "]";
+    return os.str();
+}
+
+bool Decryptor::unpickleOutboundSessions(const std::string& key, const std::string& data) {
+    std::lock_guard<std::mutex> lk(outboundMtx_);
+    if (data.empty() || data == "[]") return true;
+    (void)key;
+    simdjson::dom::parser parser;
+    auto root = parser.parse(data);
+    if (root.error() != simdjson::SUCCESS) return false;
+    auto arr = root.value().get_array();
+    if (arr.error() != simdjson::SUCCESS) return false;
+    for (auto elem : arr.value()) {
+        auto obj = elem.get_object();
+        if (obj.error() != simdjson::SUCCESS) continue;
+        auto r = obj.value()["roomId"].get_string();
+        auto si = obj.value()["sessionId"].get_string();
+        auto sk = obj.value()["sessionKey"].get_string();
+        auto mi = obj.value()["messageIndex"].get_int64();
+        auto sh = obj.value()["shared"].get_bool();
+        auto pk = obj.value()["pickle"].get_string();
+        if (r.error() != simdjson::SUCCESS || si.error() != simdjson::SUCCESS ||
+            sk.error() != simdjson::SUCCESS) continue;
+        std::string roomId(r.value());
+        std::string hexPickle(pk.error() == simdjson::SUCCESS ? pk.value() : "");
+        if (hexPickle.empty() || hexPickle.size() % 2 != 0) continue;
+        std::vector<uint8_t> pickledData;
+        for (size_t i = 0; i < hexPickle.size(); i += 2) {
+            char h = (char)strtol(hexPickle.substr(i, 2).c_str(), nullptr, 16);
+            pickledData.push_back((uint8_t)h);
+        }
+        // MUST pass a copy — libolm consumes the pickled buffer in place (Quirk 8)
+        std::vector<uint8_t> pickledCopy = pickledData;
+        void* mem = malloc(olm_outbound_group_session_size());
+        if (!mem) continue;
+        // olm_outbound_group_session zeros the struct (Quirk 7) — call ONCE
+        auto* olmSession = olm_outbound_group_session(mem);
+        size_t ret = olm_unpickle_outbound_group_session(olmSession, "", 0,
+            pickledCopy.data(), pickledCopy.size());
+        if (ret == olm_error()) {
+            free(mem);
+            continue;
+        }
+        OutboundMegolmSession out;
+        out.session = mem;
+        out.sessionId = std::string(si.value());
+        out.sessionKey = std::string(sk.value());
+        out.messageIndex = mi.error() == simdjson::SUCCESS ? (int)mi.value() : 0;
+        outboundSessions_[roomId] = std::move(out);
+        bool shared = sh.error() == simdjson::SUCCESS ? sh.value() : false;
+        roomKeysShared_[roomId] = shared;
+        // DEBT(E2EE): stale shared flag if members changed while offline — new
+        // members won't get the room_key until session rotation. matrix-rust-sdk
+        // re-shares on device_lists:changed; we don't yet. See AGENTS.md gaps.
+        LOG(LogChannel::E2EE, "unpickleOutbound: room=%s sid=%.20s shared=%d",
+            roomId.c_str(), out.sessionId.c_str(), shared ? 1 : 0);
+    }
+    return true;
+}
+
 } // namespace progressive::desktop

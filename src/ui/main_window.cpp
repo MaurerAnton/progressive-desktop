@@ -215,15 +215,23 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     });
 
     connect(timelineDelegate_, &TimelineDelegate::messageClicked, this, &MainWindow::onMessageClicked);
-    connect(timelineDelegate_, &TimelineDelegate::reactionClicked, this, [this](const QString& eventId, const QString& emoji) {
+    connect(timelineDelegate_, &TimelineDelegate::reactionClicked, this, [this](const QString& eventId, const QString& emojiWithCount) {
         if (roomHandler_->currentRoomId().empty() || !client_) return;
         auto client = client_;
         std::string roomId = roomHandler_->currentRoomId();
         std::string eid = eventId.toStdString();
-        std::string em = emoji.toStdString();
-        ThreadPool::instance().enqueue([client, roomId, eid, em]() {
-            client->sendReaction(roomId, eid, em);
-        });
+        std::string em = emojiWithCount.section(' ', 0, 0).toStdString();
+        std::string myUserId = client_->account().userId;
+        std::string existingId = timelineModel_->myReactionId(eid, em, myUserId);
+        if (!existingId.empty()) {
+            ThreadPool::instance().enqueue([client, roomId, existingId]() {
+                client->redactEvent(roomId, existingId, "toggle");
+            });
+        } else {
+            ThreadPool::instance().enqueue([client, roomId, eid, em]() {
+                client->sendReaction(roomId, eid, em);
+            });
+        }
     });
 
     connect(timelineDelegate_, &TimelineDelegate::doubleClicked, this, [this](const QString& eventId) {
@@ -232,6 +240,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         std::string roomId = roomHandler_->currentRoomId();
         std::string eid = eventId.toStdString();
         std::string myUserId = client_->account().userId;
+        int row = timelineModel_->findRow(eid);
+        if (row >= 0) {
+            auto* evt = timelineModel_->at(row);
+            if (evt && evt->senderId == myUserId) return;
+        }
         std::string emoji = "\xe2\x9d\xa4\xef\xb8\x8f";
         std::string existingId = timelineModel_->myReactionId(eid, emoji, myUserId);
         if (!existingId.empty()) {
@@ -382,6 +395,11 @@ void MainWindow::keyPressEvent(QKeyEvent* e) {
             std::string roomId = roomHandler_->currentRoomId();
             std::string eidStr = eid.toStdString();
             std::string myUserId = client_->account().userId;
+            int row = timelineModel_->findRow(eid.toStdString());
+            if (row >= 0) {
+                auto* evt = timelineModel_->at(row);
+                if (evt && evt->senderId == myUserId) { e->accept(); return; }
+            }
             std::string emoji = "\xe2\x9d\xa4\xef\xb8\x8f";
             std::string existingId = timelineModel_->myReactionId(eidStr, emoji, myUserId);
             if (!existingId.empty()) {

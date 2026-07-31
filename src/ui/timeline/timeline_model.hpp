@@ -6,10 +6,13 @@
 #include <QAbstractListModel>
 #include <QImage>
 #include <QMovie>
+#include <QPointer>
 #include <vector>
 #include <string>
 #include <unordered_set>
 #include <unordered_map>
+
+class QListView;
 
 namespace progressive::desktop {
 
@@ -128,10 +131,13 @@ public:
     // Find row by event_id. Returns -1 if not found.
     int findRow(const std::string& eventId) const;
 
+    void setView(QListView* view);
+
 private:
     std::vector<DisplayedEvent> events_;
     std::unordered_set<std::string> seenIds_;
     std::unordered_map<std::string, int> rowIndex_;
+    QPointer<QListView> view_;
 };
 
 } // namespace progressive::desktop

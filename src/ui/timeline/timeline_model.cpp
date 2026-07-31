@@ -2,6 +2,8 @@
 
 #include <QVariantList>
 #include <QMetaType>
+#include <QScrollBar>
+#include <QListView>
 
 Q_DECLARE_METATYPE(progressive::desktop::ReactionData)
 
@@ -23,6 +25,8 @@ static std::string normEmoji(const std::string& e) {
 }
 
 TimelineModel::TimelineModel(QObject* parent) : QAbstractListModel(parent) {}
+
+void TimelineModel::setView(QListView* view) { view_ = view; }
 
 int TimelineModel::rowCount(const QModelIndex& parent) const {
     if (parent.isValid()) return 0;
@@ -104,6 +108,14 @@ void TimelineModel::appendBack(const DisplayedEvent& evt) {
     if (!evt.eventId.empty() && seenIds_.count(evt.eventId)) return;
     if (!evt.eventId.empty()) seenIds_.insert(evt.eventId);
 
+    int savedScroll = 0;
+    bool wasAtBottom = true;
+    if (view_ && view_->verticalScrollBar()) {
+        auto* sb = view_->verticalScrollBar();
+        savedScroll = sb->value();
+        wasAtBottom = (savedScroll >= sb->maximum() - 10);
+    }
+
     int row = static_cast<int>(events_.size());
     beginInsertRows(QModelIndex(), row, row);
     events_.push_back(evt);
@@ -126,6 +138,10 @@ void TimelineModel::appendBack(const DisplayedEvent& evt) {
         }
         events_.erase(events_.begin(), events_.begin() + excess);
         endRemoveRows();
+    }
+
+    if (view_ && view_->verticalScrollBar() && !wasAtBottom && savedScroll > 0) {
+        view_->verticalScrollBar()->setValue(savedScroll);
     }
 }
 
@@ -234,6 +250,14 @@ void TimelineModel::appendBackBatch(const std::vector<DisplayedEvent>& events) {
     }
     if (filtered.empty()) return;
 
+    int savedScroll = 0;
+    bool wasAtBottom = true;
+    if (view_ && view_->verticalScrollBar()) {
+        auto* sb = view_->verticalScrollBar();
+        savedScroll = sb->value();
+        wasAtBottom = (savedScroll >= sb->maximum() - 10);
+    }
+
     int first = static_cast<int>(events_.size());
     int last = first + static_cast<int>(filtered.size()) - 1;
     beginInsertRows(QModelIndex(), first, last);
@@ -252,6 +276,10 @@ void TimelineModel::appendBackBatch(const std::vector<DisplayedEvent>& events) {
     }
     updateGroupMarkers(events_);
     if (!events_.empty()) emit dataChanged(index(0), index(static_cast<int>(events_.size()) - 1));
+
+    if (view_ && view_->verticalScrollBar() && !wasAtBottom && savedScroll > 0) {
+        view_->verticalScrollBar()->setValue(savedScroll);
+    }
 }
 
 void TimelineModel::clear() {

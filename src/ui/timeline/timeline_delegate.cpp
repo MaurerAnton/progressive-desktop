@@ -64,8 +64,13 @@ void TimelineDelegate::paint(QPainter* p, const QStyleOptionViewItem& opt,
         int width = opt.rect.width();
         if (width <= kMinUsableViewW) width = kFallbackViewW;
         int bubbleW = qMin(kMaxBubbleW, width - kAvatarSize - kGap - kMargin * 2);
-        BubbleLayout L = computeLayout(idx, myUserId_, bubbleW);
-        timeline_render::drawMessageBubble(p, opt.rect, idx, L, myUserId_,
+        int row = idx.row();
+        auto it = layoutCache_.find(row);
+        if (it == layoutCache_.end()) {
+            BubbleLayout L = computeLayout(idx, myUserId_, bubbleW);
+            it = layoutCache_.emplace(row, L).first;
+        }
+        timeline_render::drawMessageBubble(p, opt.rect, idx, it->second, myUserId_,
                                            loader_, pendingFetches_);
     }
 
@@ -88,9 +93,14 @@ QSize TimelineDelegate::sizeHint(const QStyleOptionViewItem& opt,
     if (width <= kMinUsableViewW) width = kFallbackViewW;
     int bubbleW = qMin(kMaxBubbleW, width - kAvatarSize - kGap - kMargin * 2);
 
-    BubbleLayout L = computeLayout(idx, myUserId_, bubbleW);
+    int row = idx.row();
+    auto it = layoutCache_.find(row);
+    if (it == layoutCache_.end()) {
+        BubbleLayout L = computeLayout(idx, myUserId_, bubbleW);
+        it = layoutCache_.emplace(row, L).first;
+    }
 
-    int totalH = L.totalHeight();
+    int totalH = it->second.totalHeight();
     return QSize(width, qMax(totalH, kAvatarSize + 8));
 }
 

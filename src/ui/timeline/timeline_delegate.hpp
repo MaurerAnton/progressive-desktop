@@ -3,10 +3,10 @@
 #include <QStyledItemDelegate>
 #include <QHash>
 #include <unordered_set>
+#include <map>
 #include <memory>
 
-class QTextDocument;
-class QMovie;
+#include "timeline_layout.hpp"
 
 namespace progressive::desktop {
 
@@ -35,10 +35,13 @@ signals:
     void doubleClicked(const QString& eventId);
     void threadIndicatorClicked(const QString& eventId);
 
+public:
+    void invalidateLayoutCache() const { layoutCache_.clear(); }
 private:
     ImageLoader* loader_;
     QString myUserId_;
     mutable std::unordered_set<std::string> pendingFetches_;
+    mutable std::map<int, timeline_layout::BubbleLayout> layoutCache_;
 };
 
 } // namespace progressive::desktop

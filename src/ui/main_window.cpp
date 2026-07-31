@@ -114,6 +114,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     roomList_ = ui.roomList;
     roomListDelegate_ = ui.roomListDelegate;
     timelineView_ = ui.timelineView;
+    timelineModel_->setView(timelineView_);
+    connect(timelineModel_, &QAbstractItemModel::modelAboutToBeReset, timelineDelegate_, [this]() {
+        timelineDelegate_->invalidateLayoutCache();
+    });
+    connect(timelineModel_, &QAbstractItemModel::dataChanged, timelineDelegate_, [this]() {
+        timelineDelegate_->invalidateLayoutCache();
+    });
     timelinePlaceholder_ = ui.timelinePlaceholder;
     loadMoreBtn_ = ui.loadMoreBtn;
     chatLogBtn_ = ui.chatLogBtn;

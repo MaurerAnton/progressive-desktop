@@ -249,14 +249,21 @@ std::string VerificationManager::buildMacContent(const std::string& txnId,
     const std::string& ourCurve25519, SasSession& sas) const {
     std::string ed25519KeyId = "ed25519:" + ourDeviceId;
     std::string curve25519KeyId = "curve25519:" + ourDeviceId;
-    std::string ed25519Info = macInfo(txnId, ourDeviceId, ed25519KeyId);
-    std::string curve25519Info = macInfo(txnId, ourDeviceId, curve25519KeyId);
+    std::string keysSorted = curve25519KeyId + "," + ed25519KeyId;
+
+    std::string ed25519Info = macInfo("", ourDeviceId, "", txnId, ed25519KeyId);
+    std::string curve25519Info = macInfo("", ourDeviceId, "", txnId, curve25519KeyId);
+    std::string keysInfo = macInfo("", ourDeviceId, "", txnId, "KEY_IDS");
+
     std::string ed25519mac = sasCalculateMac(sas, ourEd25519, ed25519Info);
     std::string curve25519mac = sasCalculateMac(sas, ourCurve25519, curve25519Info);
+    std::string keysMac = sasCalculateMac(sas, keysSorted, keysInfo);
+
     return "{\"transaction_id\":\"" + esc(txnId) + "\","
            "\"mac\":{\"ed25519:" + esc(ourDeviceId) + "\":\"" + esc(ed25519mac) + "\","
-           "\"curve25519:" + esc(ourDeviceId) + "\":\"" + esc(curve25519mac) + "\"},"
-           "\"keys\":\"curve25519:" + esc(ourDeviceId) + ",ed25519:" + esc(ourDeviceId) + "\"}";
+           "\"curve25519:" + esc(ourDeviceId) + "\":\"" + esc(curve25519mac) + "\","
+           "\"keys\":\"" + esc(keysMac) + "\"},"
+           "\"keys\":\"" + esc(keysSorted) + "\"}";
 }
 
 std::string VerificationManager::buildDoneContent(const std::string& txnId) const {
@@ -274,7 +281,8 @@ std::vector<VerificationEmoji> VerificationManager::computeEmojis(
     VerificationTransaction& txn) const {
     std::lock_guard<std::mutex> lk(mtx_);
     if (!txn.sas.valid || !txn.sas.theirKeySet) return {};
-    std::string bytes = sasGenerateBytes(txn.sas, "MATRIX_KEY_VERIFICATION_SAS");
+    std::string info = buildSasInfo(txn);
+    std::string bytes = sasGenerateBytes(txn.sas, info);
     if (bytes.empty()) return {};
     return computeSasEmojis(bytes);
 }
@@ -283,16 +291,74 @@ bool VerificationManager::verifyTheirMac(VerificationTransaction& txn,
     const std::string& theirMacJson, const std::string& ourDeviceId,
     const std::string& ourEd25519, const std::string& ourCurve25519) const {
     if (!txn.sas.valid) return false;
-    std::string ed25519KeyId = "ed25519:" + ourDeviceId;
-    std::string infoKey = macInfo(txn.transactionId, ourDeviceId, ed25519KeyId);
-    return sasVerifyMac(txn.sas, theirMacJson, ourEd25519, infoKey);
+
+    simdjson::dom::parser mp;
+    auto md = mp.parse(theirMacJson);
+    if (md.error() != simdjson::SUCCESS) return false;
+
+    auto macObj = md.value()["mac"].get_object();
+    auto keysStr = md.value()["keys"].get_string();
+    if (macObj.error() != simdjson::SUCCESS || keysStr.error() != simdjson::SUCCESS)
+        return false;
+
+    std::string keyOwnerUser = txn.weInitiated ? txn.otherUserId : txn.otherUserId;
+    std::string sendingDeviceId = txn.otherDeviceId;
+    std::string receivingDeviceId = ourDeviceId;
+    std::string otherUser = txn.weInitiated ? txn.ourDeviceId : txn.otherUserId;
+    (void)otherUser;
+
+    // Verify ed25519 key MAC
+    std::string ed25519KeyId = "ed25519:" + sendingDeviceId;
+    std::string ed25519Info = macInfo(keyOwnerUser, sendingDeviceId, receivingDeviceId,
+                                      txn.transactionId, ed25519KeyId);
+    auto theirEdMac = macObj.value()[ed25519KeyId].get_string();
+    if (theirEdMac.error() == simdjson::SUCCESS) {
+        if (!sasVerifyMac(txn.sas, std::string(theirEdMac.value()), ourEd25519, ed25519Info))
+            return false;
+    }
+
+    // Verify curve25519 key MAC
+    std::string curveKeyId = "curve25519:" + sendingDeviceId;
+    std::string curveInfo = macInfo(keyOwnerUser, sendingDeviceId, receivingDeviceId,
+                                     txn.transactionId, curveKeyId);
+    auto theirCurveMac = macObj.value()[curveKeyId].get_string();
+    if (theirCurveMac.error() == simdjson::SUCCESS) {
+        if (!sasVerifyMac(txn.sas, std::string(theirCurveMac.value()), ourCurve25519, curveInfo))
+            return false;
+    }
+
+    // Verify keys MAC
+    std::string keysInfo = macInfo(keyOwnerUser, sendingDeviceId, receivingDeviceId,
+                                    txn.transactionId, "KEY_IDS");
+    auto theirKeysMac = macObj.value()["keys"].get_string();
+    std::string keysSorted = std::string(keysStr.value());
+    std::string keysCanon = curveKeyId + "," + ed25519KeyId;
+    if (keysSorted != keysCanon) return false;
+    if (theirKeysMac.error() == simdjson::SUCCESS) {
+        if (!sasVerifyMac(txn.sas, std::string(theirKeysMac.value()), keysSorted, keysInfo))
+            return false;
+    }
+
+    return true;
+}
+
+std::string VerificationManager::buildSasInfo(const VerificationTransaction& txn) const {
+    // curve25519-hkdf-sha256 SAS info (7-part pipe-delimited)
+    std::string startUser = txn.weInitiated ? "" : txn.otherUserId;
+    std::string acceptUser = txn.weInitiated ? txn.otherUserId : "";
+    std::string startDevice = txn.weInitiated ? txn.ourDeviceId : txn.otherDeviceId;
+    std::string acceptDevice = txn.weInitiated ? txn.otherDeviceId : txn.ourDeviceId;
+    std::string startPubkey = txn.weInitiated ? txn.sas.ourPubkey : txn.theirSasPubkey;
+    std::string acceptPubkey = txn.weInitiated ? txn.theirSasPubkey : txn.sas.ourPubkey;
+
+    return "MATRIX_KEY_VERIFICATION_SAS|" + startUser + "|" + startDevice + "|"
+           + startPubkey + "|" + acceptUser + "|" + acceptDevice + "|"
+           + acceptPubkey + "|" + txn.transactionId;
 }
 
 std::string VerificationManager::computeCommitment(const std::string& startContentJson,
     const std::string& ourSasPubkey) const {
-    // SHA-256 of canonical_start_json + pubkey, then base64-encode
     std::string input = startContentJson + ourSasPubkey;
-    // Use libolm's SHA-256 via OlmUtility
     size_t utilSize = olm_utility_size();
     std::vector<uint8_t> utilMem(utilSize);
     OlmUtility* util = olm_utility(utilMem.data());
@@ -300,7 +366,6 @@ std::string VerificationManager::computeCommitment(const std::string& startConte
     std::vector<uint8_t> hash(hashLen);
     size_t ret = olm_sha256(util, input.data(), input.size(), hash.data(), hashLen);
     if (ret == olm_error()) return {};
-    // base64 encode
     static const char b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     std::string out;
     int val = 0, vb = -6;
@@ -313,9 +378,13 @@ std::string VerificationManager::computeCommitment(const std::string& startConte
     return out;
 }
 
-std::string VerificationManager::macInfo(const std::string& txnId,
-    const std::string& deviceId, const std::string& keyId) const {
-    return "MATRIX_KEY_VERIFICATION_MAC" + txnId + deviceId + keyId;
+std::string VerificationManager::macInfo(const std::string& keyOwnerUser,
+    const std::string& sendingDeviceId, const std::string& receivingDeviceId,
+    const std::string& txnId, const std::string& keyId) const {
+    // 7-part MAC info: keyOwnerUser + sendingDeviceId + otherUser + receivingDeviceId + txnId + keyId
+    // otherUser = the OTHER user in the transaction
+    return "MATRIX_KEY_VERIFICATION_MAC" + keyOwnerUser + sendingDeviceId
+           + receivingDeviceId + txnId + keyId;
 }
 
 } // namespace progressive::desktop

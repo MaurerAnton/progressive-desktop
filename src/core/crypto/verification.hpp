@@ -82,14 +82,16 @@ public:
     bool verifyTheirMac(VerificationTransaction& txn,
         const std::string& theirMacJson, const std::string& ourDeviceId,
         const std::string& ourEd25519, const std::string& ourCurve25519) const;
+    std::string buildSasInfo(const VerificationTransaction& txn) const;
 
 private:
     mutable std::mutex mtx_;
     std::vector<std::unique_ptr<VerificationTransaction>> transactions_;
     std::string computeCommitment(const std::string& startContentJson,
         const std::string& ourSasPubkey) const;
-    std::string macInfo(const std::string& txnId, const std::string& deviceId,
-        const std::string& keyId) const;
+    std::string macInfo(const std::string& keyOwnerUser,
+        const std::string& sendingDeviceId, const std::string& receivingDeviceId,
+        const std::string& txnId, const std::string& keyId) const;
 };
 
 } // namespace progressive::desktop

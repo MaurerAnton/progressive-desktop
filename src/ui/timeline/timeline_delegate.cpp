@@ -214,6 +214,20 @@ bool TimelineDelegate::editorEvent(QEvent* event, QAbstractItemModel* model,
         }
     }
 
+    if ((msgtype == "m.file" || msgtype == "m.audio") && !mxcUrl.isEmpty()) {
+        int fileY = bubbleY + kPadTop;
+        if (L.pinnedH) fileY += 14;
+        if (L.threadReplyH) fileY += 14;
+        if (L.replyH) fileY += 14;
+        if (L.textH > 0) fileY += L.textH + 4;
+        QRect fileZone(bubbleX + kBubblePadding, fileY,
+                       qMin(bubbleW - kBubblePadding * 2, kFileCardMaxW), kFileCardH);
+        if (fileZone.contains(me->pos())) {
+            emit imageClicked(eventId, mxcUrl);
+            return true;
+        }
+    }
+
     if (msgtype == "m.text" || msgtype.isEmpty()) {
         QTextDocument doc;
         doc.setDefaultFont(QFont(QApplication::font().family(), ds(kFontSizeBody)));

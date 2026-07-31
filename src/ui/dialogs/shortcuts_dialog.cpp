@@ -25,6 +25,7 @@ ShortcutsDialog::ShortcutsDialog(QWidget* parent) : QDialog(parent) {
         {"Ctrl+1..9", "Jump to Nth room"},
         {"Ctrl+Down", "Next message"},
         {"Ctrl+Up", "Previous message"},
+        {"Ctrl+K", "Room switcher (filter by name)"},
         {"Ctrl+R", "Reply to selected message"},
         {"Ctrl+Shift+K", "Quick react (\xe2\x9d\xa4) on selected message"},
         {"Ctrl+L", "Focus room list"},

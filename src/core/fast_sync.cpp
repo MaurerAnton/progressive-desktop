@@ -183,6 +183,7 @@ FastSyncResponse parseSyncResponseFast(std::string json, std::string& errorMessa
                         if (type.error() != simdjson::SUCCESS) continue;
                         std::string_view t(type.value());
                         if (t == "m.room.member") {
+                            inv.memberCount++;
                             auto sender = se["sender"].get_string();
                             if (sender.error() == simdjson::SUCCESS)
                                 inv.inviterId = sender.value();

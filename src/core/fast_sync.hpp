@@ -66,6 +66,7 @@ struct InvitedRoom {
     std::string_view roomAvatar;
     std::string_view reason;
     bool isEncrypted = false;
+    int memberCount = 0;
 };
 
 struct FastSyncResponse {

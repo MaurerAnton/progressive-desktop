@@ -212,6 +212,10 @@ RoomSyncUpdate RoomStore::prepareRoomSyncUpdate(const FastSyncResponse& resp,
         }
         if (!inv.roomAvatar.empty()) rd.avatarUrl = std::string(inv.roomAvatar);
         rd.isEncrypted = inv.isEncrypted;
+        rd.memberCount = inv.memberCount;
+        if (rd.memberCount > 0) {
+            rd.lastMessage += " · " + std::to_string(rd.memberCount) + " member" + (rd.memberCount > 1 ? "s" : "");
+        }
         u.invitedRooms.push_back(std::move(rd));
     }
 

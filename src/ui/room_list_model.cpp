@@ -94,6 +94,10 @@ bool RoomListModel::upsertRoom(const RoomData& room) {
             existing.inviterId = room.inviterId;
             changed = true;
         }
+        if (existing.memberCount != room.memberCount && room.memberCount > 0) {
+            existing.memberCount = room.memberCount;
+            changed = true;
+        }
         if (existing.stateLoaded != room.stateLoaded && room.stateLoaded)
             existing.stateLoaded = true;
         if (changed) {

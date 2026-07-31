@@ -27,6 +27,7 @@ struct RoomData {
     bool isSpace = false;
     bool isInvite = false;
     std::string inviterId;
+    int memberCount = 0;
     std::string avatarUrl;
     std::string parentId;
     std::vector<std::string> typingUsers;  // users currently typing

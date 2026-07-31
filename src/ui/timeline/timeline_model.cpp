@@ -73,6 +73,7 @@ QVariant TimelineModel::data(const QModelIndex& index, int role) const {
 }
 
 static const int MAX_TIMELINE_EVENTS = 200;
+static constexpr int64_t kMergeWindowMs = 300000;  // 5 minutes same-sender merge window
 
 // Update groupFirst/groupLast on all events after model mutation
 static void updateGroupMarkers(std::vector<DisplayedEvent>& events) {
@@ -81,21 +82,21 @@ static void updateGroupMarkers(std::vector<DisplayedEvent>& events) {
         bool isSystem = (e.type == "m.room.member" || e.type == "m.room.redaction");
         bool isEmote = (e.msgtype == "m.emote");
         if (isSystem || isEmote) { e.groupFirst = true; e.groupLast = true; continue; }
-        // Check prev (skip system/emote)
         bool first = true;
         for (int p = (int)i - 1; p >= 0; --p) {
             auto& prev = events[p];
             if (prev.type != "m.room.member" && prev.type != "m.room.redaction" && prev.msgtype != "m.emote") {
-                first = (prev.senderId != e.senderId);
+                int64_t gap = e.originServerTs - prev.originServerTs;
+                first = (prev.senderId != e.senderId || gap > kMergeWindowMs || gap < -kMergeWindowMs);
                 break;
             }
         }
-        // Check next
         bool last = true;
         for (size_t n = i + 1; n < events.size(); ++n) {
             auto& next = events[n];
             if (next.type != "m.room.member" && next.type != "m.room.redaction" && next.msgtype != "m.emote") {
-                last = (next.senderId != e.senderId);
+                int64_t gap = next.originServerTs - e.originServerTs;
+                last = (next.senderId != e.senderId || gap > kMergeWindowMs || gap < -kMergeWindowMs);
                 break;
             }
         }

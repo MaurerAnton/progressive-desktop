@@ -111,7 +111,7 @@ std::string sasCalculateMac(SasSession& sas, const std::string& message,
         info.data(), info.size(),
         &mac[0], macLen);
     if (ret == olm_error()) return {};
-    mac.resize(ret - 1);  // strip trailing newline from fixed_base64
+    mac.resize(macLen);
     return mac;
 }
 

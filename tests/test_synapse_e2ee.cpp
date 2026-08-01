@@ -109,6 +109,53 @@ static std::vector<std::string> joinedMembers(MatrixClient& client, const std::s
     return userIds;
 }
 
+// After the room-key roundtrip: Alice reduces her OTK pool to 1;
+// Bob claims twice. 2nd claim returns the fallback (server hands out
+// fallback when OTKs exhausted). Validates the server-level claim path.
+static bool test_fallback_claim(const std::string& hs,
+                                 TestUser& alice, TestUser& bob) {
+    // Alice: replace OTK pool with 1 key. The fallback from
+    // the initial setupE2EE upload stays on the server.
+    std::string otkBody = alice.decryptor.buildKeysUploadBody(
+        alice.userId, alice.deviceId, 1, false);
+    auto otkUp = alice.client.uploadKeys(otkBody);
+    CHECK(otkUp.ok, "fb-synapse: OTK replace uploaded");
+    if (otkUp.ok) alice.decryptor.markOneTimeKeysPublished();
+
+    // Bob: claim twice — 1st returns the only OTK, 2nd returns the fallback.
+    std::string claimBody = "{\"one_time_keys\":{\"" + alice.userId
+        + "\":{\"" + alice.deviceId + "\":\"signed_curve25519\"}}}";
+    std::string fallbackKeyB64;
+    for (int claim = 0; claim < 2; ++claim) {
+        auto resp = bob.client.claimKeys(claimBody);
+        CHECK(resp.ok, ("fb-synapse: claim " + std::to_string(claim + 1) + " OK").c_str());
+        if (!resp.ok) continue;
+        simdjson::dom::parser p;
+        auto doc = p.parse(resp.data);
+        if (doc.error() != simdjson::SUCCESS) continue;
+        auto otk = doc.value()["one_time_keys"].get_object();
+        if (otk.error() != simdjson::SUCCESS) continue;
+        auto userDevs = otk.value()[alice.userId].get_object();
+        if (userDevs.error() != simdjson::SUCCESS) continue;
+        auto devKeys = userDevs.value()[alice.deviceId].get_object();
+        if (devKeys.error() != simdjson::SUCCESS) continue;
+        for (auto k : devKeys.value()) {
+            std::string kk(k.key);
+            if (kk.find("signed_curve25519:") != 0) continue;
+            auto keyObj = k.value.get_object();
+            if (keyObj.error() != simdjson::SUCCESS) continue;
+            auto kv = keyObj.value()["key"].get_string();
+            if (kv.error() != simdjson::SUCCESS) continue;
+            if (claim == 1) fallbackKeyB64 = std::string(kv.value());
+        }
+    }
+    CHECK(!fallbackKeyB64.empty(), "fb-synapse: 2nd claim returned fallback key");
+    CHECK((int)fallbackKeyB64.size() == 43, "fb-synapse: fallback key is 43-char base64");
+    std::cout << "  fb-synapse: fallback claim OK, key=" << fallbackKeyB64.substr(0,8) << "...\n";
+    return true;
+}
+
+
 int main() {
     std::cout << "=== Synapse E2EE Integration Test ===\n\n";
     httpInit();
@@ -238,6 +285,9 @@ int main() {
 
     std::cout << "\n";
     if (failures == 0) {
+        std::cout << "\n--- fallback claim test ---\n";
+        if (!test_fallback_claim(hs, alice, bob)) { failures++; }
+        std::cout << "--- fallback claim OK ---\n\n";
         std::cout << "=== ALL SYNAPSE E2EE TESTS PASSED ===" << std::endl;
         httpCleanup();
         return 0;

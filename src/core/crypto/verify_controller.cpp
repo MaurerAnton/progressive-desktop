@@ -44,8 +44,13 @@ void VerificationController::acceptIncoming(const std::string& txnId) {
     sendToDevice("m.key.verification.start", txnId, content,
                   txn->otherUserId, txn->otherDeviceId);
 
-    // Responder creates SAS and computes commitment after start
+    // Responder creates SAS and sends key immediately
     txn->sas = sasCreate();
+    txn->state = VerificationState::KeySent;
+
+    std::string keyContent = vm_->buildKeyContent(txnId, txn->sas.ourPubkey);
+    sendToDevice("m.key.verification.key", txnId, keyContent,
+                  txn->otherUserId, txn->otherDeviceId);
 }
 
 void VerificationController::confirmMatch(const std::string& txnId) {

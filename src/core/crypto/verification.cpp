@@ -149,6 +149,7 @@ VerificationTransaction* VerificationManager::handleEvent(
         t->startTime = std::chrono::steady_clock::now();
         txn = t.get();
         transactions_.push_back(std::move(t));
+        if (stateChangedFn_) stateChangedFn_(txn);
         return txn;
     }
 
@@ -180,6 +181,7 @@ VerificationTransaction* VerificationManager::handleEvent(
                     txn->otherUserId, txn->otherDeviceId);
             }
             txn->state = VerificationState::KeySent;
+            if (stateChangedFn_) stateChangedFn_(txn);
         }
     } else if (eventType == "m.key.verification.accept") {
         txn->state = VerificationState::Accepted;
@@ -213,6 +215,7 @@ VerificationTransaction* VerificationManager::handleEvent(
                     }
                     txn->state = VerificationState::Cancelled;
                     txn->cancelCode = CancelCode::KeyMismatch;
+                    if (stateChangedFn_) stateChangedFn_(txn);
                     return txn;
                 }
             }
@@ -220,6 +223,7 @@ VerificationTransaction* VerificationManager::handleEvent(
                 txn->state = VerificationState::KeyReceived;
             else if (txn->state != VerificationState::KeyReceived)
                 txn->state = VerificationState::KeyReceived;
+            if (stateChangedFn_) stateChangedFn_(txn);
         }
     } else if (eventType == "m.key.verification.mac") {
         auto cancelMismatch = [&]() {
@@ -230,6 +234,7 @@ VerificationTransaction* VerificationManager::handleEvent(
             }
             txn->state = VerificationState::Cancelled;
             txn->cancelCode = CancelCode::KeyMismatch;
+            if (stateChangedFn_) stateChangedFn_(txn);
         };
         if (txn->state == VerificationState::MacSent) {
             if (verifyTheirMac(*txn, contentJson)) {
@@ -239,20 +244,26 @@ VerificationTransaction* VerificationManager::handleEvent(
                     sendToDeviceFn_("m.key.verification.done", txnId, doneContent,
                         txn->otherUserId, txn->otherDeviceId);
                 }
+                if (stateChangedFn_) stateChangedFn_(txn);
             } else {
                 cancelMismatch();
             }
         } else {
             if (verifyTheirMac(*txn, contentJson)) {
                 txn->state = VerificationState::MacReceived;
+                if (stateChangedFn_) stateChangedFn_(txn);
             } else {
                 cancelMismatch();
             }
         }
     } else if (eventType == "m.key.verification.done") {
+        bool transitioned = false;
         if (txn->state == VerificationState::MacReceived ||
-            txn->state == VerificationState::MacSent)
+            txn->state == VerificationState::MacSent) {
             txn->state = VerificationState::Done;
+            transitioned = true;
+        }
+        if (transitioned && stateChangedFn_) stateChangedFn_(txn);
     } else if (eventType == "m.key.verification.cancel") {
         txn->state = VerificationState::Cancelled;
         auto codeResult = val["code"].get_string();
@@ -262,6 +273,7 @@ VerificationTransaction* VerificationManager::handleEvent(
             else if (code == "m.timeout") txn->cancelCode = CancelCode::Timeout;
             else txn->cancelCode = CancelCode::Other;
         }
+        if (stateChangedFn_) stateChangedFn_(txn);
     }
 
     return txn;

@@ -57,9 +57,11 @@ public:
     using DeviceKeyResolverFn = std::function<bool(
         const std::string& userId, const std::string& deviceId,
         std::string& outEd25519, std::string& outCurve25519)>;
+    using StateChangedFn = std::function<void(VerificationTransaction*)>;
 
     void setSendToDeviceFn(SendToDeviceFn fn) { sendToDeviceFn_ = std::move(fn); }
     void setDeviceKeyResolverFn(DeviceKeyResolverFn fn) { deviceKeyResolverFn_ = std::move(fn); }
+    void setStateChangedFn(StateChangedFn fn) { stateChangedFn_ = std::move(fn); }
 
     static std::string generateTransactionId();
 
@@ -104,6 +106,7 @@ private:
     std::vector<std::unique_ptr<VerificationTransaction>> transactions_;
     SendToDeviceFn sendToDeviceFn_;
     DeviceKeyResolverFn deviceKeyResolverFn_;
+    StateChangedFn stateChangedFn_;
     VerificationTransaction* findTransactionLocked(const std::string& txnId) const;
     std::string computeCommitment(const std::string& startContentJson,
         const std::string& ourSasPubkey) const;

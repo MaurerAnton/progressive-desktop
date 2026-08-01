@@ -64,6 +64,10 @@ VerificationTransaction* VerificationManager::startVerification(
 
 VerificationTransaction* VerificationManager::findTransaction(const std::string& txnId) {
     std::lock_guard<std::mutex> lk(mtx_);
+    // DEBT(AGENTS.md #7): returns a raw pointer used by callers AFTER the lock is
+    // released (verify_controller). The sync thread can erase the transaction
+    // concurrently (pruning sweep in handleEvent, removeTransaction) -> use-after-free.
+    // Real fix belongs with Phase C UI wiring: re-fetch by txnId or hold shared_ptr.
     return findTransactionLocked(txnId);
 }
 

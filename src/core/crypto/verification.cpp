@@ -174,7 +174,8 @@ VerificationTransaction* VerificationManager::handleEvent(
             if (sendToDeviceFn_) {
                 sendToDeviceFn_("m.key.verification.accept", txnId, acceptContent,
                     txn->otherUserId, txn->otherDeviceId);
-                std::string keyContent = buildKeyContent(txnId, txn->sas.ourPubkey);
+                std::string keyContent = buildKeyContent(txn->ourDeviceId,
+                    txnId, txn->sas.ourPubkey);
                 sendToDeviceFn_("m.key.verification.key", txnId, keyContent,
                     txn->otherUserId, txn->otherDeviceId);
             }
@@ -290,9 +291,10 @@ std::string VerificationManager::buildAcceptContent(const std::string& ourDevice
            "\"commitment\":\"" + esc(commitment) + "\"}";
 }
 
-std::string VerificationManager::buildKeyContent(const std::string& txnId,
-    const std::string& sasPubkey) const {
-    return "{\"transaction_id\":\"" + esc(txnId) + "\","
+std::string VerificationManager::buildKeyContent(const std::string& ourDeviceId,
+    const std::string& txnId, const std::string& sasPubkey) const {
+    return "{\"from_device\":\"" + esc(ourDeviceId) + "\","
+           "\"transaction_id\":\"" + esc(txnId) + "\","
            "\"key\":\"" + esc(sasPubkey) + "\"}";
 }
 
@@ -313,7 +315,8 @@ std::string VerificationManager::buildMacContent(const VerificationTransaction& 
     std::string curve25519mac = sasCalculateMac(sas, txn.ourCurve25519, curve25519Info);
     std::string keysMac = sasCalculateMac(sas, keysSorted, keysInfo);
 
-    return "{\"transaction_id\":\"" + esc(txn.transactionId) + "\","
+    return "{\"from_device\":\"" + esc(txn.ourDeviceId) + "\","
+           "\"transaction_id\":\"" + esc(txn.transactionId) + "\","
            "\"mac\":{\"ed25519:" + esc(txn.ourDeviceId) + "\":\"" + esc(ed25519mac) + "\","
            "\"curve25519:" + esc(txn.ourDeviceId) + "\":\"" + esc(curve25519mac) + "\"},"
            "\"keys\":\"" + esc(keysMac) + "\"}";

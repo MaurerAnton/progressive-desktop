@@ -80,8 +80,8 @@ public:
         const std::string& txnId) const;
     std::string buildAcceptContent(const std::string& ourDeviceId,
         const std::string& txnId, const std::string& commitment) const;
-    std::string buildKeyContent(const std::string& txnId,
-        const std::string& sasPubkey) const;
+    std::string buildKeyContent(const std::string& ourDeviceId,
+        const std::string& txnId, const std::string& sasPubkey) const;
     std::string buildMacContent(const VerificationTransaction& txn,
         SasSession& sas) const;
     std::string buildDoneContent(const std::string& txnId) const;

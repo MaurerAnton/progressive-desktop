@@ -59,7 +59,8 @@ void VerificationController::acceptIncoming(const std::string& txnId) {
     txn->sas = sasCreate();
     txn->state = VerificationState::KeySent;
 
-    std::string keyContent = vm_->buildKeyContent(txnId, txn->sas.ourPubkey);
+    std::string keyContent = vm_->buildKeyContent(txn->ourDeviceId, txnId,
+        txn->sas.ourPubkey);
     sendToDevice("m.key.verification.key", txnId, keyContent,
                   txn->otherUserId, txn->otherDeviceId);
 }

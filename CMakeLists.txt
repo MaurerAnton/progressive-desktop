@@ -139,6 +139,7 @@ add_library(progressive_ui_handlers STATIC
     src/ui/handlers/account_switcher.cpp
     src/ui/handlers/session_bootstrap.cpp
     src/ui/handlers/slash_command_handler.cpp
+    src/ui/handlers/verification_handler.cpp
 )
 target_include_directories(progressive_ui_handlers PUBLIC src)
 target_link_libraries(progressive_ui_handlers PUBLIC

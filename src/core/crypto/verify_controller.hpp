@@ -24,6 +24,10 @@ public:
                                 const std::string& ourDeviceId,
                                 const std::string& otherDeviceId);
 
+    // Start verification of another user's device
+    void startUserVerification(const std::string& userId,
+                               const std::string& deviceId);
+
     // Accept an incoming verification request
     void acceptIncoming(const std::string& txnId);
 

@@ -94,6 +94,18 @@ void VerificationController::startSelfVerification(
                   ourUserId, otherDeviceId);
 }
 
+void VerificationController::startUserVerification(const std::string& userId,
+    const std::string& deviceId) {
+    if (!client_ || !vm_) return;
+    std::string ourDeviceId = client_->account().deviceId;
+    auto* txn = vm_->startVerification(userId, deviceId, ourDeviceId);
+    if (!txn) return;
+
+    std::string content = vm_->buildRequestContent(ourDeviceId, txn->transactionId);
+    sendToDevice("m.key.verification.request", txn->transactionId, content,
+                  userId, deviceId);
+}
+
 void VerificationController::acceptIncoming(const std::string& txnId) {
     if (!client_ || !vm_) return;
     auto* txn = vm_->findTransaction(txnId);

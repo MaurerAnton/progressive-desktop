@@ -263,11 +263,29 @@ void SyncEngine::run() {
                 if (type == "signed_curve25519") { hasUnusedFallback = true; break; }
             }
             auto now = std::chrono::steady_clock::now();
-            if (!hasUnusedFallback) {
-                if (now - lastFallbackUploadAt_[userId] >= kFallbackUploadCooldown) {
-                    LOG(LogChannel::E2EE, "sync: no unused fallback key — uploading");
-                    uploadFallbackKey();
-                    lastFallbackUploadAt_[userId] = now;
+            if (hasUnusedFallback) {
+                // Server acknowledges our fallback — reset the backoff level.
+                fallbackBackoffSecs_[userId] = 0;
+            } else {
+                // Server never acknowledges: escalate 60s -> 2m -> 5m -> 15m -> 30m -> stop.
+                static const int kBackoffLevels[] = {60, 120, 300, 900, 1800};
+                static const int kNumLevels = (int)(sizeof(kBackoffLevels)/sizeof(kBackoffLevels[0]));
+                static const int kBackoffStopped = -1;
+                int& lvl = fallbackBackoffSecs_[userId];
+                if (lvl == kBackoffStopped) {
+                    // Stopped — only resume when the server confirms the type
+                    // (resets above) or the account switches.
+                    LOG(LogChannel::E2EE, "sync: fallback backoff stopped (server never acknowledged)");
+                } else {
+                    int waitSecs = kBackoffLevels[lvl];
+                    if (now - lastFallbackUploadAt_[userId] >= std::chrono::seconds(waitSecs)) {
+                        LOG(LogChannel::E2EE, "sync: no unused fallback key — uploading (backoff lvl %d, wait %ds)",
+                            lvl, waitSecs);
+                        uploadFallbackKey();
+                        lastFallbackUploadAt_[userId] = now;
+                        if (lvl + 1 < kNumLevels) ++lvl;
+                        else lvl = kBackoffStopped;  // 30-min level done -> stop
+                    }
                 }
             }
             // Forget old fallback key 5 min after a successful new one was published

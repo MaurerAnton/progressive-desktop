@@ -33,17 +33,17 @@ jobs:
         # Enable password registration robustly: replace the keys if present,
         # otherwise append them. Runs as root, then ownership is restored so
         # the Synapse container (uid 991) can still read the config.
-        sudo python3 - <<'PYEOF'
-import re
-p = "synapse-data/homeserver.yaml"
-s = open(p).read()
-for key in ("enable_registration", "enable_registration_without_verification"):
-    if re.search(rf"^{key}:.*$", s, re.M):
-        s = re.sub(rf"^{key}:.*$", f"{key}: true", s, count=1, flags=re.M)
-    else:
-        s += f"\n{key}: true\n"
-open(p, "w").write(s)
-PYEOF
+        sudo python3 -c "
+        import re
+        p = 'synapse-data/homeserver.yaml'
+        s = open(p).read()
+        for key in ('enable_registration', 'enable_registration_without_verification'):
+            if re.search(r'^' + key + r':.*$', s, re.M):
+                s = re.sub(r'^' + key + r':.*$', key + ': true', s, count=1, flags=re.M)
+            else:
+                s += chr(10) + key + ': true' + chr(10)
+        open(p, 'w').write(s)
+        "
         sudo chown 991:991 synapse-data/homeserver.yaml
         echo "--- registration config ---"
         grep -E '^enable_registration' synapse-data/homeserver.yaml || true

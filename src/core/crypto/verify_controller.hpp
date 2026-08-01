@@ -15,7 +15,7 @@ public:
     VerificationController() = default;
 
     void setClient(std::shared_ptr<MatrixClient> c) { client_ = std::move(c); }
-    void setVerificationManager(VerificationManager* vm) { vm_ = vm; }
+    void setVerificationManager(VerificationManager* vm);
     void setSyncEngine(SyncEngine* sync) { sync_ = sync; }
 
     // Start self-verification (verify our own device against another of our devices)

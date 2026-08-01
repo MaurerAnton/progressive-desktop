@@ -7,6 +7,17 @@
 
 namespace progressive::desktop {
 
+void VerificationController::setVerificationManager(VerificationManager* vm) {
+    vm_ = vm;
+    if (vm_) {
+        vm_->setSendToDeviceFn([this](const std::string& eventType,
+            const std::string& txnId, const std::string& contentJson,
+            const std::string& targetUserId, const std::string& targetDeviceId) {
+            sendToDevice(eventType, txnId, contentJson, targetUserId, targetDeviceId);
+        });
+    }
+}
+
 void VerificationController::sendToDevice(const std::string& eventType,
     const std::string& txnId, const std::string& contentJson,
     const std::string& targetUserId, const std::string& targetDeviceId) {

@@ -164,6 +164,16 @@ VerificationTransaction* VerificationManager::handleEvent(
             std::string(method.value()) == "m.sas.v1") {
             txn->sas = sasCreate();
             txn->startContentJson = contentJson;
+            std::string commitment = computeCommitment(contentJson, txn->sas.ourPubkey);
+            std::string acceptContent = buildAcceptContent(txnId, commitment);
+            if (sendToDeviceFn_) {
+                sendToDeviceFn_("m.key.verification.accept", txnId, acceptContent,
+                    txn->otherUserId, txn->otherDeviceId);
+                std::string keyContent = buildKeyContent(txnId, txn->sas.ourPubkey);
+                sendToDeviceFn_("m.key.verification.key", txnId, keyContent,
+                    txn->otherUserId, txn->otherDeviceId);
+            }
+            txn->state = VerificationState::KeySent;
         }
     } else if (eventType == "m.key.verification.accept") {
         txn->state = VerificationState::Accepted;
@@ -176,6 +186,15 @@ VerificationTransaction* VerificationManager::handleEvent(
             txn->theirSasPubkey = std::string(keyResult.value());
             if (txn->sas.valid)
                 sasSetTheirKey(txn->sas, txn->theirSasPubkey);
+            if (!txn->commitment.empty() && !txn->startContentJson.empty()) {
+                std::string expected = computeCommitment(txn->startContentJson,
+                    txn->theirSasPubkey);
+                if (expected != txn->commitment) {
+                    txn->state = VerificationState::Cancelled;
+                    txn->cancelCode = CancelCode::KeyMismatch;
+                    return txn;
+                }
+            }
             if (txn->state == VerificationState::KeySent)
                 txn->state = VerificationState::KeyReceived;
             else if (txn->state != VerificationState::KeyReceived)

@@ -139,6 +139,12 @@ std::string OlmAccountStore::unpublishedFallbackKey() {
     return r.success ? r.data : std::string{};
 }
 
+void OlmAccountStore::forgetOldFallbackKey() {
+    auto* acc = static_cast<progressive::OlmAccount*>(account_);
+    if (!acc) return;
+    acc->forgetOldFallbackKey();
+}
+
 void OlmAccountStore::markOneTimeKeysPublished() {
     auto* acc = static_cast<progressive::OlmAccount*>(account_);
     if (!acc) return;

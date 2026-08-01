@@ -56,6 +56,7 @@ public:
     std::string unpublishedFallbackKey();
 
     // Mark current one-time keys as published (called after /keys/upload success).
+    void forgetOldFallbackKey();
     void markOneTimeKeysPublished();
 
     bool shared() const { return shared_; }

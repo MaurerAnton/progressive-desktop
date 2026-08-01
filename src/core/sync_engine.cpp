@@ -257,17 +257,25 @@ void SyncEngine::run() {
         // never uploaded) — generate + upload a fresh one.
         if (!running_) break;
         if (decryptor_.accountShared()) {
+            std::string userId = client_ ? client_->account().userId : "";
             bool hasUnusedFallback = false;
             for (const auto& type : result.data.unusedFallbackKeyTypes) {
                 if (type == "signed_curve25519") { hasUnusedFallback = true; break; }
             }
+            auto now = std::chrono::steady_clock::now();
             if (!hasUnusedFallback) {
-                auto now = std::chrono::steady_clock::now();
-                if (now - lastFallbackUploadAt_ >= kFallbackUploadCooldown) {
+                if (now - lastFallbackUploadAt_[userId] >= kFallbackUploadCooldown) {
                     LOG(LogChannel::E2EE, "sync: no unused fallback key — uploading");
                     uploadFallbackKey();
-                    lastFallbackUploadAt_ = now;
+                    lastFallbackUploadAt_[userId] = now;
                 }
+            }
+            // Forget old fallback key 5 min after a successful new one was published
+            auto pit = lastFallbackPublishedAt_.find(userId);
+            if (pit != lastFallbackPublishedAt_.end() && now - pit->second >= kFallbackForgetDelay) {
+                decryptor_.account()->forgetOldFallbackKey();
+                LOG(LogChannel::E2EE, "sync: forgot old fallback key (published 5 min ago)");
+                lastFallbackPublishedAt_.erase(pit);
             }
         }
 
@@ -470,6 +478,8 @@ void SyncEngine::uploadFallbackKey() {
         // (libolm: mark_keys_as_published covers both OTKs and fallback).
         decryptor_.markOneTimeKeysPublished();
         LOG(LogChannel::E2EE, "uploadFallbackKey: SUCCESS — fallback published");
+        std::string ufUserId = client_ ? client_->account().userId : "";
+        if (!ufUserId.empty()) lastFallbackPublishedAt_[ufUserId] = std::chrono::steady_clock::now();
         std::string pickleKey = userId + "/" + deviceId;
         std::string newPickle = decryptor_.saveAccountPickle(pickleKey);
         if (!newPickle.empty() && store_) {

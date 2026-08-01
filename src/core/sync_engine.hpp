@@ -19,6 +19,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -123,8 +124,10 @@ private:
     std::function<std::string()> backupPathProvider_;
     // Cooldown for fallback re-uploads: servers that never acknowledge the
     // fallback type would otherwise trigger an upload every sync.
-    std::chrono::steady_clock::time_point lastFallbackUploadAt_{};
+    std::map<std::string, std::chrono::steady_clock::time_point> lastFallbackUploadAt_;
+    std::map<std::string, std::chrono::steady_clock::time_point> lastFallbackPublishedAt_;
     static constexpr std::chrono::seconds kFallbackUploadCooldown{60};
+    static constexpr std::chrono::seconds kFallbackForgetDelay{300};
 };
 
 } // namespace progressive::desktop

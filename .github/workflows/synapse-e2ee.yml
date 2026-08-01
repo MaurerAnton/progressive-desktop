@@ -30,17 +30,23 @@ jobs:
           -e SYNAPSE_SERVER_NAME=localhost \
           -e SYNAPSE_REPORT_STATS=no \
           matrixdotorg/synapse:latest generate
-        # Enable password registration IN-PLACE (no duplicate YAML keys) —
-        # /data stays owned by uid 991 so the Synapse container can read its
-        # signing key. sed -i runs as root via sudo.
-        sudo sed -i \
-          -e 's/^enable_registration:.*/enable_registration: true/' \
-          -e 's/^enable_registration_without_verification:.*/enable_registration_without_verification: true/' \
-          synapse-data/homeserver.yaml
-        # Fix ownership back to uid 991 (sed -i as root changed it) and
-        # verify the settings took effect.
+        # Enable password registration robustly: replace the keys if present,
+        # otherwise append them. Runs as root, then ownership is restored so
+        # the Synapse container (uid 991) can still read the config.
+        sudo python3 - <<'PYEOF'
+import re
+p = "synapse-data/homeserver.yaml"
+s = open(p).read()
+for key in ("enable_registration", "enable_registration_without_verification"):
+    if re.search(rf"^{key}:.*$", s, re.M):
+        s = re.sub(rf"^{key}:.*$", f"{key}: true", s, count=1, flags=re.M)
+    else:
+        s += f"\n{key}: true\n"
+open(p, "w").write(s)
+PYEOF
         sudo chown 991:991 synapse-data/homeserver.yaml
-        grep -E '^enable_registration' synapse-data/homeserver.yaml
+        echo "--- registration config ---"
+        grep -E '^enable_registration' synapse-data/homeserver.yaml || true
 
     - name: Start Synapse
       run: |

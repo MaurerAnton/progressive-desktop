@@ -97,6 +97,7 @@ private:
     mutable std::mutex mtx_;
     std::vector<std::unique_ptr<VerificationTransaction>> transactions_;
     SendToDeviceFn sendToDeviceFn_;
+    VerificationTransaction* findTransactionLocked(const std::string& txnId) const;
     std::string computeCommitment(const std::string& startContentJson,
         const std::string& ourSasPubkey) const;
     std::string macInfo(const std::string& keyOwnerUser,

@@ -64,6 +64,11 @@ VerificationTransaction* VerificationManager::startVerification(
 
 VerificationTransaction* VerificationManager::findTransaction(const std::string& txnId) {
     std::lock_guard<std::mutex> lk(mtx_);
+    return findTransactionLocked(txnId);
+}
+
+VerificationTransaction* VerificationManager::findTransactionLocked(
+    const std::string& txnId) const {
     for (auto& t : transactions_) {
         if (t->transactionId == txnId || t->requestEventId == txnId) return t.get();
     }
@@ -147,7 +152,7 @@ VerificationTransaction* VerificationManager::handleEvent(
         return txn;
     }
 
-    txn = findTransaction(txnId);
+    txn = findTransactionLocked(txnId);
     if (!txn) return nullptr;
 
     txn->ourUserId = ourUserId;

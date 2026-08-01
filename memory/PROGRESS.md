@@ -136,7 +136,7 @@
 [ ] Invite: reject fails with M_FORBIDDEN "duplicate auth_events for m.room.member" (need diagnostic LOGs)
 [ ] Image: images don't render in timeline or viewer — downloadMedia may fail silently (need diagnostic LOGs)
 [ ] Room creation: no "+ New room" action for group rooms, no encrypted room creation
-[ ] Multi-account: no UI buttons to add/login second account (only single account at a time)
+[x] Multi-account UI — DONE (account_switcher.cpp addAccount/switchAccount/logout wired via combo in main_window.cpp:285; LoginDialog flow verified Aug 2)
 [ ] Copy messages: cannot copy message text from timeline (no copy-to-clipboard)
 [ ] Event source viewer: cannot see raw event JSON (sender_id, body, type, etc.) like Element
 ```
@@ -165,7 +165,7 @@
 [ ] Copy messages — copy message text from timeline to clipboard
 [ ] Markdown tables + code blocks — cmark-gfm integration
 [ ] AppImage + Flatpak — binary releases for alpha
-[ ] Multi-account polish — add UI for login to second account (currently single account)
+[x] Multi-account polish — UI for second account DONE (addAccount via combo → LoginDialog)
 [ ] Multi-account verification — prove it actually works
 [ ] Image preview in timeline — image thumbnails instead of text/file card (need diagnostic LOGs first)
 [ ] Invite — M_FORBIDDEN "duplicate auth_events for m.room.member" on reject (need diagnostic LOGs)

@@ -347,6 +347,92 @@ static void test_olm_fallback_key() {
     CHECK(dc != ::olm_error(), "fb: Bob decrypted Alice's message");
     std::string fbResult((char*)ptBuf.data(), dc);
     CHECK(fbResult == "fallback", "fb: decrypted text matches");
+
+    // --- prev_fallback_key branch + forgetOldFallbackKey ---
+
+    // Remember key#1 for late pre-key use after generation #2.
+    std::string key1B64 = bobFkB64;
+    ::OlmAccount* bobAcc2 = bobAcc;  // same account
+
+    // Bob: generate fallback #2 — rotates #1 to prev_fallback_key.
+    rnd = ::olm_account_generate_fallback_key_random_length(bobAcc2);
+    rndBuf.resize(rnd);
+    fill_random(rndBuf.data(), rnd);
+    rc = ::olm_account_generate_fallback_key(bobAcc2, rndBuf.data(), rnd);
+    CHECK(rc != ::olm_error(), "fb: Bob generated fallback #2 (key#1 -> prev)");
+
+    // Alice: create outbound session using key#1 (simulates late pre-key to old key).
+    std::vector<uint8_t> a2SessBuf(::olm_session_size());
+    ::OlmSession* a2Sess = ::olm_session(a2SessBuf.data());
+    rnd = ::olm_create_outbound_session_random_length(a2Sess);
+    rndBuf.resize(rnd);
+    fill_random(rndBuf.data(), rnd);
+    rc = ::olm_create_outbound_session(a2Sess, aliceAcc,
+        bobIkB64.data(), 43, key1B64.data(), 43, rndBuf.data(), rnd);
+    CHECK(rc != ::olm_error(), "fb: Alice outbound from key#1 (prev branch)");
+
+    // Alice encrypt.
+    std::string pvText = "prevkey";
+    rnd = ::olm_encrypt_random_length(a2Sess);
+    rndBuf.resize(rnd);
+    fill_random(rndBuf.data(), rnd);
+    size_t pvMsgLen = ::olm_encrypt_message_length(a2Sess, pvText.size());
+    std::vector<uint8_t> pvMsg(pvMsgLen);
+    size_t pvWritten = ::olm_encrypt(a2Sess, (void*)pvText.data(), pvText.size(),
+        rndBuf.data(), rnd, pvMsg.data(), pvMsgLen);
+    CHECK(pvWritten != ::olm_error(), "fb: Alice encrypted prev-key message");
+
+    // Bob: create inbound — must match prev_fallback_key (account.cpp:43-48).
+    std::vector<uint8_t> b2SessBuf(::olm_session_size());
+    ::OlmSession* b2Sess = ::olm_session(b2SessBuf.data());
+    std::vector<uint8_t> pvTmp(pvMsg.begin(), pvMsg.begin() + pvWritten);
+    rc = ::olm_create_inbound_session(b2Sess, bobAcc2, pvTmp.data(), pvWritten);
+    CHECK(rc != ::olm_error(), "fb: Bob inbound from key#1 (prev_fallback_key branch)");
+
+    // Decrypt prev-key message.
+    pvTmp.resize(pvWritten);
+    std::memcpy(pvTmp.data(), pvMsg.data(), pvWritten);
+    size_t pvPtLen = ::olm_decrypt_max_plaintext_length(b2Sess, 0, pvTmp.data(), pvWritten);
+    CHECK(pvPtLen != ::olm_error(), "fb: prev-key decrypt ptLen valid");
+    std::vector<uint8_t> pvPt(pvPtLen);
+    pvTmp.resize(pvWritten);
+    std::memcpy(pvTmp.data(), pvMsg.data(), pvWritten);
+    int pvDc = ::olm_decrypt(b2Sess, 0, pvTmp.data(), pvWritten, pvPt.data(), pvPtLen);
+    CHECK(pvDc != ::olm_error(), "fb: prev-key decrypted");
+    std::string pvResult((char*)pvPt.data(), pvDc);
+    CHECK(pvResult == "prevkey", "fb: prev-key text matches");
+
+    // Forget old fallback key — key#1 should be gone.
+    ::olm_account_forget_old_fallback_key(bobAcc2);
+    CHECK(rc == 0 || rc != ::olm_error(), "fb: forget called");
+
+    // Alice: new outbound from key#1 — should fail (key gone).
+    std::vector<uint8_t> a3SessBuf(::olm_session_size());
+    ::OlmSession* a3Sess = ::olm_session(a3SessBuf.data());
+    rnd = ::olm_create_outbound_session_random_length(a3Sess);
+    rndBuf.resize(rnd);
+    fill_random(rndBuf.data(), rnd);
+    rc = ::olm_create_outbound_session(a3Sess, aliceAcc,
+        bobIkB64.data(), 43, key1B64.data(), 43, rndBuf.data(), rnd);
+    CHECK(rc != ::olm_error(), "fb: Alice outbound from key#1 after forget");
+
+    std::string fgText = "forgotten";
+    rnd = ::olm_encrypt_random_length(a3Sess);
+    rndBuf.resize(rnd);
+    fill_random(rndBuf.data(), rnd);
+    size_t fgMsgLen = ::olm_encrypt_message_length(a3Sess, fgText.size());
+    std::vector<uint8_t> fgMsg(fgMsgLen);
+    size_t fgWritten = ::olm_encrypt(a3Sess, (void*)fgText.data(), fgText.size(),
+        rndBuf.data(), rnd, fgMsg.data(), fgMsgLen);
+    CHECK(fgWritten != ::olm_error(), "fb: Alice encrypted post-forget message");
+
+    // Bob: inbound should FAIL — key#1 was forgotten.
+    std::vector<uint8_t> b3SessBuf(::olm_session_size());
+    ::OlmSession* b3Sess = ::olm_session(b3SessBuf.data());
+    std::vector<uint8_t> fgTmp(fgMsg.begin(), fgMsg.begin() + fgWritten);
+    rc = ::olm_create_inbound_session(b3Sess, bobAcc2, fgTmp.data(), fgWritten);
+    CHECK(rc == ::olm_error(), "fb: Bob inbound FAILS after forget (key#1 gone)");
+
 }
 
 

@@ -106,6 +106,24 @@ VerificationTransaction* VerificationManager::handleEvent(
     const std::string& ourCurve25519) {
 
     std::lock_guard<std::mutex> lk(mtx_);
+
+    // Sweep expired transactions (under held lock — must NOT call removeTransaction).
+    for (auto it = transactions_.begin(); it != transactions_.end(); ) {
+        if ((*it)->isExpired()) {
+            if ((*it)->state != VerificationState::Done &&
+                (*it)->state != VerificationState::Cancelled &&
+                sendToDeviceFn_) {
+                sendToDeviceFn_("m.key.verification.cancel",
+                    (*it)->transactionId,
+                    buildCancelContent((*it)->transactionId, CancelCode::Timeout),
+                    (*it)->otherUserId, (*it)->otherDeviceId);
+            }
+            it = transactions_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
     simdjson::dom::parser p;
     auto doc = p.parse(contentJson);
     if (doc.error() != simdjson::SUCCESS) return nullptr;

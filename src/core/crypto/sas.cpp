@@ -70,16 +70,15 @@ SasSession sasCreate() {
     pubkey.resize(keyLen);
 
     result.sas = sasBuf;
-    result.ourPubkey = b64Encode(reinterpret_cast<const uint8_t*>(pubkey.data()), pubkey.size());
+    result.ourPubkey = pubkey;
     result.valid = true;
     return result;
 }
 
 bool sasSetTheirKey(SasSession& sas, const std::string& theirPubkeyBase64) {
     if (!sas.valid || !sas.sas) return false;
-    auto key = b64Decode(theirPubkeyBase64);
     auto* olmSas = static_cast<OlmSAS*>(sas.sas);
-    size_t ret = olm_sas_set_their_key(olmSas, key.data(), key.size());
+    size_t ret = olm_sas_set_their_key(olmSas, (void*)theirPubkeyBase64.data(), theirPubkeyBase64.size());
     if (ret == olm_error()) {
         LOG(LogChannel::E2EE, "sasSetTheirKey failed: %s", olm_sas_last_error(olmSas));
         return false;

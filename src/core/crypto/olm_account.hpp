@@ -48,6 +48,13 @@ public:
     // Returns the JSON of one-time keys to upload.
     std::string generateOneTimeKeys(int count);
 
+    // Generate a new fallback key. Returns true on success.
+    bool generateFallbackKey();
+
+    // Get the unpublished fallback key as JSON ({"curve25519":{"AAAA":"b64"}}).
+    // Returns empty if none exists or it has been published already.
+    std::string unpublishedFallbackKey();
+
     // Mark current one-time keys as published (called after /keys/upload success).
     void markOneTimeKeysPublished();
 

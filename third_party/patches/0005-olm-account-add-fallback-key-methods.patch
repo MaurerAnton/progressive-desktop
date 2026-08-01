@@ -1,0 +1,62 @@
+diff --git a/progressive/src/main/cpp/include/progressive/olm.hpp b/progressive/src/main/cpp/include/progressive/olm.hpp
+index 312d2dc..484655c 100644
+--- a/progressive/src/main/cpp/include/progressive/olm.hpp
++++ b/progressive/src/main/cpp/include/progressive/olm.hpp
+@@ -66,6 +66,13 @@ public:
+     // Generate one-time keys (count specifies how many).
+     OlmAccountResult generateOneTimeKeys(int count);
+ 
++    // Generate a new fallback key (only one previous key is retained).
++    OlmAccountResult generateFallbackKey();
++
++    // Get the unpublished fallback key as JSON ({"curve25519":{"AAAA":"b64"}}),
++    // or empty data if no unpublished fallback key exists.
++    OlmAccountResult unpublishedFallbackKey();
++
+     // Mark current one-time keys as published (they remain usable for inbound
+     // session creation but won't be returned by one_time_keys again).
+     OlmAccountResult markKeysAsPublished();
+diff --git a/progressive/src/main/cpp/src/olm.cpp b/progressive/src/main/cpp/src/olm.cpp
+index 4cc495e..b65de05 100644
+--- a/progressive/src/main/cpp/src/olm.cpp
++++ b/progressive/src/main/cpp/src/olm.cpp
+@@ -107,6 +107,39 @@ OlmAccountResult OlmAccount::generateOneTimeKeys(int count) {
+     return result;
+ }
+ 
++OlmAccountResult OlmAccount::generateFallbackKey() {
++    OlmAccountResult result;
++    auto* acc = static_cast<::OlmAccount*>(account_);
++    size_t randLen = olm_account_generate_fallback_key_random_length(acc);
++    auto random = generateRandomBytes(randLen);
++    size_t rc = olm_account_generate_fallback_key(acc, random.data(), random.size());
++    if (rc == static_cast<size_t>(-1)) {
++        result.error = OlmError::NotEnoughRandom;
++        return result;
++    }
++    result.success = true;
++    return result;
++}
++
++OlmAccountResult OlmAccount::unpublishedFallbackKey() {
++    OlmAccountResult result;
++    auto* acc = static_cast<::OlmAccount*>(account_);
++    size_t kLen = olm_account_unpublished_fallback_key_length(acc);
++    if (kLen == 0) {
++        result.success = true;
++        return result;
++    }
++    std::string key(kLen, '\0');
++    size_t rc = olm_account_unpublished_fallback_key(acc, &key[0], kLen);
++    if (rc == static_cast<size_t>(-1)) {
++        result.error = OlmError::UnknownError;
++        return result;
++    }
++    result.success = true;
++    result.data = std::move(key);
++    return result;
++}
++
+ OlmAccountResult OlmAccount::markKeysAsPublished() {
+     OlmAccountResult result;
+     auto* acc = static_cast<::OlmAccount*>(account_);

@@ -127,6 +127,18 @@ std::string OlmAccountStore::generateOneTimeKeys(int count) {
     return r.data;  // JSON with one-time key keys + values
 }
 
+bool OlmAccountStore::generateFallbackKey() {
+    auto* acc = static_cast<progressive::OlmAccount*>(account_);
+    auto r = acc->generateFallbackKey();
+    return r.success;
+}
+
+std::string OlmAccountStore::unpublishedFallbackKey() {
+    auto* acc = static_cast<progressive::OlmAccount*>(account_);
+    auto r = acc->unpublishedFallbackKey();
+    return r.success ? r.data : std::string{};
+}
+
 void OlmAccountStore::markOneTimeKeysPublished() {
     auto* acc = static_cast<progressive::OlmAccount*>(account_);
     if (!acc) return;

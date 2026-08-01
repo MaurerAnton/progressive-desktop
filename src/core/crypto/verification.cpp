@@ -394,12 +394,12 @@ bool VerificationManager::verifyTheirMac(VerificationTransaction& txn,
 
 std::string VerificationManager::buildSasInfo(const VerificationTransaction& txn) const {
     // curve25519-hkdf-sha256 SAS info (7-part pipe-delimited)
-    std::string startUser = txn.weInitiated ? txn.ourUserId : txn.otherUserId;
-    std::string acceptUser = txn.weInitiated ? txn.otherUserId : txn.ourUserId;
-    std::string startDevice = txn.weInitiated ? txn.ourDeviceId : txn.otherDeviceId;
-    std::string acceptDevice = txn.weInitiated ? txn.otherDeviceId : txn.ourDeviceId;
-    std::string startPubkey = txn.weInitiated ? txn.sas.ourPubkey : txn.theirSasPubkey;
-    std::string acceptPubkey = txn.weInitiated ? txn.theirSasPubkey : txn.sas.ourPubkey;
+    std::string startUser = txn.weInitiated ? txn.otherUserId : txn.ourUserId;
+    std::string acceptUser = txn.weInitiated ? txn.ourUserId : txn.otherUserId;
+    std::string startDevice = txn.weInitiated ? txn.otherDeviceId : txn.ourDeviceId;
+    std::string acceptDevice = txn.weInitiated ? txn.ourDeviceId : txn.otherDeviceId;
+    std::string startPubkey = txn.weInitiated ? txn.theirSasPubkey : txn.sas.ourPubkey;
+    std::string acceptPubkey = txn.weInitiated ? txn.sas.ourPubkey : txn.theirSasPubkey;
 
     return "MATRIX_KEY_VERIFICATION_SAS|" + startUser + "|" + startDevice + "|"
            + startPubkey + "|" + acceptUser + "|" + acceptDevice + "|"

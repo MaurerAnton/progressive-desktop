@@ -124,12 +124,23 @@ static void test_sync_unused_fallback_parse() {
           "sync-fallback: absent field → empty vector");
 }
 
+static void test_rng_is_csprng() {
+    // Two fresh accounts must get different identity keys (depends on random bytes,
+    // not sequential counters — catches unseeded-rand() regression).
+    progressive::desktop::OlmAccountStore a, b;
+    CHECK(a.create(), "rng: first account created");
+    CHECK(b.create(), "rng: second account created");
+    CHECK(a.ed25519Key() != b.ed25519Key(), "rng: two accounts have different ed25519 keys");
+    CHECK(a.curve25519Key() != b.curve25519Key(), "rng: two accounts have different curve25519 keys");
+}
+
 int main() {
     test_otk_count_lifecycle();
     test_count_roundtrip();
     test_fallback_key_lifecycle();
     test_fallback_key_roundtrip();
     test_sync_unused_fallback_parse();
+    test_rng_is_csprng();
     if (failures == 0) { std::cout << "\nALL TESTS PASSED\n"; return 0; }
     std::cout << "\n" << failures << " TEST(S) FAILED\n";
     return 1;

@@ -27,7 +27,10 @@ struct VerificationTransaction {
     std::string transactionId;
     std::string otherUserId;
     std::string otherDeviceId;
+    std::string ourUserId;
     std::string ourDeviceId;
+    std::string ourEd25519;
+    std::string ourCurve25519;
     bool weInitiated = false;
     bool isIncoming = false;
     VerificationState state = VerificationState::Idle;

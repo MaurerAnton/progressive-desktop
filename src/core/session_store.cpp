@@ -24,8 +24,10 @@ bool SessionStore::open(const std::string& dbPath) {
         return false;
     }
     // Durability recipe — same as agora-desktop.
+    // WAL + synchronous=NORMAL: fsync only on checkpoint, not per commit —
+    // removes eMMC write-stall jank on PineTab. Still durable to last checkpoint.
     sqlite3_exec(db_, "PRAGMA journal_mode=WAL;", nullptr, nullptr, nullptr);
-    sqlite3_exec(db_, "PRAGMA synchronous=FULL;", nullptr, nullptr, nullptr);
+    sqlite3_exec(db_, "PRAGMA synchronous=NORMAL;", nullptr, nullptr, nullptr);
     sqlite3_exec(db_, "PRAGMA foreign_keys=ON;", nullptr, nullptr, nullptr);
 
     if (!createSchema()) {

@@ -52,6 +52,7 @@ void VerificationController::acceptIncoming(const std::string& txnId) {
                   txn->otherUserId, txn->otherDeviceId);
 
     content = vm_->buildStartContent(txn->ourDeviceId, txnId);
+    txn->startContentJson = content;
     sendToDevice("m.key.verification.start", txnId, content,
                   txn->otherUserId, txn->otherDeviceId);
 

@@ -353,8 +353,8 @@ bool VerificationManager::verifyTheirMac(VerificationTransaction& txn,
 
 std::string VerificationManager::buildSasInfo(const VerificationTransaction& txn) const {
     // curve25519-hkdf-sha256 SAS info (7-part pipe-delimited)
-    std::string startUser = txn.weInitiated ? "" : txn.otherUserId;
-    std::string acceptUser = txn.weInitiated ? txn.otherUserId : "";
+    std::string startUser = txn.weInitiated ? txn.ourUserId : txn.otherUserId;
+    std::string acceptUser = txn.weInitiated ? txn.otherUserId : txn.ourUserId;
     std::string startDevice = txn.weInitiated ? txn.ourDeviceId : txn.otherDeviceId;
     std::string acceptDevice = txn.weInitiated ? txn.otherDeviceId : txn.ourDeviceId;
     std::string startPubkey = txn.weInitiated ? txn.sas.ourPubkey : txn.theirSasPubkey;

@@ -1,4 +1,6 @@
 #include "core/crypto/olm_account.hpp"
+#include "core/crypto/decryptor.hpp"
+#include "core/crypto/sig_verify.hpp"
 #include "core/fast_sync.hpp"
 #include <simdjson.h>
 #include <iostream>
@@ -134,6 +136,51 @@ static void test_rng_is_csprng() {
     CHECK(a.curve25519Key() != b.curve25519Key(), "rng: two accounts have different curve25519 keys");
 }
 
+
+static void test_signed_fallback_body() {
+    progressive::desktop::Decryptor dec;
+    CHECK(dec.init(), "fallback-body: decryptor init");
+    std::string userId = "t";
+    std::string deviceId = "d";
+
+    CHECK(dec.account()->generateFallbackKey(), "fallback-body: generate");
+    std::string raw = dec.account()->unpublishedFallbackKey();
+    CHECK(!raw.empty(), "fallback-body: unpublished non-empty");
+
+    std::string section = dec.buildFallbackKeysSection(userId, deviceId);
+    CHECK(!section.empty(), "fallback-body: section non-empty");
+
+    simdjson::dom::parser p;
+    auto doc = p.parse(section);
+    CHECK(doc.error() == simdjson::SUCCESS, "fallback-body: valid JSON");
+
+    auto root = doc.value().get_object();
+    CHECK(root.error() == simdjson::SUCCESS, "fallback-body: root object");
+    bool found = false;
+    for (auto field : root.value()) {
+        std::string key(field.key);
+        if (key.find("signed_curve25519:") != 0) continue;
+        auto val = field.value.get_object();
+        if (val.error() != simdjson::SUCCESS) continue;
+        auto kf = val.value()["key"].get_string();
+        CHECK(kf.error() == simdjson::SUCCESS, "fallback-body: key field");
+        auto sf = val.value()["signatures"][userId]["ed25519:" + deviceId].get_string();
+        CHECK(sf.error() == simdjson::SUCCESS, "fallback-body: signature found");
+        std::string ed = dec.account()->ed25519Key();
+        CHECK(progressive::desktop::verifyOtk(ed, std::string(kf.value()), std::string(sf.value())),
+              "fallback-body: verifyOtk returns true");
+        found = true;
+    }
+    CHECK(found, "fallback-body: signed_curve25519 key found");
+
+    // After publish: buildFallbackKeysSection generates a fresh key (new behavior)
+    // and the new section must be non-empty with a different key value.
+    dec.markOneTimeKeysPublished();
+    std::string section2 = dec.buildFallbackKeysSection(userId, deviceId);
+    CHECK(!section2.empty(), "fallback-body: section non-empty after publish (generates fresh)");
+    CHECK(section2 != section, "fallback-body: fresh key differs from original");
+}
+
 int main() {
     test_otk_count_lifecycle();
     test_count_roundtrip();
@@ -141,6 +188,7 @@ int main() {
     test_fallback_key_roundtrip();
     test_sync_unused_fallback_parse();
     test_rng_is_csprng();
+    test_signed_fallback_body();
     if (failures == 0) { std::cout << "\nALL TESTS PASSED\n"; return 0; }
     std::cout << "\n" << failures << " TEST(S) FAILED\n";
     return 1;

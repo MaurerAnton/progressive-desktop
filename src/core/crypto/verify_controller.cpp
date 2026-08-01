@@ -58,14 +58,6 @@ void VerificationController::confirmMatch(const std::string& txnId) {
     auto* txn = vm_->findTransaction(txnId);
     if (!txn || !txn->sas.valid) return;
 
-    std::string ourDeviceId = txn->ourDeviceId;
-
-    // Send key
-    std::string keyContent = vm_->buildKeyContent(txnId, txn->sas.ourPubkey);
-    sendToDevice("m.key.verification.key", txnId, keyContent,
-                  txn->otherUserId, txn->otherDeviceId);
-
-    // Compute + send MAC
     std::string macContent = vm_->buildMacContent(*txn, txn->sas);
     sendToDevice("m.key.verification.mac", txnId, macContent,
                   txn->otherUserId, txn->otherDeviceId);

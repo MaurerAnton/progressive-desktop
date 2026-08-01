@@ -96,8 +96,7 @@ add_library(progressive_ui_widgets STATIC
     src/ui/chat/emoji_picker.cpp
 )
 target_include_directories(progressive_ui_widgets PUBLIC src)
-target_link_libraries(progressive_ui_widgets PUBLIC progressive_core Qt6::Widgets)
-
+target_link_libraries(progressive_ui_widgets PUBLIC progressive_core progressive_ui_dialogs Qt6::Widgets)
 # --- UI dialogs layer (no deps on other UI libs) ---
 add_library(progressive_ui_dialogs STATIC
     src/ui/dialogs/login_dialog.cpp
@@ -116,7 +115,7 @@ add_library(progressive_ui_dialogs STATIC
     src/ui/notifications.cpp
 )
 target_include_directories(progressive_ui_dialogs PUBLIC src)
-target_link_libraries(progressive_ui_dialogs PUBLIC progressive_core Qt6::Widgets)
+target_link_libraries(progressive_ui_dialogs PUBLIC progressive_core progressive_ui_widgets Qt6::Widgets)
 
 # --- UI layout layer (depends on widgets) ---
 add_library(progressive_ui_layout STATIC

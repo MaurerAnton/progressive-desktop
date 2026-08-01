@@ -384,6 +384,9 @@ void SyncEngine::uploadDeviceKeys(bool force) {
 
     // Always discard old unpublished OTKs before generating new ones.
     // Prevents sequential ID collisions (400 "already exists").
+    // DEBT(E2EE): mark_keys_as_published also marks the fallback key published,
+    // so a pending-unpublished fallback after a failed uploadFallbackKey is
+    // orphaned here. The /sync fallback trigger regenerates it (self-healing).
     decryptor_.markOneTimeKeysPublished();
     LOG(LogChannel::E2EE, "uploadDeviceKeys: discarded old OTKs before generating fresh");
 
@@ -476,6 +479,9 @@ void SyncEngine::uploadFallbackKey() {
     if (result.ok) {
         // markOneTimeKeysPublished marks the fallback key as published too
         // (libolm: mark_keys_as_published covers both OTKs and fallback).
+        // DEBT(E2EE): this also marks any unpublished OTKs as published without
+        // ever uploading them, orphaning them. The OTK auto-refresh at uploadDeviceKeys
+        // discards old unpublished OTKs then regenerates (self-healing).
         decryptor_.markOneTimeKeysPublished();
         LOG(LogChannel::E2EE, "uploadFallbackKey: SUCCESS — fallback published");
         std::string ufUserId = client_ ? client_->account().userId : "";

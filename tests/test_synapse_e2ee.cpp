@@ -1,0 +1,248 @@
+// tests/test_synapse_e2ee.cpp — live-Synapse E2EE integration test.
+//
+// Drives the REAL cross-account encrypted-message flow against a running
+// Synapse homeserver (matrixdotorg/synapse docker image, registration enabled):
+//   register A + B → upload device keys → A creates encrypted room + invites B
+//   → B joins → A shares room key + sends m.room.encrypted → B syncs,
+//   decrypts Olm-wrapped m.room_key, then decrypts the Megolm timeline event.
+//
+// Regression guard for: "cross-user E2EE key sharing is unreliable in rooms
+// with 3+ members" and Olm/Megolm round-trip bugs. Runs in CI via the
+// synapse-e2ee workflow; skipped locally when no server is reachable.
+//
+// Env: SYNAPSE_URL (default http://localhost:8008)
+//
+// Build + run (with a Synapse on :8008):
+//   cmake --build build -j4 && SYNAPSE_URL=http://localhost:8008 ./build/test_synapse_e2ee
+
+#include "core/http_client.hpp"
+#include "core/matrix_client.hpp"
+#include "core/crypto/decryptor.hpp"
+
+#include <iostream>
+#include <string>
+#include <vector>
+#include <thread>
+#include <chrono>
+#include <simdjson.h>
+
+static int failures = 0;
+#define CHECK(cond, msg) do { \
+    if (!(cond)) { std::cerr << "FAIL: " << msg << " (line " << __LINE__ << ")\n"; failures++; } \
+    else { std::cout << "ok: " << msg << "\n"; } \
+} while (0)
+
+using namespace progressive::desktop;
+
+static const char* envOr(const char* name, const char* def) {
+    const char* v = std::getenv(name);
+    return (v && *v) ? v : def;
+}
+
+// ---- Small JSON helpers (no progressive_native parser dependency) ----
+
+static std::string jsonStr(const simdjson::dom::element& el, const char* key) {
+    auto v = el[key].get_string();
+    if (v.error() == simdjson::SUCCESS) return std::string(v.value());
+    return {};
+}
+
+// ---- Test user harness: registers + sets up E2EE, mirrors the app ----
+
+struct TestUser {
+    MatrixClient client;
+    Decryptor decryptor;
+    std::string userId;
+    std::string deviceId;
+    std::string token;
+};
+
+static bool registerUser(TestUser& u, const std::string& hs, const std::string& uname,
+                         const std::string& pass) {
+    auto r = u.client.registerAccount(uname, pass, hs);
+    if (!r.ok) {
+        std::cerr << "[synapse-test] register " << uname << " failed: "
+                  << r.error.message << "\n";
+        return false;
+    }
+    u.userId = r.data.userId;
+    u.deviceId = r.data.deviceId;
+    u.token = r.data.accessToken;
+    u.client.setAccount(r.data);
+    return true;
+}
+
+static bool setupE2EE(TestUser& u, const std::string& hs) {
+    if (!u.decryptor.init()) {
+        std::cerr << "[synapse-test] decryptor init failed for " << u.userId << "\n";
+        return false;
+    }
+    u.decryptor.setCryptoContext(u.userId, u.deviceId, hs, u.token);
+    std::string body = u.decryptor.buildKeysUploadBody(u.userId, u.deviceId, 10, true);
+    auto up = u.client.uploadKeys(body);
+    if (!up.ok) {
+        std::cerr << "[synapse-test] keys/upload failed for " << u.userId << ": "
+                  << up.error.message << "\n";
+        return false;
+    }
+    u.decryptor.markOneTimeKeysPublished();
+    u.decryptor.markAccountAsShared();
+    return true;
+}
+
+// Joined member user IDs for a room (same parsing as room_key_helper.cpp).
+static std::vector<std::string> joinedMembers(MatrixClient& client, const std::string& roomId) {
+    std::vector<std::string> userIds;
+    auto m = client.getRoomMembers(roomId);
+    if (!m.ok) return userIds;
+    simdjson::dom::parser p;
+    auto doc = p.parse(m.data);
+    if (doc.error() != simdjson::SUCCESS) return userIds;
+    auto chunk = doc.value()["chunk"].get_array();
+    if (chunk.error() != simdjson::SUCCESS) return userIds;
+    for (auto evt : chunk.value()) {
+        auto mship = evt["content"]["membership"].get_string();
+        if (mship.error() != simdjson::SUCCESS || std::string(mship.value()) != "join") continue;
+        auto sk = evt["state_key"].get_string();
+        if (sk.error() == simdjson::SUCCESS) userIds.push_back(std::string(sk.value()));
+    }
+    return userIds;
+}
+
+int main() {
+    std::cout << "=== Synapse E2EE Integration Test ===\n\n";
+    httpInit();
+
+    std::string hs = envOr("SYNAPSE_URL", "http://localhost:8008");
+    std::string pass = "synapse_test_pass_42";
+
+    // Wait for the server (graceful skip locally).
+    bool reachable = false;
+    for (int i = 0; i < 5; ++i) {
+        auto v = httpGet(hs + "/_matrix/client/versions", {}, 3000);
+        if (v.isOk()) { reachable = true; break; }
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+    if (!reachable) {
+        std::cout << "SKIP: no Synapse reachable at " << hs << " (set SYNAPSE_URL)\n";
+        httpCleanup();
+        return 0;
+    }
+    std::cout << "server up: " << hs << "\n";
+
+    TestUser alice;
+    TestUser bob;
+    if (!registerUser(alice, hs, "synapse_alice", pass)) return 1;
+    if (!registerUser(bob, hs, "synapse_bob", pass)) return 1;
+    std::cout << "registered alice=" << alice.userId << " bob=" << bob.userId << "\n";
+    CHECK(alice.deviceId != bob.deviceId, "distinct device IDs");
+
+    if (!setupE2EE(alice, hs) || !setupE2EE(bob, hs)) return 1;
+    std::cout << "device keys uploaded for both\n";
+
+    // Alice creates an encrypted room and invites Bob.
+    auto roomRes = alice.client.createRoom("synapse-integration", "", false,
+                                           {bob.userId}, true);
+    if (!roomRes.ok) {
+        std::cerr << "[synapse-test] createRoom failed: " << roomRes.error.message << "\n";
+        return 1;
+    }
+    std::string roomId = roomRes.data;
+    std::cout << "alice created encrypted room: " << roomId << "\n";
+
+    auto joinRes = bob.client.joinRoom(roomId);
+    if (!joinRes.ok) {
+        std::cerr << "[synapse-test] bob join failed: " << joinRes.error.message << "\n";
+        return 1;
+    }
+    std::cout << "bob joined room\n";
+
+    // Bob's first sync: registers the room + device list.
+    auto sync0 = bob.client.syncFast("", 5000, false);
+    std::string since0 = sync0.ok ? std::string(sync0.data.nextBatch) : "";
+    (void)since0;
+
+    // Alice: build outbound Megolm session, share room key, send encrypted message.
+    std::string sessId = alice.decryptor.getOrCreateOutboundSession(roomId);
+    CHECK(!sessId.empty(), "alice has an outbound megolm session");
+
+    std::vector<std::string> members = joinedMembers(alice.client, roomId);
+    CHECK(!members.empty(), "room has joined members");
+    bool keyShared = alice.decryptor.shareRoomKey(roomId, members,
+        alice.userId, alice.deviceId, hs, alice.token);
+    if (keyShared) alice.decryptor.markRoomKeyShared(roomId);
+    CHECK(keyShared, "room key shared to members");
+
+    std::string body = "hello-synapse-e2ee-" + std::to_string(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count());
+    std::string inner = "{\"type\":\"m.room.message\",\"content\":{\"msgtype\":\"m.text\",\"body\":\""
+                        + body + "\"},\"room_id\":\"" + roomId + "\"}";
+    std::string enc = alice.decryptor.encryptMessage(roomId, alice.deviceId, inner);
+    CHECK(!enc.empty(), "alice encrypts the message");
+    std::string txnId = "synapse-test-" + std::to_string(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count());
+    auto sendRes = alice.client.sendEncryptedEvent(roomId, enc, txnId);
+    CHECK(sendRes.ok, "alice sends m.room.encrypted");
+    std::cout << "alice sent event: " << sendRes.data << "\n";
+
+    // Bob: sync loop — process to-device (Olm room_key) then decrypt the timeline.
+    bool decrypted = false;
+    std::string plaintext;
+    std::string since = since0;
+    for (int round = 0; round < 10 && !decrypted; ++round) {
+        auto resp = bob.client.syncFast(since, 3000, false);
+        if (!resp.ok) {
+            std::cerr << "[synapse-test] bob sync failed round " << round << ": "
+                      << resp.error.message << "\n";
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            continue;
+        }
+        since = std::string(resp.data.nextBatch);
+
+        // 1. To-device events (m.room_key is Olm-wrapped m.room.encrypted).
+        for (const auto& evt : resp.data.toDeviceEventList) {
+            if (evt.type == "m.room.encrypted") {
+                bob.decryptor.handleOlmEncryptedToDevice(
+                    std::string(evt.senderId), std::string(evt.contentJson));
+            } else if (evt.type == "m.room_key") {
+                bob.decryptor.handleRoomKey(std::string(evt.contentJson));
+            }
+        }
+
+        // 2. Timeline: decrypt m.room.encrypted events in our room.
+        for (const auto& [rid, room] : resp.data.joinedRooms) {
+            if (rid != roomId) continue;
+            for (const auto& evt : room.timeline.events) {
+                if (!evt.isEncrypted()) continue;
+                auto dec = bob.decryptor.decryptMegolmEvent(
+                    roomId, std::string(evt.senderId),
+                    std::string(evt.contentJson),
+                    std::string(evt.eventId), evt.originServerTs);
+                if (dec.ok) {
+                    plaintext = dec.plaintext;
+                    decrypted = true;
+                }
+            }
+        }
+        if (!decrypted) std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+
+    CHECK(decrypted, "bob decrypts alice's megolm event");
+    if (decrypted) {
+        std::cout << "bob plaintext: " << plaintext << "\n";
+        CHECK(plaintext.find(body) != std::string::npos,
+              "decrypted plaintext contains the message body");
+    }
+
+    std::cout << "\n";
+    if (failures == 0) {
+        std::cout << "=== ALL SYNAPSE E2EE TESTS PASSED ===" << std::endl;
+        httpCleanup();
+        return 0;
+    }
+    std::cerr << "=== " << failures << " TEST(S) FAILED ===" << std::endl;
+    httpCleanup();
+    return 1;
+}

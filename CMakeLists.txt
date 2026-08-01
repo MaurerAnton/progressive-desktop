@@ -222,6 +222,15 @@ if(PROGRESSIVE_BUILD_TESTS)
         -include "${CMAKE_CURRENT_SOURCE_DIR}/third_party/android_shim/progressive_compat.h")
     add_test(NAME e2ee_store COMMAND test_e2ee_store)
 
+    # Live-Synapse E2EE integration test (CI: synapse-e2ee workflow).
+    # Skips gracefully when no server is reachable (no SYNAPSE_URL set).
+    add_executable(test_synapse_e2ee tests/test_synapse_e2ee.cpp)
+    target_link_libraries(test_synapse_e2ee PRIVATE progressive_core)
+    target_compile_options(test_synapse_e2ee PRIVATE
+        -include "${CMAKE_CURRENT_SOURCE_DIR}/third_party/android_shim/progressive_compat.h")
+    add_test(NAME synapse_e2ee COMMAND test_synapse_e2ee)
+    set_tests_properties(synapse_e2ee PROPERTIES TIMEOUT 120)
+
     add_executable(test_phase4 tests/test_phase4.cpp)
     add_test(NAME phase4 COMMAND test_phase4)
 

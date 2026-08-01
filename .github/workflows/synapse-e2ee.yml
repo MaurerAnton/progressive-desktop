@@ -30,11 +30,9 @@ jobs:
           -e SYNAPSE_SERVER_NAME=localhost \
           -e SYNAPSE_REPORT_STATS=no \
           matrixdotorg/synapse:latest generate
-        # The generate step chowns /data to uid 991 — take ownership back
-        # so the runner can append the registration settings.
-        sudo chown -R "$(id -u):$(id -g)" synapse-data
-        # Enable password registration (no captcha) for the integration test accounts.
-        cat >> synapse-data/homeserver.yaml <<'EOF'
+        # Append registration settings as root (sudo tee) — /data must stay
+        # owned by uid 991 so the Synapse container can read its signing key.
+        sudo tee -a synapse-data/homeserver.yaml > /dev/null <<'EOF'
         enable_registration: true
         enable_registration_without_verification: true
         EOF

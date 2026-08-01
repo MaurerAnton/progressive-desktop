@@ -41,7 +41,7 @@ Progressive Chat's E2EE is a pure C++20 implementation using libolm. Qt-free cor
 
 ---
 
-## libolm Quirks — 8 Critical Data-Format Rules
+## libolm Quirks — 9 Critical Data-Format Rules
 
 All verified from the C source at `build/_deps/olm-src/src/`. Each has caused a multi-hour debugging session when violated.
 
@@ -179,6 +179,18 @@ size_t result = olm_unpickle_session(session, key, keyLen,
 ```
 
 Same applies to `olm_unpickle_account()` and `olm_unpickle_pk_decryption()`.
+
+### Quirk 9: `olm_account_unpublished_fallback_key_length` returns NON-ZERO for the EMPTY form
+
+```c
+// Even when NO fallback key exists (or the current one is published),
+// olm_account_unpublished_fallback_key_length() returns the length of
+// {"curve25519":{}} (~17 bytes) — NOT 0. (account.cpp:359-366)
+```
+
+**Fix:** Detect the empty form by CONTENT, not length — check for the `:{}` empty-map
+substring, or parse and verify the inner map is empty. `generateRandomBytes` is a
+CSPRNG (see fallback key docs) — never gate on length alone.
 
 ---
 

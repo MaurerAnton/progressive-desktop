@@ -82,7 +82,7 @@ ninja -C build CMakeFiles/progressive-desktop.dir/src/ui/handlers/room_handler.c
 ./scripts/build.sh all
 
 # User's command on PineTab:
-git pull && cmake --preset pinetab2 && cmake --build build -j4 && ./build/progressive-desktop
+git pull && git submodule update --init --recursive && cmake --preset pinetab2 && cmake --build build -j4 && ./build/progressive-desktop
 ```
 
 ---
@@ -339,5 +339,5 @@ See `docs/E2EE.md` for full implementation notes, common mistakes, recovery chai
 ```bash
 git push 2>&1 | grep -q "Everything up-to-date\|-> main" || { echo "NOT PUSHED"; false; }
 ctest --test-dir build 2>&1 | grep -q "100% tests passed" || { echo "TESTS BROKEN"; false; }
-echo "[OK] Pushed. git pull && cmake --preset pinetab2 && cmake --build build -j4 && ./build/progressive-desktop"
+echo "[OK] Pushed. git pull && git submodule update --init --recursive && cmake --preset pinetab2 && cmake --build build -j4 && ./build/progressive-desktop"
 ```

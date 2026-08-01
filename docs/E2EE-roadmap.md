@@ -50,6 +50,8 @@ Unblocks P4. Removes "OTKs exhausted → can't receive" failure mode.
 - [x] Mark fallback as published after successful claim (markOneTimeKeysPublished covers both)
 - [x] Per-account cooldown + 5-min forget-old-fallback timer
 - [x] CSPRNG fix: submodule generateRandomBytes replaced rand() with /dev/urandom
+- [x] OIDC PKCE/state CSPRNG (submodule, replaces srand/rand)
+- NOTE: accounts created BEFORE the CSPRNG fix have rand()-derived keys — reset device keys / re-login to regenerate
 - [x] Tests: lifecycle, pickle roundtrip, /sync parse, RNG regression, claimed-fallback session
 
 ## Phase 4 — Key sharing + forwarded keys + export/import (2-3 sessions)

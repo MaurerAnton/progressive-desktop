@@ -404,7 +404,6 @@ static void test_olm_fallback_key() {
 
     // Forget old fallback key — key#1 should be gone.
     ::olm_account_forget_old_fallback_key(bobAcc2);
-    CHECK(rc == 0 || rc != ::olm_error(), "fb: forget called");
 
     // Alice: new outbound from key#1 — should fail (key gone).
     std::vector<uint8_t> a3SessBuf(::olm_session_size());

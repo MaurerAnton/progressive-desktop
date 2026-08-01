@@ -1,6 +1,6 @@
 # CODE_MAP.md — Where to find every bug, feature, and responsibility
 
-> Generated July 28, updated July 30 — Phase 1 complete, Phase 2 SAS in progress, 8 UI quick wins, portability hardening, submodule audit.
+> Generated July 28, updated August 1 — Phase 1 + Phase 2 (SAS verification) complete, live-Synapse CI test, UI polish.
 > Use Ctrl+F with feature names (e.g. "thread replies", "E2EE", "room switch").
 
 ---
@@ -18,7 +18,10 @@
 | **E2EE ed25519 verify** | `ed25519.hpp` (new) | `olm_ed25519_verify` — PUBLIC stable libolm API (olm.h:516). Replaces submodule stub. Foundation for all signature verification. |
 | **E2EE Olm plaintext validation** | `decryptor.cpp` | `handleOlmEncryptedToDevice` — verify sender/recipient/recipient_keys per m.olm.v1. |
 | **E2EE OTK + device key sig verify** | `sig_verify.hpp` + `decryptor.cpp` | Verify signed_curve25519 OTK sigs + device_keys sigs on /keys/query + /keys/claim. Canonical JSON construction mirrors buildKeysUploadBody. |
-| **E2EE SAS verification** (Phase 2, in progress) | `verification.hpp` + `sas.hpp` + `sas_emojis.hpp` + `decryptor.cpp` | State machine (8 states), OlmSAS crypto (sas_verification.cpp ported from submodule), 64-emoji table, to-device + in-room routing, Qt SAS dialog. |
+| **E2EE SAS verification** (Phase 2, complete) | `verification.hpp` + `sas.hpp` + `sas_emojis.hpp` + `verify_controller.cpp` + `decryptor.cpp` | State machine (12 states), OlmSAS crypto (ported from submodule), 64-emoji table, to-device + in-room routing, commitment + MAC verification, DeviceKeyResolverFn via /keys/query. |
+| **E2EE SAS UI** | `sas_verification_dialog.cpp` + `verification_handler.cpp` | 7-emoji comparison dialog (match/mismatch/cancel), status-bar accept banner, cancel codes. Entry points: RoomMembersDialog right-click Verify, PrefsDialog 'Your devices'. |
+| **E2EE SAS protocol test** | `test_e2ee_verify_protocol.cpp` | Two-manager full request→done flow, emoji match, corrupted-MAC cancel path. |
+| **Live-Synapse E2EE test** | `test_synapse_e2ee.cpp` + `.github/workflows/synapse-e2ee.yml` | Real Synapse container: register 2 users → encrypted room → room-key share → cross-account decrypt. Skips when no server (local ctest stays 100%). |
 | **E2EE random** | `random.hpp` (new) | `fillCryptoRandom()` — bridge for crypto randomness (swappable provider for WASM). |
 | **Color settings** | `color_settings_dialog.cpp` (new) | QScrollArea + QFormLayout with 22 color tokens. Design struct (theme.hpp) — static inline QColor fields, runtime-mutable. Theme::save/load + reapply + addListener. |
 | **Shortcuts reference** | `shortcuts_dialog.cpp` (new) | Read-only table of all keyboard shortcuts. Settings → Shortcuts. |

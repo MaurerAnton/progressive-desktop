@@ -16,9 +16,8 @@ A Matrix client in the making. Built with Qt6 QWidgets, libolm, and a shared `pr
 
 **⚠️ NOT USABLE. Under active refactoring. Do not use for daily communication.**
 
-Current phase: architecture cleanup — handlers extracted from MainWindow (1702→302 lines),
-Qt-free core completed, file structure reorganized into `src/ui/handlers/`, `src/ui/chat/`,
-`src/ui/timeline/`, `src/ui/room/`, `src/ui/shared/`.
+Current phase: E2EE hardening — Phase 1 (signature verification) and Phase 2 (SAS device
+verification) complete, verified against a live Synapse server in CI.
 
 What works:
 - Login/logout with homeserver discovery + password login
@@ -35,12 +34,15 @@ What works:
 - Multi-account (switch between saved accounts)
 - Account switcher dropdown in toolbar
 - E2EE: outbound encryption (Megolm) + inbound decryption (Olm/Megolm recovery chain)
+- E2EE: cross-account key sharing — verified against a live Synapse server in CI
+  (`test_synapse_e2ee.cpp`), covering rooms with 3+ members
+- E2EE: SAS device verification (m.sas.v1) — 7-emoji match dialog, device verification
+- Ctrl+K room switcher, date dividers, keyboard navigation
 
 Not yet implemented:
 - Read receipts, typing indicators (sending)
-- Date dividers, Ctrl+K room switcher
-- Cross-user E2EE key sharing is unreliable in rooms with 3+ members
-- Thread counts inflated + thread view empty on first room load (fixed after room switch)
+- Cross-signing device trust chain
+- SSSS key backup / history recovery after re-login
 
 ## Build
 

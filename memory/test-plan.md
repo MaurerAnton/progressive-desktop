@@ -194,6 +194,11 @@
 ## Phase 8: SAS Verification (device-to-device)
 [Depends on: Phase 2 SAS state machine + dialog]
 
+**Automated**: `test_e2ee_verify_protocol.cpp` (two-manager, in-process) covers the full
+request→done flow, emoji match, and corrupted-MAC cancel path — run via `ctest --test-dir build`.
+`test_e2ee_sas.cpp` covers the SAS crypto roundtrip (pubkey, emojis, decimals, MAC).
+These are the regression guard; the manual checks below validate cross-client interop.
+
 ```
 [ ] Progressive + Element (same account): Progressive → Settings → "Verify this device"
 [ ] Element: accepts incoming verification request

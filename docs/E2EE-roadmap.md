@@ -2,7 +2,7 @@
 
 > 7 phases from alpha E2EE to full spec compliance.
 > Each phase = 1-5 AI coder sessions. Total: ~4-6 weeks.
-> Last updated: July 30, 2026
+> Last updated: August 1, 2026
 
 ## Current state (after alpha hardening)
 - Olm 1:1 sessions (create, persist, decrypt) ✓
@@ -15,6 +15,8 @@
 - Ed25519 signature verification ✓ (Phase 1)
 - Olm plaintext validation ✓ (Phase 1)
 - OTK + device key signature verification ✓ (Phase 1)
+- SAS device verification (m.sas.v1) ✓ (Phase 2 — complete)
+- Live-Synapse E2EE integration test ✓ (CI, cross-account round-trip)
 
 ## Phase 1 — Signature verification foundation ✅ COMPLETE
 The linchpin. Without ed25519 verify, no signature can be checked.
@@ -25,17 +27,20 @@ The linchpin. Without ed25519 verify, no signature can be checked.
 
 Unlocks: cross-signing (Phase 6), SAS MAC verify (Phase 2).
 
-## Phase 2 — SAS verification (device verification) 🔄 IN PROGRESS
+## Phase 2 — SAS verification (device verification) ✅ COMPLETE
 The user-visible "make the red shield go away."
-- Port sas_verification.cpp (OlmSAS wrapper — REAL in submodule, 212L)
-- Port verification_utils.cpp (64-emoji table, decimal computation, message builders — REAL, fix 1 bug)
-- Implement m.key.verification.* state machine (request→ready→start→accept→key→mac→done/cancel)
-- To-device + in-room routing for 8 verification event types
-- Qt SAS dialog: 7 emoji display, "They match"/"They don't match" buttons, cancel/timeout
-- Self-verification (Settings → "Verify this device")
-- User verification (User profile → "Verify")
+- Port sas_verification.cpp (OlmSAS wrapper — REAL in submodule, 212L) → `sas.cpp`/`sas.hpp` ✅
+- Port verification_utils.cpp (64-emoji table, decimal computation, message builders — REAL, 1 bug fixed) → `sas_emojis.cpp` ✅
+- Implement m.key.verification.* state machine (request→ready→start→accept→key→mac→done/cancel) → `verification.cpp` ✅
+- To-device + in-room routing for 8 verification event types ✅
+- Qt SAS dialog: 7 emoji display, "They match"/"They don't match" buttons, cancel/timeout → `sas_verification_dialog.cpp` ✅
+- Self-verification (Settings → "Verify this device") ✅
+- User verification (User profile → "Verify", RoomMembersDialog right-click) ✅
+- Two-manager protocol test (`test_e2ee_verify_protocol.cpp`) — full flow + corrupted-MAC cancel ✅
 
-Status: 6 commits pushed, 12 bugs found in self-review, fix prompt written (not yet applied).
+Status: 40+ commits Aug 1, 17 spec-compliance bugs fixed (base64 in-place, MAC info format,
+commitment, MAC-before-Done, role inversion, HKDF protocol, emoji table 64th entry, cancel codes).
+Two-manager protocol test green. Cross-client verification (Element/FluffyChat) remains to validate.
 
 ## Phase 3 — Fallback keys (1-2 sessions)
 Unblocks P4. Removes "OTKs exhausted → can't receive" failure mode.
@@ -100,11 +105,17 @@ DO NOT PORT these files — they are auto-generated JSON-echo no-ops:
 
 ## What's missing (must write from scratch)
 - Ed25519 verify primitive → ✅ DONE (Phase 1)
-- Full SAS state machine → 🔄 IN PROGRESS (Phase 2)
+- Full SAS state machine → ✅ DONE (Phase 2)
 - Cross-signing keygen + signing → Phase 6
 - SSSS key backup encryption → Phase 7 (hardest — no submodule code)
 - QR verification → not planned
 - Device dehydration → not planned
+
+## Live-Synapse CI regression guard (done)
+`.github/workflows/synapse-e2ee.yml` runs a real Synapse container and executes
+`tests/test_synapse_e2ee.cpp`: register 2 users → init decryptors → upload device keys →
+create encrypted room (invite+join) → share room key → send encrypted event → bob decrypts.
+Green on every push to main. Same test skips locally when no server (local `ctest` stays 100%).
 
 ## Spec references
 - Matrix spec: "End-to-End Encryption", "Key management", "Server-side key backups", "Secret Storage", "Cross-signing", "Key verification", "To-device messaging"

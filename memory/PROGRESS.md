@@ -16,7 +16,9 @@
 | Jul 24-27 | **E2EE Phase 1**: Bug A (inbound) + Bug B (outbound) + self-echo fixed. 15+ commits. Verified against Element and FluffyChat. | 15+ |
 | Jul 28-29 | **Multi-account E2EE**: shared flag, per-account scoping, OTK count tracking, device_lists tracking, device reset, crash fixes. 11 commits. | 11 |
 | Jul 30 | **E2EE Foundation + Phase 2 start.** Ed25519 verify, Olm validation, OTK/device sig verify, SAS in progress. Crash fixes (Olm growth, SIGSEGV close, Ctrl+Tab logout, clearAccount). Portability hardening. Color centralization. 8 UI quick wins. Registration token + server presets. Submodule audit (12 REAL, ~30 FAKE). 7-phase E2EE roadmap. | 20+ |
-| **Total** | **6 days, 150+ commits** | |
+| Jul 31 | **UI polish sprint.** 5min bubble corner merging (B27), Ctrl+K room switcher, reaction pill toggle (DREAM #56), member count in invite preview (B17-B19), clickable file/audio (B31), scroll anchoring (B29), context menu gating (B26), thread root count (B35). | 9 |
+| Aug 1 | **Phase 2 SAS verification COMPLETE + live-Synapse CI.** m.sas.v1 state machine + crypto + dialog + handler + two-manager protocol test (40+ commits). 17 spec-compliance bugs fixed. `.github/workflows/synapse-e2ee.yml` runs a real Synapse: cross-account encrypted room round-trip GREEN. CI build fixes (unordered_set, QPointer, ui_widgets↔ui_dialogs lib cycle). | 40+ |
+| **Total** | **8 days, 200+ commits** | |
 
 ---
 
@@ -24,12 +26,12 @@
 
 | Metric | Value |
 |---|---|
-| Commits | 150+ (in 6 days) |
+| Commits | 200+ (in 8 days) |
 | MainWindow reduction | 2772 → 220 lines (-92%) |
 | Files after mega prompt split | +7 new, -1000+ lines of fat |
 | Shared_ptr migration | 39 files (MatrixClient + SessionStore) |
-| E2EE bugs fixed | 15+ (Bug A + Bug B + self-echo + spec compliance + libolm quirks) |
-| Bugs fixed (total) | 30+ (B1-B38 + E2EE) |
+| E2EE bugs fixed | 30+ (Bug A + Bug B + self-echo + spec compliance + libolm quirks + 17 SAS) |
+| Bugs fixed (total) | 45+ (B1-B40 + E2EE) |
 | RAM (8 rooms, sync running) | ~160 MB idle (was 250 MB before Olm session cleanup) |
 | Binary size | ~2.8 MB |
 | AGENTS.md | 757 → 142 lines (-81%) |
@@ -173,6 +175,34 @@ Jul 30: E2EE Phase 1 (foundation): ed25519 verify, Olm plaintext validation,
         keyboard nav, server presets + registration token.
         E2EE submodule audit: 12 REAL files, ~30 FAKE boilerplate files identified.
         E2EE roadmap: 7-phase plan documented in docs/E2EE-roadmap.md.
+
+Jul 31: UI polish — 5min bubble corner merging (B27), Ctrl+K room switcher with
+        filter + arrow nav, reaction pill toggle + self-double-click guard + strip
+        count (DREAM #56), member count in invite preview from invite_state (B17-B19),
+        clickable file/audio events (B31), scroll anchoring + cached BubbleLayout (B29),
+        context menu gating on preconditions (B26), threadRootId on /relations replies (B35).
+
+Aug 1: E2EE Phase 2 — SAS verification COMPLETE (40+ commits):
+        - m.sas.v1 state machine (verification.cpp, 476L) — 12 states, transaction
+          tracking, commitment + MAC verification, StateChangedFn per transition
+        - OlmSAS crypto (sas.cpp) + 64-emoji table (sas_emojis.cpp, 7 overlapping
+          13-bit windows) ported from submodule
+        - VerificationController (send side) + VerificationHandler (UI) +
+          SasVerificationDialog (7-emoji match/mismatch/cancel)
+        - RoomMembersDialog right-click 'Verify…' + PrefsDialog 'Your devices'
+        - Two-manager protocol test (test_e2ee_verify_protocol.cpp) — full
+          request→done flow, emoji match, corrupted-MAC cancel path
+        - SAS crypto roundtrip test (test_e2ee_sas.cpp)
+        - 17 spec-compliance bugs fixed: base64 in-place (quirk #9), MAC info
+          7-part format, commitment computed+verified, MAC-before-Done, role
+          inversion, curve25519-hkdf-sha256, from_device everywhere, emoji table
+          64th entry, m.key_mismatch cancel instead of 10min timeout, etc.
+        - CI: live-Synapse E2EE integration test (.github/workflows/synapse-e2ee.yml)
+          — registers 2 users, encrypted room, room-key share, cross-account decrypt.
+          GREEN. Local test skips gracefully when no server.
+        - CI build fixes: <unordered_set> include (room_list_model.hpp), bare
+          nullptr → QPointer<MainWindow>() (test_visual.cpp, Qt 6.4), ui_widgets↔
+          ui_dialogs static-lib cycle (CMake repeated libs, GNU ld).
 ```
 
 ---
@@ -187,4 +217,4 @@ Jul 30: E2EE Phase 1 (foundation): ed25519 verify, Olm plaintext validation,
 
 ---
 
-*Last updated: Jul 30, 2026*
+*Last updated: Aug 1, 2026*

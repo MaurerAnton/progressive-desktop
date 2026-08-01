@@ -2,7 +2,7 @@
 
 > **Who this is for:** Developers implementing Matrix E2EE with libolm in any language.
 > Written from hard-won experience implementing E2EE from scratch in a pure C++20 Matrix client.
-> **Last updated:** July 30, 2026 — Phase 1 complete (ed25519 verify, Olm plaintext validation, OTK/device key signature verified). Phase 2 in progress (SAS verification state machine + dialog).
+> **Last updated:** August 1, 2026 — Phase 1 complete (ed25519 verify, Olm plaintext validation, OTK/device key signature verified). Phase 2 complete (SAS m.sas.v1 state machine, crypto, dialog, two-manager protocol test green). Live-Synapse E2EE integration test green in CI.
 > See `docs/E2EE-troubleshooting.md` for diagnostic guide (log patterns → root cause → fix).
 
 ---
@@ -413,7 +413,7 @@ std::string pickleOlmSessions(const std::string& key) {
 | Olm plaintext validation | ✅ Working | sender/recipient/recipient_keys per m.olm.v1 |
 | OTK signature verification | ✅ Working | signed_curve25519 verified on /keys/claim |
 | Device key signature verification | ✅ Working | device_keys signatures verified on /keys/query |
-| Device verification (SAS) | 🔄 In Progress | Phase 2 — state machine + dialog (6 commits pushed, fix pending) |
+| Device verification (SAS) | ✅ Working | Phase 2 — m.sas.v1 state machine + crypto + dialog + two-manager protocol test green |
 | Cross-signing | ❌ | No device trust chain (Phase 6, depends on ed25519 verify ✅) |
 | SSSS key backup | ❌ | No history recovery (Phase 7) |
 | m.forwarded_room_key | ❌ | Don't handle forwarded keys (submodule has real code, ready to port) |
@@ -434,6 +434,8 @@ std::string pickleOlmSessions(const std::string& key) {
 | Token rotation | Wait for M_UNKNOWN_TOKEN → recovery still works (fresh token used) |
 | Pickle persistence | Close + reopen → Olm sessions survive, decrypt still works |
 | Multi-device | Login on 2 devices → both receive room_key, both decrypt |
+| **Cross-account E2EE round-trip** | **Automated — `tests/test_synapse_e2ee.cpp` (live Synapse in CI): registers alice+bob, creates encrypted room, shares room key, bob decrypts alice's message. Skips gracefully when no server.** |
+| SAS protocol | **Automated — `tests/test_e2ee_verify_protocol.cpp`: two managers complete request→done, emoji match, corrupted-MAC cancel.** |
 
 ---
 
@@ -625,32 +627,41 @@ Implementation: `decryptor.cpp:handleOlmEncryptedToDevice` — validation before
 - Untrusted devices/OTKs are SKIPPED (logged, not crashed)
 - Implementation: `src/core/crypto/sig_verify.hpp` (free functions), wired into `shareRoomKey`
 
-### Phase 2 — SAS Verification (In Progress, July 30, 2026)
+### Phase 2 — SAS Verification (Complete, August 1, 2026)
 
 Full `m.sas.v1` device verification (the "make the red shield go away" feature).
 
 **Ported from submodule (REAL):**
-- `sas_verification.cpp` (212L) — OlmSAS wrapper: sasCreate, sasSetTheirKey, sasGetEmojis (6 bytes → 6 emojis), sasCalculateMac, sasCalculateMacLongKdf, sasVerifyMac. 13 `olm_sas_*` calls.
-- `verification_utils.cpp` (156L) — 64-emoji table (spec-compliant), computeSasEmojis, computeSasDecimals, buildVerificationStartBody/MacBody/CancelBody.
+- `sas_verification.cpp` (212L) — OlmSAS wrapper: sasCreate, sasSetTheirKey, sasGetEmojis, sasCalculateMac, sasCalculateMacLongKdf, sasVerifyMac. 13 `olm_sas_*` calls → now `sas.cpp`/`sas.hpp` (127L).
+- `verification_utils.cpp` (156L) — 64-emoji table (spec-compliant), computeSasEmojis, computeSasDecimals, message builders → now `sas_emojis.cpp` (91L) + `verification.cpp`.
 
 **Written from scratch (submodule's sas_manager.cpp is FAKE):**
-- `VerificationManager` — state machine (Idle→RequestSent→Ready→Started→Accepted→KeySent/Received→MacSent/Received→Done/Cancelled), transaction tracking, commitment hash verification, MAC verification
-- `SasDialog` — Qt dialog: 7 emoji display, "They match"/"They don't match" buttons, cancel/timeout
-- Self-verification entry point (Settings → "Verify this device")
-- User verification entry point (User profile → "Verify")
+- `VerificationManager` (`verification.hpp`, 119L) — state machine (Idle→RequestSent→RequestReceived→Ready→Started→Accepted→KeySent/Received→MacSent/Received→Done/Cancelled), transaction tracking, commitment hash verification, MAC verification, `StateChangedFn` callback fired after each transition
+- `VerificationController` (`verify_controller.cpp`, 162L) — send side + UI coordination, wires sendToDeviceFn + DeviceKeyResolverFn (/keys/query)
+- `SasVerificationDialog` (`sas_verification_dialog.cpp`, 70L) — Qt dialog: 7 emoji display, "They match"/"They don't match" buttons, cancel/timeout
+- `VerificationHandler` (`verification_handler.cpp`, 151L) — drives the UI from state changes, accept banner, emoji dialog, cancel codes
+- Entry points: RoomMembersDialog right-click → "Verify…", PrefsDialog → "Your devices" → Verify
 - To-device + in-room event routing for `m.key.verification.*`
+- **Two-manager protocol test** (`tests/test_e2ee_verify_protocol.cpp`, 214L) — full request→done flow with emoji match + corrupted-MAC cancel path, both managers in-process
 
-**Known bugs found in self-review (fix prompt written, not yet applied):**
-1. SasSession double-free (needs move ctor — `void* sas` ownership)
-2. MAC info string: uses pipe separators + both keys. Spec: no separators, per-key, keyId not keyValue
-3. computeSasDecimals: 2 values from 6 bytes (non-overlapping 3-byte windows). Spec: 7 values from overlapping 13-bit windows
-4. No mutex in VerificationManager (data race between sync + UI threads)
-5. MAC not verified before transitioning to Done
-6. Commitment verification missing (stored, never checked)
-7. In-room routing not wired (room_data_loader.cpp filter skips verification events)
-8. Initiator doesn't store own start JSON for commitment verification
-9. ourDeviceId not set on incoming request
-10. verifyTheirMac passes JSON object to sasVerifyMac which expects base64 string
+**Spec-compliance bugs found & fixed (Aug 1, all verified by the two-manager test):**
+1. SasSession move semantics — `olm_sas_set_their_key` decodes base64 IN-PLACE (libolm quirk #9) → pass a copy (`a91ca63`)
+2. MAC info string — 7 parts, no separators, per-key `keyId` not `keyValue` (`ad493cc`, `04a61ce`)
+3. computeSasDecimals — 7 values from overlapping 13-bit windows (was 2 from non-overlapping 3-byte) (`37c265a`, `ad493cc`)
+4. Mutex deadlock — handleEvent re-locked non-recursive mutex via findTransaction → added `findTransactionLocked` (`2732bf9`)
+5. MAC verified before Done transition + `m.key.verification.done` sent (`f5aeb27`)
+6. Commitment computed in start handler + verified in key handler (`d8ee118`)
+7. In-room routing wired + `from_device` on accept/key/mac (spec requires it) (`1f05fc6`, `3c804b1`)
+8. Initiator stores own start JSON for commitment verification (`6257837`)
+9. ourDeviceId/ourUserId/ourEd25519/ourCurve25519 stored on transactions; ourDeviceId param to handleEvent (`886a930`, `91ebfd0`)
+10. verifyTheirMac over THEIR keys — theirEd25519/theirCurve25519 + DeviceKeyResolverFn via /keys/query (`a3d6a26`)
+11. buildSasInfo role inversion — weInitiated means accepter (start*=other*) (`48f57bf`)
+12. key_agreement_protocol `curve25519-hkdf-sha256` — libolm always applies HKDF-SHA256 (`ea60ddc`)
+13. Emoji table 64th entry (Hammer) — index 63 silently dropped, intermittent 6-emoji mismatch vs Element (`e27d555`)
+14. CancelCode-aware cancelVerification — Not Match sends `m.mismatched_sas` not `m.user` (`e50186c`)
+15. `olm_sas_calculate_mac` resize crash — ret=0 on success, use macLen (`ed68f44`)
+16. SAS pubkey base64 double-encode/pre-decode — libolm handles base64 internally (`12e542e`)
+17. m.key_mismatch cancel on commitment + MAC mismatch — other party no longer waits 10min timeout (`8ffd0b0`)
 
 ### FAKE Boilerplate Trap Warning — DO NOT PORT THESE FILES
 
@@ -699,7 +710,7 @@ One-time operation accessible from Settings menu. Requires password authenticati
 
 | File | Purpose |
 |---|---|
-| `src/core/crypto/decryptor.cpp` | E2EE coordinator (1218 lines) |
+| `src/core/crypto/decryptor.cpp` | E2EE coordinator (1430 lines) |
 | `src/core/crypto/decryptor.hpp` | Decryptor class — `shared()`, `markDevicesStale()`, `isDeviceStale()` |
 | `src/core/crypto/olm_account.cpp` | OlmAccountStore — `shared_`, `uploadedKeyCount_`, `markAsShared()` |
 | `src/core/crypto/megolm_store.cpp` | MegolmStore — pickleAll + unpickleAll with XOR + hex |
@@ -711,6 +722,15 @@ One-time operation accessible from Settings menu. Requires password authenticati
 | `src/ui/handlers/account_switcher.cpp` | Account switch: save/Load Olm pickle + megolm/olm sessions per account |
 | `src/ui/handlers/toolbar_handler.cpp` | "Reset device keys" action → `deleteDevice()` API |
 | `src/ui/chat/chat_view.cpp` | `doSend` — encrypts + sends with room_id in Megolm plaintext |
+| `src/core/crypto/sas.cpp` | OlmSAS wrapper — ported from submodule `sas_verification.cpp` |
+| `src/core/crypto/sas_emojis.cpp` | 64-emoji table + computeSasEmojis + computeSasDecimals (7 overlapping 13-bit windows) |
+| `src/core/crypto/verification.cpp` | `m.sas.v1` state machine + message builders (VerificationManager, 476L) |
+| `src/core/crypto/verify_controller.cpp` | SAS send side + UI coordination (wires sendToDeviceFn + DeviceKeyResolverFn) |
+| `src/ui/dialogs/sas_verification_dialog.cpp` | 7-emoji comparison dialog (match/mismatch/cancel) |
+| `src/ui/handlers/verification_handler.cpp` | Drives verification UI from state changes |
+| `tests/test_e2ee_sas.cpp` | SAS crypto roundtrip (pubkey base64, emojis/decimals, MAC verify) |
+| `tests/test_e2ee_verify_protocol.cpp` | Two-manager SAS protocol test (full flow + corrupted-MAC cancel) |
+| `tests/test_synapse_e2ee.cpp` | Live-Synapse cross-account E2EE integration test (CI) |
 | `third_party/progressive-android-experiments/.../olm.hpp` | `OlmAccount` class — libolm wrapper |
 | `build/_deps/olm-src/src/` | libolm C source — verify quirks here before adding encode/decode |
 

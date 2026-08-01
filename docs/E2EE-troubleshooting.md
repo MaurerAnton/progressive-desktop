@@ -2,7 +2,7 @@
 
 > **Who this is for:** Developers debugging E2EE issues in Progressive Chat.
 > Quick reference: grep the logs for the symptom → read the cause → apply the fix.
-> **Last updated:** July 30, 2026
+> **Last updated:** August 1, 2026
 
 ---
 
@@ -212,7 +212,37 @@ User presses Ctrl+Tab → account switches → both accounts gone → re-login r
 
 **Fix**: Add move constructor + move assignment that transfer ownership (set `other.sas = nullptr`). Delete copy constructor/assignment (SasSession owns heap memory).
 
+**Status**: Fixed Aug 1. Additionally, `olm_sas_set_their_key` decodes the pubkey base64 IN-PLACE (libolm quirk #9) — pass a COPY (`a91ca63`).
+
 **Verify**: Create two SasSessions, exchange pubkeys, compute emojis — must NOT crash. Run ASAN build — must be clean.
+
+---
+
+### SAS emojis intermittently 6 instead of 7 (miss Hammer) — Element mismatch
+
+```
+Our SAS dialog shows 6 emojis (random one missing). Element shows 7. m.mismatched_sas cancel.
+```
+
+**Root cause**: The 64-emoji table was missing its 64th entry (Hammer 🐶 / index 63). `index % 64` never yielded 63, so one emoji position silently collapsed → only 6 emojis displayed vs Element's 7 → mismatch cancel. Intermittent because index 63 only occurs for certain SAS byte values.
+
+**Fix**: Add the missing 64th entry to the emoji table in `sas_emojis.cpp` (`e27d555`). Verify the table has exactly 64 entries, indexed 0-63.
+
+**Verify**: Two-manager protocol test (`test_e2ee_verify_protocol.cpp`) → emoji match path passes. With Element → verify → both show 7 identical emojis.
+
+---
+
+### Two-manager SAS test fails on pubkey/MAC (olm_sas_set_their_key clobbers buffer)
+
+```
+Two-manager test: manager A's theirSasPubkey is garbage after setTheirKey → emojis/MAC mismatch.
+```
+
+**Root cause**: `olm_sas_set_their_key` decodes the base64 pubkey IN-PLACE (`b64_input` pattern, same as quirk #6). The caller passes its stored pubkey string directly → after the call the buffer is the raw decoded bytes, so the stored `theirSasPubkey` member is corrupted → every later use (emoji, MAC, commitment) produces wrong output.
+
+**Fix**: Pass a copy: `std::string copy = theirSasPubkey; sas.setTheirKey(copy);` (`a91ca63`). This is the 9th documented libolm quirk.
+
+**Verify**: Two-manager SAS protocol test passes. SAS crypto roundtrip test (`test_e2ee_sas.cpp`) passes.
 
 ---
 

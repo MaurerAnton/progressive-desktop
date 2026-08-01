@@ -2,7 +2,7 @@
 
 **Read this file, code_map.json, and memory/REFERENCE.md before any code change.**
 **memory/DREAM.md explains WHY the architecture exists.**
-**Last updated: July 30, 2026**
+**Last updated: August 1, 2026**
 
 ---
 
@@ -180,6 +180,12 @@ for (auto [key, value] : obj) { if (key == "...") ... }
       every subsequent unpickle attempt fails because the buffer is now garbage. Discovered July 26 — the
       7th libolm quirk, cost a full debugging cycle. Same applies to `olm_unpickle_account` and `olm_unpickle_pk_decryption` — always pass a copy.
 
+    - `olm_sas_set_their_key` — decodes the other party's SAS pubkey BASE64 IN-PLACE (same `b64_input`
+      pattern). After the call, the caller's pubkey buffer is GARBAGE. MUST pass a copy:
+      `std::string copy = theirPubkey; sas.setTheirKey(copy);`. Passing the stored pubkey directly corrupts it —
+      the caller's `theirSasPubkey` member becomes garbage and subsequent emoji/MAC computation fails. Discovered
+      August 1 by the two-manager SAS protocol test (`a91ca63`). 9th libolm quirk.
+
 ---
 
 ## Debugging
@@ -242,7 +248,7 @@ If a class calls `httpPost`/`httpPut` with auth headers (`makeAuthHeaders(token)
 
 ---
 
-## E2EE Implementation Status (July 30, 2026)
+## E2EE Implementation Status (August 1, 2026)
 
 ### Working ✓
 - Inbound decryption (Olm + Megolm, recovery chain via m.dummy + m.room_key_request)
@@ -261,14 +267,16 @@ If a class calls `httpPost`/`httpPut` with auth headers (`makeAuthHeaders(token)
 - **Ed25519 signature verification** — `olm_ed25519_verify` (PUBLIC stable libolm API, olm.h:516). Replaces submodule stub.
 - **Olm plaintext validation** — verify sender/recipient/recipient_keys per m.olm.v1 spec
 - **OTK + device key signature verification** — verify signed_curve25519 OTK signatures + device_keys signatures on /keys/query + /keys/claim
+- **SAS verification (m.sas.v1, Phase 2)** — full request→ready→start→accept→key→mac→done/cancel state machine, OlmSAS crypto, commitment + MAC verification over the other side's keys, to-device + in-room routing, two-manager protocol test (`test_e2ee_verify_protocol.cpp`) green
+- **Live-Synapse E2EE integration test (CI)** — `test_synapse_e2ee.cpp` registers 2 real users on a Synapse container, creates an encrypted room, shares the room key, and decrypts cross-account. Guarded by `.github/workflows/synapse-e2ee.yml`. Skips (exit 0) when `SYNAPSE_URL` unreachable so local `ctest` stays 100%.
 
 ### In Progress 🔄
-- **SAS verification (Phase 2)** — m.key.verification.* state machine + to-device/in-room routing + Qt SAS dialog. 6 commits pushed, bugs found in self-review, fix prompt written. Depends on: ed25519 verify (Complete), SasSession move semantics (bug found), MAC info string format correction (bug found), computeSasDecimals algorithm rewrite (bug found).
+- **SAS UI polish** — dialog + handler exist (SasVerificationDialog, VerificationHandler, RoomMembersDialog → Verify, PrefsDialog → Your devices). Cross-client verification against Element/FluffyChat is next.
 
 ### Gaps
 | Gap | What | Priority |
 |---|---|---|
-| Device verification (cross-signing/SAS) | Red shield in Element; SAS in progress, cross-signing deferred | In Progress (SAS) / Future (cross-signing) |
+| Device verification (cross-signing) | SAS works; cross-signing trust chain deferred | Phase 6 |
 | SSSS key backup | Can't recover history after re-login | Future sprint |
 | Fallback keys | No fallback when OTKs exhausted | P4 (REAL in submodule's OlmAccountData API — needs API port to OlmAccount class; NOT "blocked on submodule" anymore) |
 | m.room_key_request incoming | Don't re-share keys when another device requests | LOW (REAL in submodule keyshare.cpp — ready to port) |
@@ -281,6 +289,7 @@ If a class calls `httpPost`/`httpPut` with auth headers (`makeAuthHeaders(token)
 | Ed25519 signature verification | Submodule stub returned true — replaced with real libolm API | ✅ DONE (Phase 1) |
 | Olm plaintext validation | Verify sender/recipient/keys per spec | ✅ DONE (Phase 1) |
 | OTK signature verification | Verify signed_curve25519 signatures | ✅ DONE (Phase 1) |
+| SAS device verification | m.sas.v1 state machine + crypto + dialog + protocol test | ✅ DONE (Phase 2) |
 | Outbound Megolm persistence | Sessions lost on restart | ✅ DONE (Phase 1 bonus) |
 | Olm session exponential growth | 30000+ sessions from switchAccount append-without-clear | ✅ DONE (fixed: clear before load + dedup + cap 20/sender) |
 | SIGSEGV on close | Detached sync thread use-after-free | ✅ DONE (join() instead of detach()) |
@@ -301,8 +310,8 @@ See `docs/E2EE.md` for full multi-account E2EE architecture and the 167 stale OT
 The `third_party/progressive-android-experiments/` submodule has ~90 E2EE-relevant files. ~12 are REAL (libolm-backed, safe to port). ~30+ are FAKE (auto-generated JSON-echo boilerplate). **Do NOT port files named `*_v4.cpp`, `crypto_ops.cpp`, `sas_manager.cpp`, `backup_controller.cpp`, `gossip_manager.cpp`, `key_export_utils.cpp`, `dehydrate_utils.cpp`, or `secret_*` without verifying they contain real crypto logic.** These have plausible names and large file sizes but are no-ops. A filename-based audit badly overstates what's there. See `docs/E2EE.md` for the full REAL/FAKE inventory.
 
 ### REAL submodule files safe to port:
-- `sas_verification.cpp` (212L) — OlmSAS wrapper (13 `olm_sas_*` calls)
-- `verification_utils.cpp` (156L) — 64-emoji table + computeSasEmojis + builders (1 known bug: formatSasDecimals)
+- `sas_verification.cpp` (212L) — OlmSAS wrapper (13 `olm_sas_*` calls) → ✅ PORTED (`sas.cpp`/`sas.hpp`)
+- `verification_utils.cpp` (156L) — 64-emoji table + computeSasEmojis + builders → ✅ PORTED (`sas_emojis.cpp`, `verification.cpp`)
 - `keyshare.cpp` (103L) — incoming m.room_key_request handling + m.forwarded_room_key builders
 - `room_encryption.cpp` (123L) — Megolm rotation policy (`isEncryptionRotationDue`)
 - `key_backup.cpp` (329L) — recovery key format (base58, parity, curve-key) — NOT backup crypto
@@ -319,6 +328,7 @@ The `third_party/progressive-android-experiments/` submodule has ~90 E2EE-releva
 6. olm_group_decrypt_max_plaintext_length clobbers buffer IN-PLACE
 7. olm_*_session(memory) zeros the struct — call ONCE
 8. olm_unpickle_session mutates pickle buffer IN-PLACE — must pass copy
+9. olm_sas_set_their_key decodes pubkey base64 IN-PLACE — must pass copy
 See `docs/E2EE.md` for full implementation notes, common mistakes, recovery chain design, and spec compliance table.
 
 ---

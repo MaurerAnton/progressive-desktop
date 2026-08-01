@@ -1,6 +1,25 @@
 # CI Build History & Failure Analysis
 
-## Current Status: `b49d554` — expected GREEN
+## Current Status: GREEN — two workflows pass on main
+
+- **Build + Test** (`build.yml`) — configure (ci preset) → build → ctest, on every push/PR to main.
+- **Synapse E2EE Integration** (`synapse-e2ee.yml`, added Aug 1) — starts a real
+  `matrixdotorg/synapse` container at `:8008`, waits for `/versions`, builds, then runs
+  `./build/test_synapse_e2ee` against it. Registers 2 users → creates encrypted room →
+  shares room key → cross-account decrypt. Verified GREEN on `031dc04`.
+
+## Synapse-E2EE workflow gotchas (why it took 6 iterations)
+
+1. **`chown` breaks the container**: Synapse runs as uid 991 and needs to read its signing
+   key. `sudo chown runner` on `/data` → container dies. Revert to `sudo tee -a`/`sudo sed -i`
+   and `chown 991:991` only the config file.
+2. **Duplicate YAML keys are NOT honored**: appending `enable_registration: true` to a config
+   that already has `enable_registration: false` keeps `false` (PyYAML keeps the first). Use
+   `sed`-style in-place replacement (`python3 -c` regex replace, not heredoc — heredocs break
+   the workflow YAML's block scalar indentation).
+3. **`grep` on a missing key fails the step** (`set -e`): verify with `|| true`.
+4. Container runs with `-v "$PWD/synapse-data:/data"`; generation step must stay on the runner
+   (not inside the container) so the config edit happens before `start`.
 
 ## Failed Commits
 

@@ -268,7 +268,7 @@ std::string VerificationManager::buildStartContent(const std::string& ourDeviceI
     return "{\"from_device\":\"" + esc(ourDeviceId) + "\","
            "\"transaction_id\":\"" + esc(txnId) + "\","
            "\"method\":\"m.sas.v1\","
-           "\"key_agreement_protocols\":[\"curve25519\"],"
+           "\"key_agreement_protocols\":[\"curve25519-hkdf-sha256\"],"
            "\"hashes\":[\"sha256\"],"
            "\"message_authentication_codes\":[\"hkdf-hmac-sha256\"],"
            "\"short_authentication_string\":[\"emoji\",\"decimal\"]}";
@@ -277,7 +277,7 @@ std::string VerificationManager::buildStartContent(const std::string& ourDeviceI
 std::string VerificationManager::buildAcceptContent(const std::string& txnId,
     const std::string& commitment) const {
     return "{\"transaction_id\":\"" + esc(txnId) + "\","
-           "\"key_agreement_protocol\":\"curve25519\","
+           "\"key_agreement_protocol\":\"curve25519-hkdf-sha256\","
            "\"hash\":\"sha256\","
            "\"message_authentication_code\":\"hkdf-hmac-sha256\","
            "\"short_authentication_string\":[\"emoji\",\"decimal\"],"

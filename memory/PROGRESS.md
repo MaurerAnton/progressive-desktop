@@ -123,6 +123,59 @@
 
 ---
 
+## Bug Tracker (source of truth — consolidated from DREAM.md, Aug 1)
+
+> All active bug lists now live here. DREAM.md mirrors the active list; this is authoritative.
+
+### Active — Critical (blocking alpha)
+```
+[ ] Thread: reply OK button — message not appearing anywhere after sending
+[ ] Thread: root message emoji/smile disappears after room switch (loadHistory doesn't set thread flags)
+[ ] Thread: threadReplyCount never increments via sync path (use-after-move in appendTimelineForRoom)
+[ ] Thread: first reply appears twice in thread view (echo temp ID vs sync real ID)
+[ ] Invite: reject fails with M_FORBIDDEN "duplicate auth_events for m.room.member" (need diagnostic LOGs)
+[ ] Image: images don't render in timeline or viewer — downloadMedia may fail silently (need diagnostic LOGs)
+[ ] Room creation: no "+ New room" action for group rooms, no encrypted room creation
+[ ] Multi-account: no UI buttons to add/login second account (only single account at a time)
+[ ] Copy messages: cannot copy message text from timeline (no copy-to-clipboard)
+[ ] Event source viewer: cannot see raw event JSON (sender_id, body, type, etc.) like Element
+```
+
+### Active — Medium
+```
+[ ] Markdown: cmark-gfm needed — lists/tables/code blocks show as raw markdown
+[ ] DM: always creates new room, doesn't check m.direct for existing
+[ ] Chat logging duplication (DEBT-002): RoomHandler + ToolbarHandler both have chatLogging_
+[ ] Desktop notifications — basic implementation, blue square icon
+[ ] Error visibility: errors show in status bar line where sync stats normally appear, no dialog/log panel
+[ ] test_gui_phase4 duplicates RoomListModel (test code only, not blocking)
+[ ] RoomListDelegate::paint const_cast (DEBT-012, works but ugly)
+[ ] Missing emoji font resource for PineTab without system emoji font (DEBT-016)
+```
+
+### Discussed Wishes (not yet prioritized)
+```
+[ ] Keyboard navigation — full Nheko-level shortcuts (Ctrl+K, Alt+↑↓, Escape, Tab chain, Up-to-edit)
+[ ] Theme — JSON token manifest import/export (Element-level custom themes)
+[ ] Theme — per-element color customization via token overrides
+[ ] Polls/tables — MSC3381 m.poll.start / m.poll.response (deferred to beta)
+[ ] E2EE file encryption — encrypted room file uploads currently bypass encryption (DEBT at chat_view.cpp:279)
+[ ] Room creation — "+ New room" for groups + "+ New encrypted room" with trust preset
+[ ] Message info panel — view event source JSON (body, sender, type, age, etc.) like Element
+[ ] Copy messages — copy message text from timeline to clipboard
+[ ] Markdown tables + code blocks — cmark-gfm integration
+[ ] AppImage + Flatpak — binary releases for alpha
+[ ] Multi-account polish — add UI for login to second account (currently single account)
+[ ] Multi-account verification — prove it actually works
+[ ] Image preview in timeline — image thumbnails instead of text/file card (need diagnostic LOGs first)
+[ ] Invite — M_FORBIDDEN "duplicate auth_events for m.room.member" on reject (need diagnostic LOGs)
+[ ] Forget room — M_UNKNOWN "user is in room" — user must Leave first, then Forget
+[ ] Error visibility — errors should appear in dialog or log panel, not just status bar
+[ ] W15 — search word (local FTS5 full-text index, cheap since FTS5 already planned)
+```
+
+---
+
 ## Full Commit Log
 
 ```

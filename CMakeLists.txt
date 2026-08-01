@@ -210,6 +210,12 @@ if(PROGRESSIVE_BUILD_TESTS)
         -include "${CMAKE_CURRENT_SOURCE_DIR}/third_party/android_shim/progressive_compat.h")
     add_test(NAME e2ee_otk_count COMMAND test_e2ee_otk_count)
 
+    add_executable(test_e2ee_sas tests/test_e2ee_sas.cpp)
+    target_link_libraries(test_e2ee_sas PRIVATE progressive_core)
+    target_compile_options(test_e2ee_sas PRIVATE
+        -include "${CMAKE_CURRENT_SOURCE_DIR}/third_party/android_shim/progressive_compat.h")
+    add_test(NAME e2ee_sas COMMAND test_e2ee_sas)
+
     add_executable(test_e2ee_store tests/test_e2ee_store.cpp)
     target_link_libraries(test_e2ee_store PRIVATE progressive_core)
     target_compile_options(test_e2ee_store PRIVATE

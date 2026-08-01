@@ -78,7 +78,10 @@ SasSession sasCreate() {
 bool sasSetTheirKey(SasSession& sas, const std::string& theirPubkeyBase64) {
     if (!sas.valid || !sas.sas) return false;
     auto* olmSas = static_cast<OlmSAS*>(sas.sas);
-    size_t ret = olm_sas_set_their_key(olmSas, (void*)theirPubkeyBase64.data(), theirPubkeyBase64.size());
+    // libolm quirk: olm_sas_set_their_key decodes base64 IN-PLACE (sas.c),
+    // corrupting the caller's buffer. Always pass a copy.
+    std::string copy = theirPubkeyBase64;
+    size_t ret = olm_sas_set_their_key(olmSas, copy.data(), copy.size());
     if (ret == olm_error()) {
         LOG(LogChannel::E2EE, "sasSetTheirKey failed: %s", olm_sas_last_error(olmSas));
         return false;

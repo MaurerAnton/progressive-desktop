@@ -68,7 +68,14 @@ public:
     std::string buildKeysUploadBody(const std::string& userId,
                                       const std::string& deviceId,
                                       int oneTimeKeyCount = 10,
-                                      bool includeDeviceKeys = true);
+                                      bool includeDeviceKeys = true,
+                                      bool includeFallbackKey = false);
+
+    // Builds the signed "fallback_keys" section JSON from the unpublished
+    // fallback key (empty if none). Does NOT generate — generation is the
+    // caller's job so failed uploads don't churn keys.
+    std::string buildFallbackKeysSection(const std::string& userId,
+                                         const std::string& deviceId);
 
     // Mark current one-time keys as published (call after /keys/upload success).
     // Tells libolm to discard used keys so next generateOneTimeKeys produces fresh ones.

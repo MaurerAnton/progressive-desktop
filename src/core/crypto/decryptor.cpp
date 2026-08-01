@@ -245,7 +245,8 @@ std::string Decryptor::signCanonicalJson(const std::string& canonicalJson) {
 std::string Decryptor::buildKeysUploadBody(const std::string& userId,
                                                const std::string& deviceId,
                                                int oneTimeKeyCount,
-                                               bool includeDeviceKeys) {
+                                               bool includeDeviceKeys,
+                                               bool includeFallbackKey) {
     // 1. Generate one-time keys
     std::string oneTimeKeysJson = account_->generateOneTimeKeys(oneTimeKeyCount);
 
@@ -336,9 +337,56 @@ std::string Decryptor::buildKeysUploadBody(const std::string& userId,
     if (includeDeviceKeys) {
         body << "\"device_keys\":" << deviceKeysSigned << ",";
     }
+    if (includeFallbackKey) {
+        std::string fallbackSection = buildFallbackKeysSection(userId, deviceId);
+        if (!fallbackSection.empty()) {
+            body << "\"fallback_keys\":" << fallbackSection << ",";
+        }
+    }
     body << "\"one_time_keys\":" << otkSigned.str()
          << "}";
     return body.str();
+}
+
+std::string Decryptor::buildFallbackKeysSection(const std::string& userId,
+                                                const std::string& deviceId) {
+    // The unpublished fallback key from libolm looks like:
+    //   {"curve25519":{"AAAA":"<b64>"}}
+    // We rename "curve25519:" to "signed_curve25519:" and sign it like an OTK.
+    std::string fallbackJson = account_->unpublishedFallbackKey();
+    if (fallbackJson.empty()) return {};
+
+    simdjson::dom::parser parser;
+    auto doc = parser.parse(fallbackJson);
+    if (doc.error() != simdjson::SUCCESS) return {};
+
+    std::ostringstream out;
+    out << "{";
+    bool first = true;
+    auto root = doc.value().get_object();
+    if (root.error() == simdjson::SUCCESS) {
+        for (auto field : root.value()) {
+            auto innerObj = field.value.get_object();
+            if (innerObj.error() != simdjson::SUCCESS) continue;
+            for (auto innerField : innerObj.value()) {
+                std::string keyId(innerField.key);
+                auto keyVal = innerField.value.get_string();
+                if (keyVal.error() != simdjson::SUCCESS) continue;
+
+                std::string keyObj = "{\"key\":\"" + std::string(keyVal.value()) + "\"}";
+                std::string sig = signCanonicalJson(keyObj);
+                if (!first) out << ",";
+                first = false;
+                out << "\"signed_curve25519:" << keyId << "\":"
+                    << "{\"key\":\"" << std::string(keyVal.value()) << "\","
+                    << "\"signatures\":{\""
+                    << userId << "\":{\"ed25519:" << deviceId << "\":\"" << sig << "\"}}}";
+            }
+        }
+    }
+    out << "}";
+    if (first) return {};  // nothing found
+    return out.str();
 }
 
 void Decryptor::markOneTimeKeysPublished() {

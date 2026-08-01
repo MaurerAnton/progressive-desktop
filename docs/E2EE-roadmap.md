@@ -42,14 +42,15 @@ Status: 40+ commits Aug 1, 17 spec-compliance bugs fixed (base64 in-place, MAC i
 commitment, MAC-before-Done, role inversion, HKDF protocol, emoji table 64th entry, cancel codes).
 Two-manager protocol test green. Cross-client verification (Element/FluffyChat) remains to validate.
 
-## Phase 3 — Fallback keys (1-2 sessions)
+## Phase 3 — Fallback keys ✅ COMPLETE (Aug 2026)
 Unblocks P4. Removes "OTKs exhausted → can't receive" failure mode.
-- Port generateFallbackKey from olm_session.cpp's OlmAccountData API to the OlmAccount class
-- Wire device_unused_fallback_key_types from /sync → fallback generation trigger
-- Upload fallback_key on /keys/upload
-- Mark fallback as published after successful claim
-
-NOT blocked on submodule anymore — real implementation exists in OlmAccountData API.
+- [x] Port generateFallbackKey + unpublishedFallbackKey + forgetOldFallbackKey from libolm to OlmAccount class
+- [x] Wire device_unused_fallback_key_types from /sync → fallback generation trigger
+- [x] Upload fallback_key on /keys/upload (via includeFallbackKey flag + uploadFallbackKey())
+- [x] Mark fallback as published after successful claim (markOneTimeKeysPublished covers both)
+- [x] Per-account cooldown + 5-min forget-old-fallback timer
+- [x] CSPRNG fix: submodule generateRandomBytes replaced rand() with /dev/urandom
+- [x] Tests: lifecycle, pickle roundtrip, /sync parse, RNG regression, claimed-fallback session
 
 ## Phase 4 — Key sharing + forwarded keys + export/import (2-3 sessions)
 - Port keyshare.cpp (incoming m.room_key_request handling — REAL, 103L)

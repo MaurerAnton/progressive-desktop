@@ -329,6 +329,7 @@ The `third_party/progressive-android-experiments/` submodule has ~90 E2EE-releva
 7. olm_*_session(memory) zeros the struct — call ONCE
 8. olm_unpickle_session mutates pickle buffer IN-PLACE — must pass copy
 9. olm_sas_set_their_key decodes pubkey base64 IN-PLACE — must pass copy
+10. olm_account_unpublished_fallback_key returns the empty form {"curve25519":{}} (length > 0) even when no fallback key exists — detect by content, not length (account.cpp:359-366)
 See `docs/E2EE.md` for full implementation notes, common mistakes, recovery chain design, and spec compliance table.
 
 ---

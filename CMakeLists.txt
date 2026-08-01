@@ -107,6 +107,7 @@ add_library(progressive_ui_dialogs STATIC
     src/ui/dialogs/room_switcher_dialog.cpp
     src/ui/dialogs/threads_dialog.cpp
     src/ui/dialogs/shortcuts_dialog.cpp
+    src/ui/dialogs/sas_verification_dialog.cpp
     src/ui/dialogs/prefs_dialog.cpp
     src/ui/dialogs/network_log_dialog.cpp
     src/ui/profile_dialog.cpp

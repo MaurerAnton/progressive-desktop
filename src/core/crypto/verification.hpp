@@ -8,6 +8,7 @@
 #include <chrono>
 #include <optional>
 #include <mutex>
+#include <functional>
 
 namespace progressive::desktop {
 
@@ -48,6 +49,12 @@ struct VerificationTransaction {
 
 class VerificationManager {
 public:
+    using SendToDeviceFn = std::function<void(const std::string& eventType,
+        const std::string& txnId, const std::string& contentJson,
+        const std::string& targetUserId, const std::string& targetDeviceId)>;
+
+    void setSendToDeviceFn(SendToDeviceFn fn) { sendToDeviceFn_ = std::move(fn); }
+
     static std::string generateTransactionId();
 
     VerificationTransaction* startVerification(
@@ -83,13 +90,13 @@ public:
 
     std::vector<VerificationEmoji> computeEmojis(VerificationTransaction& txn) const;
     bool verifyTheirMac(VerificationTransaction& txn,
-        const std::string& theirMacJson, const std::string& ourDeviceId,
-        const std::string& ourEd25519, const std::string& ourCurve25519) const;
+        const std::string& theirMacJson) const;
     std::string buildSasInfo(const VerificationTransaction& txn) const;
 
 private:
     mutable std::mutex mtx_;
     std::vector<std::unique_ptr<VerificationTransaction>> transactions_;
+    SendToDeviceFn sendToDeviceFn_;
     std::string computeCommitment(const std::string& startContentJson,
         const std::string& ourSasPubkey) const;
     std::string macInfo(const std::string& keyOwnerUser,

@@ -7,17 +7,22 @@
 
 namespace progressive::desktop {
 
+void VerificationController::setVerificationManager(VerificationManager* vm) {
+    vm_ = vm;
+    if (vm_) {
+        vm_->setSendToDeviceFn([this](const std::string& eventType,
+            const std::string& txnId, const std::string& contentJson,
+            const std::string& targetUserId, const std::string& targetDeviceId) {
+            sendToDevice(eventType, txnId, contentJson, targetUserId, targetDeviceId);
+        });
+    }
+}
+
 void VerificationController::sendToDevice(const std::string& eventType,
     const std::string& txnId, const std::string& contentJson,
     const std::string& targetUserId, const std::string& targetDeviceId) {
     if (!client_) return;
     std::ostringstream body;
-    std::string escapedContent;
-    for (char c : contentJson) {
-        if (c == '"') escapedContent += "\\\"";
-        else if (c == '\\') escapedContent += "\\\\";
-        else escapedContent += c;
-    }
     body << "{\"messages\":{\"" << targetUserId << "\":{\""
          << targetDeviceId << "\":" << contentJson << "}}}";
     client_->sendToDevice(eventType, txnId, body.str());
@@ -50,8 +55,13 @@ void VerificationController::acceptIncoming(const std::string& txnId) {
     sendToDevice("m.key.verification.start", txnId, content,
                   txn->otherUserId, txn->otherDeviceId);
 
-    // Responder creates SAS and computes commitment after start
+    // Responder creates SAS and sends key immediately
     txn->sas = sasCreate();
+    txn->state = VerificationState::KeySent;
+
+    std::string keyContent = vm_->buildKeyContent(txnId, txn->sas.ourPubkey);
+    sendToDevice("m.key.verification.key", txnId, keyContent,
+                  txn->otherUserId, txn->otherDeviceId);
 }
 
 void VerificationController::confirmMatch(const std::string& txnId) {
@@ -59,14 +69,6 @@ void VerificationController::confirmMatch(const std::string& txnId) {
     auto* txn = vm_->findTransaction(txnId);
     if (!txn || !txn->sas.valid) return;
 
-    std::string ourDeviceId = txn->ourDeviceId;
-
-    // Send key
-    std::string keyContent = vm_->buildKeyContent(txnId, txn->sas.ourPubkey);
-    sendToDevice("m.key.verification.key", txnId, keyContent,
-                  txn->otherUserId, txn->otherDeviceId);
-
-    // Compute + send MAC
     std::string macContent = vm_->buildMacContent(*txn, txn->sas);
     sendToDevice("m.key.verification.mac", txnId, macContent,
                   txn->otherUserId, txn->otherDeviceId);

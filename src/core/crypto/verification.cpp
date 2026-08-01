@@ -96,7 +96,8 @@ static std::string domGetString(simdjson::dom::element e, const std::string& pat
 VerificationTransaction* VerificationManager::handleEvent(
     const std::string& eventType, const std::string& senderId,
     const std::string& contentJson, const std::string& ourUserId,
-    const std::string& ourEd25519, const std::string& ourCurve25519) {
+    const std::string& ourDeviceId, const std::string& ourEd25519,
+    const std::string& ourCurve25519) {
 
     std::lock_guard<std::mutex> lk(mtx_);
     simdjson::dom::parser p;
@@ -133,6 +134,10 @@ VerificationTransaction* VerificationManager::handleEvent(
         t->transactionId = txnId;
         t->otherUserId = senderId;
         t->otherDeviceId = otherDeviceId;
+        t->ourUserId = ourUserId;
+        t->ourDeviceId = ourDeviceId;
+        t->ourEd25519 = ourEd25519;
+        t->ourCurve25519 = ourCurve25519;
         t->isIncoming = true;
         t->state = VerificationState::RequestReceived;
         t->startTime = std::chrono::steady_clock::now();
@@ -143,6 +148,11 @@ VerificationTransaction* VerificationManager::handleEvent(
 
     txn = findTransaction(txnId);
     if (!txn) return nullptr;
+
+    txn->ourUserId = ourUserId;
+    txn->ourEd25519 = ourEd25519;
+    txn->ourCurve25519 = ourCurve25519;
+    if (txn->ourDeviceId.empty()) txn->ourDeviceId = ourDeviceId;
 
     if (eventType == "m.key.verification.ready") {
         txn->state = VerificationState::Ready;
@@ -244,26 +254,27 @@ std::string VerificationManager::buildKeyContent(const std::string& txnId,
            "\"key\":\"" + esc(sasPubkey) + "\"}";
 }
 
-std::string VerificationManager::buildMacContent(const std::string& txnId,
-    const std::string& ourDeviceId, const std::string& ourEd25519,
-    const std::string& ourCurve25519, SasSession& sas) const {
-    std::string ed25519KeyId = "ed25519:" + ourDeviceId;
-    std::string curve25519KeyId = "curve25519:" + ourDeviceId;
+std::string VerificationManager::buildMacContent(const VerificationTransaction& txn,
+    SasSession& sas) const {
+    std::string ed25519KeyId = "ed25519:" + txn.ourDeviceId;
+    std::string curve25519KeyId = "curve25519:" + txn.ourDeviceId;
     std::string keysSorted = curve25519KeyId + "," + ed25519KeyId;
 
-    std::string ed25519Info = macInfo("", ourDeviceId, "", txnId, ed25519KeyId);
-    std::string curve25519Info = macInfo("", ourDeviceId, "", txnId, curve25519KeyId);
-    std::string keysInfo = macInfo("", ourDeviceId, "", txnId, "KEY_IDS");
+    std::string ed25519Info = macInfo(txn.ourUserId, txn.ourDeviceId,
+        txn.otherUserId, txn.otherDeviceId, txn.transactionId, ed25519KeyId);
+    std::string curve25519Info = macInfo(txn.ourUserId, txn.ourDeviceId,
+        txn.otherUserId, txn.otherDeviceId, txn.transactionId, curve25519KeyId);
+    std::string keysInfo = macInfo(txn.ourUserId, txn.ourDeviceId,
+        txn.otherUserId, txn.otherDeviceId, txn.transactionId, "KEY_IDS");
 
-    std::string ed25519mac = sasCalculateMac(sas, ourEd25519, ed25519Info);
-    std::string curve25519mac = sasCalculateMac(sas, ourCurve25519, curve25519Info);
+    std::string ed25519mac = sasCalculateMac(sas, txn.ourEd25519, ed25519Info);
+    std::string curve25519mac = sasCalculateMac(sas, txn.ourCurve25519, curve25519Info);
     std::string keysMac = sasCalculateMac(sas, keysSorted, keysInfo);
 
-    return "{\"transaction_id\":\"" + esc(txnId) + "\","
-           "\"mac\":{\"ed25519:" + esc(ourDeviceId) + "\":\"" + esc(ed25519mac) + "\","
-           "\"curve25519:" + esc(ourDeviceId) + "\":\"" + esc(curve25519mac) + "\","
-           "\"keys\":\"" + esc(keysMac) + "\"},"
-           "\"keys\":\"" + esc(keysSorted) + "\"}";
+    return "{\"transaction_id\":\"" + esc(txn.transactionId) + "\","
+           "\"mac\":{\"ed25519:" + esc(txn.ourDeviceId) + "\":\"" + esc(ed25519mac) + "\","
+           "\"curve25519:" + esc(txn.ourDeviceId) + "\":\"" + esc(curve25519mac) + "\"},"
+           "\"keys\":\"" + esc(keysMac) + "\"}";
 }
 
 std::string VerificationManager::buildDoneContent(const std::string& txnId) const {
@@ -305,12 +316,11 @@ bool VerificationManager::verifyTheirMac(VerificationTransaction& txn,
     std::string sendingDeviceId = txn.otherDeviceId;
     std::string receivingDeviceId = ourDeviceId;
     std::string otherUser = txn.weInitiated ? txn.ourDeviceId : txn.otherUserId;
-    (void)otherUser;
 
     // Verify ed25519 key MAC
     std::string ed25519KeyId = "ed25519:" + sendingDeviceId;
-    std::string ed25519Info = macInfo(keyOwnerUser, sendingDeviceId, receivingDeviceId,
-                                      txn.transactionId, ed25519KeyId);
+    std::string ed25519Info = macInfo(keyOwnerUser, sendingDeviceId, otherUser,
+                                      receivingDeviceId, txn.transactionId, ed25519KeyId);
     auto theirEdMac = macObj.value()[ed25519KeyId].get_string();
     if (theirEdMac.error() == simdjson::SUCCESS) {
         if (!sasVerifyMac(txn.sas, std::string(theirEdMac.value()), ourEd25519, ed25519Info))
@@ -319,8 +329,8 @@ bool VerificationManager::verifyTheirMac(VerificationTransaction& txn,
 
     // Verify curve25519 key MAC
     std::string curveKeyId = "curve25519:" + sendingDeviceId;
-    std::string curveInfo = macInfo(keyOwnerUser, sendingDeviceId, receivingDeviceId,
-                                     txn.transactionId, curveKeyId);
+    std::string curveInfo = macInfo(keyOwnerUser, sendingDeviceId, otherUser,
+                                     receivingDeviceId, txn.transactionId, curveKeyId);
     auto theirCurveMac = macObj.value()[curveKeyId].get_string();
     if (theirCurveMac.error() == simdjson::SUCCESS) {
         if (!sasVerifyMac(txn.sas, std::string(theirCurveMac.value()), ourCurve25519, curveInfo))
@@ -328,8 +338,8 @@ bool VerificationManager::verifyTheirMac(VerificationTransaction& txn,
     }
 
     // Verify keys MAC
-    std::string keysInfo = macInfo(keyOwnerUser, sendingDeviceId, receivingDeviceId,
-                                    txn.transactionId, "KEY_IDS");
+    std::string keysInfo = macInfo(keyOwnerUser, sendingDeviceId, otherUser,
+                                    receivingDeviceId, txn.transactionId, "KEY_IDS");
     auto theirKeysMac = macObj.value()["keys"].get_string();
     std::string keysSorted = std::string(keysStr.value());
     std::string keysCanon = curveKeyId + "," + ed25519KeyId;
@@ -344,8 +354,8 @@ bool VerificationManager::verifyTheirMac(VerificationTransaction& txn,
 
 std::string VerificationManager::buildSasInfo(const VerificationTransaction& txn) const {
     // curve25519-hkdf-sha256 SAS info (7-part pipe-delimited)
-    std::string startUser = txn.weInitiated ? "" : txn.otherUserId;
-    std::string acceptUser = txn.weInitiated ? txn.otherUserId : "";
+    std::string startUser = txn.weInitiated ? txn.ourUserId : txn.otherUserId;
+    std::string acceptUser = txn.weInitiated ? txn.otherUserId : txn.ourUserId;
     std::string startDevice = txn.weInitiated ? txn.ourDeviceId : txn.otherDeviceId;
     std::string acceptDevice = txn.weInitiated ? txn.otherDeviceId : txn.ourDeviceId;
     std::string startPubkey = txn.weInitiated ? txn.sas.ourPubkey : txn.theirSasPubkey;
@@ -379,12 +389,11 @@ std::string VerificationManager::computeCommitment(const std::string& startConte
 }
 
 std::string VerificationManager::macInfo(const std::string& keyOwnerUser,
-    const std::string& sendingDeviceId, const std::string& receivingDeviceId,
+    const std::string& sendingDeviceId, const std::string& otherUser,
+    const std::string& receivingDeviceId,
     const std::string& txnId, const std::string& keyId) const {
-    // 7-part MAC info: keyOwnerUser + sendingDeviceId + otherUser + receivingDeviceId + txnId + keyId
-    // otherUser = the OTHER user in the transaction
     return "MATRIX_KEY_VERIFICATION_MAC" + keyOwnerUser + sendingDeviceId
-           + receivingDeviceId + txnId + keyId;
+           + otherUser + receivingDeviceId + txnId + keyId;
 }
 
 } // namespace progressive::desktop

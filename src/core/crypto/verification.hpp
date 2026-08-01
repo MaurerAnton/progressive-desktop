@@ -27,7 +27,10 @@ struct VerificationTransaction {
     std::string transactionId;
     std::string otherUserId;
     std::string otherDeviceId;
+    std::string ourUserId;
     std::string ourDeviceId;
+    std::string ourEd25519;
+    std::string ourCurve25519;
     bool weInitiated = false;
     bool isIncoming = false;
     VerificationState state = VerificationState::Idle;
@@ -58,7 +61,8 @@ public:
 
     VerificationTransaction* handleEvent(const std::string& eventType,
         const std::string& senderId, const std::string& contentJson,
-        const std::string& ourUserId, const std::string& ourEd25519,
+        const std::string& ourUserId, const std::string& ourDeviceId,
+        const std::string& ourEd25519,
         const std::string& ourCurve25519);
 
     std::string buildRequestContent(const std::string& ourDeviceId,
@@ -71,9 +75,8 @@ public:
         const std::string& commitment) const;
     std::string buildKeyContent(const std::string& txnId,
         const std::string& sasPubkey) const;
-    std::string buildMacContent(const std::string& txnId,
-        const std::string& ourDeviceId, const std::string& ourEd25519,
-        const std::string& ourCurve25519, SasSession& sas) const;
+    std::string buildMacContent(const VerificationTransaction& txn,
+        SasSession& sas) const;
     std::string buildDoneContent(const std::string& txnId) const;
     std::string buildCancelContent(const std::string& txnId, CancelCode code,
         const std::string& reason = "") const;
@@ -90,7 +93,8 @@ private:
     std::string computeCommitment(const std::string& startContentJson,
         const std::string& ourSasPubkey) const;
     std::string macInfo(const std::string& keyOwnerUser,
-        const std::string& sendingDeviceId, const std::string& receivingDeviceId,
+        const std::string& sendingDeviceId, const std::string& otherUser,
+        const std::string& receivingDeviceId,
         const std::string& txnId, const std::string& keyId) const;
 };
 

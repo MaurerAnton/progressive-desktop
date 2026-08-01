@@ -67,8 +67,7 @@ void VerificationController::confirmMatch(const std::string& txnId) {
                   txn->otherUserId, txn->otherDeviceId);
 
     // Compute + send MAC
-    std::string macContent = vm_->buildMacContent(txnId, ourDeviceId,
-        "", "", txn->sas);  // ed25519/curve25519 read from sync decryptor
+    std::string macContent = vm_->buildMacContent(*txn, txn->sas);
     sendToDevice("m.key.verification.mac", txnId, macContent,
                   txn->otherUserId, txn->otherDeviceId);
 

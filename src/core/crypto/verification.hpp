@@ -61,7 +61,8 @@ public:
 
     VerificationTransaction* handleEvent(const std::string& eventType,
         const std::string& senderId, const std::string& contentJson,
-        const std::string& ourUserId, const std::string& ourEd25519,
+        const std::string& ourUserId, const std::string& ourDeviceId,
+        const std::string& ourEd25519,
         const std::string& ourCurve25519);
 
     std::string buildRequestContent(const std::string& ourDeviceId,

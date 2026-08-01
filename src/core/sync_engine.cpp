@@ -304,9 +304,10 @@ void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
             std::string contentStr(evt.contentJson);
             std::string senderStr(evt.senderId);
             std::string userId = client_ ? client_->account().userId : "";
+            std::string deviceId = client_ ? client_->account().deviceId : "";
             verificationManager_.handleEvent(
                 std::string(evt.type), senderStr, contentStr,
-                userId, decryptor_.ed25519Key(), decryptor_.curve25519Key());
+                userId, deviceId, decryptor_.ed25519Key(), decryptor_.curve25519Key());
         }
     }
 }

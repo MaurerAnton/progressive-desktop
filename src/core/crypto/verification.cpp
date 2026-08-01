@@ -96,7 +96,8 @@ static std::string domGetString(simdjson::dom::element e, const std::string& pat
 VerificationTransaction* VerificationManager::handleEvent(
     const std::string& eventType, const std::string& senderId,
     const std::string& contentJson, const std::string& ourUserId,
-    const std::string& ourEd25519, const std::string& ourCurve25519) {
+    const std::string& ourDeviceId, const std::string& ourEd25519,
+    const std::string& ourCurve25519) {
 
     std::lock_guard<std::mutex> lk(mtx_);
     simdjson::dom::parser p;
@@ -133,6 +134,10 @@ VerificationTransaction* VerificationManager::handleEvent(
         t->transactionId = txnId;
         t->otherUserId = senderId;
         t->otherDeviceId = otherDeviceId;
+        t->ourUserId = ourUserId;
+        t->ourDeviceId = ourDeviceId;
+        t->ourEd25519 = ourEd25519;
+        t->ourCurve25519 = ourCurve25519;
         t->isIncoming = true;
         t->state = VerificationState::RequestReceived;
         t->startTime = std::chrono::steady_clock::now();
@@ -143,6 +148,11 @@ VerificationTransaction* VerificationManager::handleEvent(
 
     txn = findTransaction(txnId);
     if (!txn) return nullptr;
+
+    txn->ourUserId = ourUserId;
+    txn->ourEd25519 = ourEd25519;
+    txn->ourCurve25519 = ourCurve25519;
+    if (txn->ourDeviceId.empty()) txn->ourDeviceId = ourDeviceId;
 
     if (eventType == "m.key.verification.ready") {
         txn->state = VerificationState::Ready;

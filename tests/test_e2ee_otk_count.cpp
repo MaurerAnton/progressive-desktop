@@ -1,4 +1,5 @@
 #include "core/crypto/olm_account.hpp"
+#include "core/fast_sync.hpp"
 #include <simdjson.h>
 #include <iostream>
 #include <string>
@@ -68,9 +69,67 @@ static void test_count_roundtrip() {
     // uploadedKeyCount is NOT in libolm pickle — DB-layer, verified in test_e2ee_account
 }
 
+static void test_fallback_key_lifecycle() {
+    progressive::desktop::OlmAccountStore store;
+    CHECK(store.create(), "fallback: create() succeeds");
+
+    CHECK(store.unpublishedFallbackKey().empty(), "fallback: no unpublished key before generate");
+    CHECK(store.generateFallbackKey(), "fallback: generateFallbackKey() succeeds");
+    std::string fk = store.unpublishedFallbackKey();
+    CHECK(!fk.empty(), "fallback: unpublishedFallbackKey() non-empty after generate");
+    CHECK(fk.find("curve25519") != std::string::npos, "fallback: JSON contains curve25519");
+
+    store.markOneTimeKeysPublished();
+    CHECK(store.unpublishedFallbackKey().empty(),
+          "fallback: unpublished empty after markOneTimeKeysPublished (marks fallback too)");
+
+    CHECK(store.generateFallbackKey(), "fallback: regenerate after publish works");
+    CHECK(!store.unpublishedFallbackKey().empty(), "fallback: new unpublished key exists");
+}
+
+static void test_fallback_key_roundtrip() {
+    progressive::desktop::OlmAccountStore store1;
+    CHECK(store1.create(), "fallback-roundtrip: create()");
+    CHECK(store1.generateFallbackKey(), "fallback-roundtrip: generate()");
+    CHECK(!store1.unpublishedFallbackKey().empty(), "fallback-roundtrip: unpublished before save");
+
+    std::string pickle = store1.save("fallback-roundtrip-key");
+    CHECK(!pickle.empty(), "fallback-roundtrip: save() non-empty");
+
+    progressive::desktop::OlmAccountStore store2;
+    CHECK(store2.load(pickle, "fallback-roundtrip-key"), "fallback-roundtrip: load() succeeds");
+    // The fallback key lives inside the libolm account pickle — it survives
+    // save/load without any DB schema change.
+    CHECK(!store2.unpublishedFallbackKey().empty(),
+          "fallback-roundtrip: unpublished fallback survives save/load");
+}
+
+static void test_sync_unused_fallback_parse() {
+    // device_unused_fallback_key_types present → parsed into the response.
+    std::string err;
+    auto resp = progressive::desktop::parseSyncResponseFast(
+        R"({"device_unused_fallback_key_types":["signed_curve25519","other"],
+            "device_one_time_keys_count":{"signed_curve25519":5}})",
+        err);
+    CHECK(err.empty(), "sync-fallback: parse succeeds");
+    CHECK(resp.unusedFallbackKeyTypes.size() == 2,
+          "sync-fallback: two fallback types parsed");
+    CHECK(resp.unusedFallbackKeyTypes[0] == "signed_curve25519",
+          "sync-fallback: first type is signed_curve25519");
+
+    // Field absent → empty vector (the "never uploaded" case → trigger upload).
+    auto resp2 = progressive::desktop::parseSyncResponseFast(
+        R"({"device_one_time_keys_count":{"signed_curve25519":5}})", err);
+    CHECK(resp2.unusedFallbackKeyTypes.empty(),
+          "sync-fallback: absent field → empty vector");
+}
+
 int main() {
     test_otk_count_lifecycle();
     test_count_roundtrip();
+    test_fallback_key_lifecycle();
+    test_fallback_key_roundtrip();
+    test_sync_unused_fallback_parse();
     if (failures == 0) { std::cout << "\nALL TESTS PASSED\n"; return 0; }
     std::cout << "\n" << failures << " TEST(S) FAILED\n";
     return 1;

@@ -17,10 +17,10 @@ index 312d2dc..484655c 100644
      // session creation but won't be returned by one_time_keys again).
      OlmAccountResult markKeysAsPublished();
 diff --git a/progressive/src/main/cpp/src/olm.cpp b/progressive/src/main/cpp/src/olm.cpp
-index 4cc495e..b65de05 100644
+index 4cc495e..bea568a 100644
 --- a/progressive/src/main/cpp/src/olm.cpp
 +++ b/progressive/src/main/cpp/src/olm.cpp
-@@ -107,6 +107,39 @@ OlmAccountResult OlmAccount::generateOneTimeKeys(int count) {
+@@ -107,6 +107,44 @@ OlmAccountResult OlmAccount::generateOneTimeKeys(int count) {
      return result;
  }
  
@@ -53,6 +53,11 @@ index 4cc495e..b65de05 100644
 +        return result;
 +    }
 +    result.success = true;
++    // libolm always reports the buffer length of {"curve25519":{}} even when
++    // no unpublished fallback key exists — detect the empty form by content.
++    if (key == "{\"curve25519\":{}}") {
++        return result;
++    }
 +    result.data = std::move(key);
 +    return result;
 +}

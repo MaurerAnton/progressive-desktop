@@ -12,12 +12,6 @@ void VerificationController::sendToDevice(const std::string& eventType,
     const std::string& targetUserId, const std::string& targetDeviceId) {
     if (!client_) return;
     std::ostringstream body;
-    std::string escapedContent;
-    for (char c : contentJson) {
-        if (c == '"') escapedContent += "\\\"";
-        else if (c == '\\') escapedContent += "\\\\";
-        else escapedContent += c;
-    }
     body << "{\"messages\":{\"" << targetUserId << "\":{\""
          << targetDeviceId << "\":" << contentJson << "}}}";
     client_->sendToDevice(eventType, txnId, body.str());

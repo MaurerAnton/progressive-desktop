@@ -380,7 +380,7 @@ void SyncEngine::uploadDeviceKeys(bool force) {
     LOG(LogChannel::E2EE, "uploadDeviceKeys: discarded old OTKs before generating fresh");
 
     LOG(LogChannel::E2EE, "uploadDeviceKeys: uploading for %s/%s", userId.c_str(), deviceId.c_str());
-    std::string body = decryptor_.buildKeysUploadBody(userId, deviceId, needed, needDeviceKeys);
+    std::string body = decryptor_.buildKeysUploadBody(userId, deviceId, needed, needDeviceKeys, true);
     LOG(LogChannel::E2EE, "uploadDeviceKeys: our curve25519=%s ed25519=%s",
         decryptor_.curve25519Key().c_str(),
         decryptor_.ed25519Key().c_str());

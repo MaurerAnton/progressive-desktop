@@ -132,11 +132,16 @@ void VerificationController::confirmMatch(const std::string& txnId) {
 
 void VerificationController::cancelVerification(const std::string& txnId,
     const std::string& reason) {
+    cancelVerification(txnId, CancelCode::User, reason);
+}
+
+void VerificationController::cancelVerification(const std::string& txnId,
+    CancelCode code, const std::string& reason) {
     if (!client_ || !vm_) return;
     auto* txn = vm_->findTransaction(txnId);
     if (!txn) return;
 
-    std::string content = vm_->buildCancelContent(txnId, CancelCode::User, reason);
+    std::string content = vm_->buildCancelContent(txnId, code, reason);
     sendToDevice("m.key.verification.cancel", txnId, content,
                   txn->otherUserId, txn->otherDeviceId);
     vm_->removeTransaction(txnId);

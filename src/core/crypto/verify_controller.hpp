@@ -9,6 +9,7 @@ namespace progressive::desktop {
 class MatrixClient;
 class VerificationManager;
 class SyncEngine;
+enum class CancelCode;
 
 class VerificationController {
 public:
@@ -31,6 +32,8 @@ public:
 
     // User cancelled or emojis don't match
     void cancelVerification(const std::string& txnId, const std::string& reason = "m.user");
+    void cancelVerification(const std::string& txnId, CancelCode code,
+                            const std::string& reason = "");
 
     // Send a verification to-device event
     void sendToDevice(const std::string& eventType, const std::string& txnId,

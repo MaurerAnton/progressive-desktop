@@ -208,6 +208,8 @@ void ToolbarHandler::onSettings() {
         dlg.exec();
     } else if (selected == prefsAction) {
         PrefsDialog dlg(parentWidget_);
+        dlg.setClient(client_);
+        dlg.setVerificationHandler(verifyHandler_);
         connect(&dlg, &PrefsDialog::settingsChanged, this, &ToolbarHandler::prefsChanged);
         dlg.exec();
     } else if (selected == shortcutsAction) {

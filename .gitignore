@@ -9,6 +9,7 @@ CMakeCache.txt
 CMakeUserPresets.json
 compile_commands.json
 .cmake/
+CMakeFiles/
 
 # IDE
 .vscode/
@@ -35,10 +36,9 @@ compile_commands.json
 
 # Test fixtures (recorded locally — not committed, may contain user data)
 tests/fixtures/
-AGENTS.md
-DREAM.md
-PROGRESS.md
-REFERENCE.md
+
+# Personal / session state — not shared knowledge
+memory/DREAM.md
+memory/REFERENCE.md
+memory/PLANNER.md
 prompts/
-memory/
-CMakeFiles/

@@ -123,3 +123,218 @@ Green on every push to main. Same test skips locally when no server (local `ctes
 - MSC1756 (cross-signing), MSC1543 (QR verification), MSC3061 (shared history)
 - MSC3976 (fallback key usage), MSC3847 (device dehydration)
 - MSC3894 (secret gossiping), MSC3086 (SAS emoji set)
+
+---
+
+# Diagnostic Guide (was docs/E2EE-troubleshooting.md, merged Aug 1)
+
+> Quick reference: grep the logs for the symptom → read the cause → apply the fix.
+
+## Quick Symptom → Root Cause Index
+
+### "[encrypted]" messages after restart
+
+```
+[e2ee] loaded megolm sessions: 0
+[e2ee] persistCrypto: saved 1 megolm sessions
+```
+
+**Root cause**: Megolm sessions not persisted (saved 1, loaded 0).
+
+**Check**:
+```bash
+grep "loaded.*sessions\|persistCrypto.*saved" logs.txt
+```
+
+**Fixes** (in order of likelihood):
+1. Pickle key mismatch — save uses `userId/deviceId`, but load uses different key. Both must match.
+2. Single-key `e2ee_data['megolm']` — ALL accounts shared one row. Fixed by scoping keys.
+3. Hex decode failed — odd-length hex string → raw data = garbage → XOR = garbage → JSON parse fails silently. `unpickleAll` returns `true` even on parse failure.
+
+**Verify fixed**: After per-account scoping, `loaded N megolm sessions` where N > 0.
+
+---
+
+### "Olm: our key not found in ciphertext"
+
+```
+[E2EE] Olm: our curve25519=/OVaWlV/636mXkICJp3M...
+[E2EE] Olm: ciphertext has key=BO8OAlWoJs3hWig816HbUUlcno1hx+rHN66JGamduG4
+```
+
+**Root cause**: Other client (Element/FluffyChat) has a STALE device key for us. They're encrypting Olm to-device for an old curve25519 that we no longer have.
+
+**Causes** (in order of likelihood):
+1. **167 stale OTKs** — orphaned OTKs from old Olm accounts on the server. /keys/claim returns a stale OTK → Olm session creation fails → other client gives up.
+2. **Stale device key cache** — other client cached our old curve25519 from a previous /keys/query. Our new /keys/upload didn't trigger `device_lists:changed` in their /sync.
+3. **OTK upload failed** (400 "already exists") — duplicate OTK IDs → no fresh OTKs on server → other client can't create Olm session.
+
+**Fix**: "Reset device keys" in Settings → deletes device from server (clears ALL stale OTKs) → re-uploads fresh device_keys + OTKs. Then restart other clients (or wait for `device_lists:changed`).
+
+---
+
+### 400 "One time key already exists"
+
+```
+[E2EE] uploadDeviceKeys: FAILED — error=One time key signed_curve25519:AAAACg already exists
+```
+
+**Cause sequence**: libolm generates sequential OTK IDs; after restart it reuses the sequence → duplicate → server rejects. Generate → upload → `markOneTimeKeysPublished()` NOT called (e.g., 401 token race) → old OTKs accumulate → 400 on each restart → eventually hits MAX_ONE_TIME_KEYS=100.
+
+**Fix**: Call `markOneTimeKeysPublished()` BEFORE generating new OTKs. Use OTK count from /sync to only generate `max(0, 100 - serverCount)` new OTKs. Skip upload when count is sufficient and `shared=true`.
+
+---
+
+### "corrupted size vs. prev_size while consolidating" CRASH
+
+```
+[CRASH] Signal 6 (SIGABRT)
+[BACKTRACE] #7 MegolmStore::sessionCount()
+            #8 MegolmStore::unpickleAll()
+```
+
+**Root cause**: Recursive mutex lock. `unpickleAll()` holds `mtx_` (line 108), then calls `sessionCount()` which tries to lock `mtx_` again (line 164) → deadlock → SIGABRT.
+
+**Fix**: Replace `sessionCount()` with `impl_->mgr.sessionCount()` — direct access, no lock needed (already holding it).
+
+---
+
+### curve25519 = "AAAA..." (all zeros)
+
+```
+[E2EE] uploadDeviceKeys: our curve25519=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+```
+
+**Root cause**: libolm quirk #7 — `create()` zeros the struct when called on an already-created account. Double-init in `switchAccount()`: `init()` then `init(pickle, key)` → `init(pickle)` fails to load → falls back to `create()` → zeros.
+
+**Fix**: Remove the `init()` pre-check. Call `init(pickle, key, shared)` directly — it handles both load-from-pickle and create-new cases.
+
+---
+
+### "no device found for senderKey" during forceNewOlmSession
+
+If senderKey matches `our curve25519=` → self-request (our other device sent the message). Normal, not a bug. If different key → our device_keys not on server (stale `otk_uploaded_once` flag).
+
+---
+
+### Account switch: megolm sessions lost (loaded 0)
+
+`e2ee_data['megolm']` single key → account switch overwrites data. **Fix**: per-account scoping `e2ee_data['megolm:userId/devId']`.
+
+---
+
+### SIGSEGV on app close (Signal 11)
+
+Detached sync worker thread → use-after-free. `worker_.detach()` → thread keeps running after `~SyncEngine()` destroys `decryptor_` → thread writes to freed memory.
+
+**Fix**: `worker_.join()` instead of `detach()` in `sync_engine.cpp stop()`. Add `if (!running_) break;` defense-in-depth before decryptor_ accesses.
+
+---
+
+### App freezes on startup — "loaded session" repeating forever
+
+```
+[e2ee] olm: loaded session CpZiYQSb1EfmyJU9yvW5CiI9N69jPs (pickleLen=352) ... (30000+ repeats)
+```
+
+**Root cause**: Exponential Olm session growth — `switchAccount` appends sessions without clearing. Each switch compounds → 30000+ sessions → minutes to load, 250 MB RAM.
+
+**Fix**: (1) `olmSessions_.clear()` at start of `unpickleOlmSessions`. (2) Dedup before push_back. (3) Cap 20/senderKey. (4) Same for `unpickleOutboundSessions`. (5) Auto-cleanup if loaded > 500 KB.
+
+**Verify**: `loaded.*olm session pickles` ~30-60, not 30000. RAM < 150 MB. Startup < 5s. Switch 5x → stable.
+
+---
+
+### Ctrl+Tab logs out both accounts
+
+Ctrl+Tab cycles through ALL combo indices (incl. separator, "+Add Account", "Logout"). Index 4 → `logout()` → `clearAccount()` (DELETE with NO WHERE) → both accounts nuked.
+
+**Fix**: Ctrl+Tab only cycles `0..accountCount-1`. `clearAccount()` uses `DELETE FROM account WHERE user_id=?`.
+
+---
+
+### SasSession double-free CRASH (Phase 2 SAS)
+
+`SasSession` owns `void* sas` + frees in destructor, but no move ctor/assignment → compiler-generated copy double-frees. **Fix**: move ctor/assignment transferring ownership, delete copy. (Fixed Aug 1.)
+
+---
+
+### SAS emojis intermittently 6 instead of 7 (missing Hammer)
+
+The 64-emoji table was missing its 64th entry (index 63). `index % 64` never hit 63 → one position collapsed → 6 vs 7 → mismatch cancel. **Fix**: add the 64th entry (`e27d555`).
+
+---
+
+### Two-manager SAS test fails on pubkey/MAC (olm_sas_set_their_key clobbers buffer)
+
+`olm_sas_set_their_key` decodes the base64 pubkey IN-PLACE (quirk #9). **Fix**: pass a copy: `std::string copy = theirSasPubkey; sas.setTheirKey(copy);` (`a91ca63`).
+
+---
+
+### SAS emojis don't match Element (2 shown, 7 expected)
+
+`computeSasDecimals` used non-overlapping 3-byte windows → 2 values. Spec requires 7 overlapping 13-bit windows. **Fix**: rewrite with the overlapping-window algorithm (shift 48-(i+1)*13, & 0x1FFF, % 10000).
+
+---
+
+### Element rejects SAS MAC (m.key_mismatch cancel)
+
+MAC info string format wrong: pipe separators (spec uses concatenation), both keys in one string (spec is per-key), key VALUES not key IDs. **Fix**: `macInfo` takes single `keyId` (e.g., `"ed25519:DEVICEID"`), concat without separators, called per key.
+
+---
+
+### Registration token: m_bad_json "missing field token"
+
+Synapse expects `"token":"<value>"` inside the auth dict, not `"registration_token"`. **Fix**: change field name at `matrix_client.cpp registerAccount`; also add token to the 401 retry body.
+
+---
+
+### ColorSettingsDialog opens empty (no color rows)
+
+`addRow()` uses `findChild<QFormLayout*>()` which returns nullptr until `scroll->setWidget(formContainer)` runs → all 22 rows silently dropped. **Fix**: pass the `QFormLayout*` pointer to `addRow` as a parameter, before `setWidget`.
+
+---
+
+## Log grep cheat sheet
+
+```bash
+# Successful E2EE flow
+grep -E "DECRYPTED|handleRoomKey OK|shared=1|loaded.*sessions|room key shared ok|deviceCount=[2-9]|claimed [2-9]"
+
+# E2EE failures
+grep -E "FAILED|not found in ciphertext|no megolm session|400|corrupted|SIGABRT|AAAAAAA|loaded.*0"
+
+# OTK/count tracking
+grep -E "OTKs sufficient|uploaded_key_count|signed_curve25519 count|OTK count updated"
+
+# Device key mismatch
+grep -E "Olm: our curve25519|Olm: ciphertext has key"
+
+# Device reset
+grep -E "deleteDevice|Reset device|device reset"
+
+# Account switch
+grep -E "before-account-switch|after-account-switch|loaded.*megolm|loaded.*olm"
+
+# Upload flow
+grep -E "uploadDeviceKeys:|shared=|needDeviceKeys=|marked as shared"
+
+# SIGSEGV on close (detached sync thread)
+grep -E "setUploadedKeyCount|worker_.detach|worker_.join|CRASH.*Signal 11"
+
+# Olm session exponential growth
+grep -E "loaded.*olm session pickles|cleanup.*loaded"
+# If loaded count > 1000 → exponential growth bug. RAM should be < 1000 after fix.
+
+# SAS verification flow
+grep -E "m.key.verification|verification.*state|computeSasEmojis|sasCreate|MAC|commitment"
+# If "CANCELLED" appears → check MAC info string format or commitment hash.
+
+# Registration token
+grep -E "m_bad_json.*missing field token|m.login.registration_token"
+# "token" is the field name, NOT "registration_token".
+
+# Color system
+grep -E "findChild.*QFormLayout|addRow|Design::|inline hex"
+# 0 inline hexes should remain outside theme.cpp/hpp.
+```

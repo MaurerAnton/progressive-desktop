@@ -90,6 +90,10 @@ struct FastSyncResponse {
     int totalTimelineEvents = 0;
     int toDeviceEvents = 0;
     int signedCurve25519Count = -1;
+    // "device_unused_fallback_key_types" — fallback key algorithms still
+    // unused on the server. Absence of "signed_curve25519" = our fallback
+    // was claimed (or never uploaded) → trigger a new fallback key upload.
+    std::vector<std::string> unusedFallbackKeyTypes;
     std::vector<std::string> deviceListChanged;
     std::vector<std::string> deviceListLeft;
 

@@ -266,6 +266,20 @@ FastSyncResponse parseSyncResponseFast(std::string json, std::string& errorMessa
         }
     }
 
+    auto unusedFallbackResult = root["device_unused_fallback_key_types"];
+    if (unusedFallbackResult.error() == simdjson::SUCCESS) {
+        auto arr = unusedFallbackResult.value().get_array();
+        if (arr.error() == simdjson::SUCCESS) {
+            for (auto item : arr.value()) {
+                auto s = item.get_string();
+                if (s.error() == simdjson::SUCCESS)
+                    resp.unusedFallbackKeyTypes.emplace_back(s.value());
+            }
+            LOG(LogChannel::E2EE, "fastSync: unused_fallback_key_types=%zu",
+                resp.unusedFallbackKeyTypes.size());
+        }
+    }
+
     resp.buffer = std::make_shared<std::string>(std::move(json));
     resp.parser = parser;
     resp.ownedContentStrings = ownedStrings;

@@ -83,8 +83,7 @@ public:
 
     std::vector<VerificationEmoji> computeEmojis(VerificationTransaction& txn) const;
     bool verifyTheirMac(VerificationTransaction& txn,
-        const std::string& theirMacJson, const std::string& ourDeviceId,
-        const std::string& ourEd25519, const std::string& ourCurve25519) const;
+        const std::string& theirMacJson) const;
     std::string buildSasInfo(const VerificationTransaction& txn) const;
 
 private:

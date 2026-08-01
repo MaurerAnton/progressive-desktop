@@ -16,6 +16,7 @@
 #include <string>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <functional>
 #include <memory>
@@ -75,6 +76,10 @@ public:
     // Call once after init() + login. Non-blocking (spawns a thread).
     void uploadDeviceKeys(bool force = false);
 
+    // Generate (if needed) + upload the fallback key. Called from the sync
+    // loop when the server reports no unused fallback key of our type.
+    void uploadFallbackKey();
+
     const SyncEngineStats& stats() const { return stats_; }
 
     // Start the loop. If a saved since-token exists, continues incremental;
@@ -116,6 +121,10 @@ private:
     bool firstRun_ = false;  // true → next sync uses empty since (gets current state)
     int syncTimeoutMs_ = 3000;
     std::function<std::string()> backupPathProvider_;
+    // Cooldown for fallback re-uploads: servers that never acknowledge the
+    // fallback type would otherwise trigger an upload every sync.
+    std::chrono::steady_clock::time_point lastFallbackUploadAt_{};
+    static constexpr std::chrono::seconds kFallbackUploadCooldown{60};
 };
 
 } // namespace progressive::desktop

@@ -252,6 +252,25 @@ void SyncEngine::run() {
             uploadDeviceKeys(true);
         }
 
+        // Auto-upload the fallback key if the server reports none unused.
+        // Absence of "signed_curve25519" means our fallback was claimed (or
+        // never uploaded) — generate + upload a fresh one.
+        if (!running_) break;
+        if (decryptor_.accountShared()) {
+            bool hasUnusedFallback = false;
+            for (const auto& type : result.data.unusedFallbackKeyTypes) {
+                if (type == "signed_curve25519") { hasUnusedFallback = true; break; }
+            }
+            if (!hasUnusedFallback) {
+                auto now = std::chrono::steady_clock::now();
+                if (now - lastFallbackUploadAt_ >= kFallbackUploadCooldown) {
+                    LOG(LogChannel::E2EE, "sync: no unused fallback key — uploading");
+                    uploadFallbackKey();
+                    lastFallbackUploadAt_ = now;
+                }
+            }
+        }
+
         setState(SyncEngineState::Running);
     }
 
@@ -409,6 +428,60 @@ void SyncEngine::uploadDeviceKeys(bool force) {
             LOG(LogChannel::E2EE, "uploadDeviceKeys: account pickle saved (shared=%d, published=%d)",
                 decryptor_.accountShared() ? 1 : 0, result.ok ? 1 : 0);
         }
+    }
+}
+
+void SyncEngine::uploadFallbackKey() {
+    LOG(LogChannel::E2EE, "uploadFallbackKey: ENTER client=%p isLoggedIn=%d decryptor=%d",
+        client_.get(), client_ && client_->isLoggedIn() ? 1 : 0,
+        decryptor_.isInitialized() ? 1 : 0);
+
+    if (!client_ || !client_->isLoggedIn()) return;
+    if (!decryptor_.isInitialized()) return;
+    if (!decryptor_.accountShared()) return;
+
+    std::string userId = client_->account().userId;
+    std::string deviceId = client_->account().deviceId;
+    if (deviceId.empty()) deviceId = "PROGRESSIVE_DESKTOP";
+
+    // Generate a fresh fallback key only if none is unpublished yet —
+    // keeps retries idempotent after a failed upload.
+    if (decryptor_.account()->unpublishedFallbackKey().empty()) {
+        if (!decryptor_.account()->generateFallbackKey()) {
+            LOG(LogChannel::E2EE, "uploadFallbackKey: generateFallbackKey FAILED");
+            return;
+        }
+        LOG(LogChannel::E2EE, "uploadFallbackKey: generated fresh fallback key");
+    }
+
+    std::string fallbackSection = decryptor_.buildFallbackKeysSection(userId, deviceId);
+    if (fallbackSection.empty()) {
+        LOG(LogChannel::E2EE, "uploadFallbackKey: no fallback key to upload (section empty)");
+        return;
+    }
+
+    std::string body = "{\"fallback_keys\":" + fallbackSection + "}";
+    auto result = client_->uploadKeys(body);
+    LOG(LogChannel::E2EE, "uploadFallbackKey: upload ok=%d httpStatus=%d",
+        result.ok ? 1 : 0, result.httpStatus);
+
+    if (result.ok) {
+        // markOneTimeKeysPublished marks the fallback key as published too
+        // (libolm: mark_keys_as_published covers both OTKs and fallback).
+        decryptor_.markOneTimeKeysPublished();
+        LOG(LogChannel::E2EE, "uploadFallbackKey: SUCCESS — fallback published");
+        std::string pickleKey = userId + "/" + deviceId;
+        std::string newPickle = decryptor_.saveAccountPickle(pickleKey);
+        if (!newPickle.empty() && store_) {
+            store_->saveOlmAccount(newPickle, pickleKey, decryptor_.accountShared(),
+                                    decryptor_.account()->uploadedKeyCount());
+            LOG(LogChannel::E2EE, "uploadFallbackKey: account pickle saved");
+        }
+    } else {
+        // Fallback key stays unpublished — cooldown (60s) prevents hammering,
+        // next sync retries with the same key.
+        LOG(LogChannel::E2EE, "uploadFallbackKey: FAILED — retry after cooldown, error=%s",
+            result.error.message.c_str());
     }
 }
 

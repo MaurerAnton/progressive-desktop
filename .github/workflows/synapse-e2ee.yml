@@ -30,12 +30,17 @@ jobs:
           -e SYNAPSE_SERVER_NAME=localhost \
           -e SYNAPSE_REPORT_STATS=no \
           matrixdotorg/synapse:latest generate
-        # Append registration settings as root (sudo tee) — /data must stay
-        # owned by uid 991 so the Synapse container can read its signing key.
-        sudo tee -a synapse-data/homeserver.yaml > /dev/null <<'EOF'
-        enable_registration: true
-        enable_registration_without_verification: true
-        EOF
+        # Enable password registration IN-PLACE (no duplicate YAML keys) —
+        # /data stays owned by uid 991 so the Synapse container can read its
+        # signing key. sed -i runs as root via sudo.
+        sudo sed -i \
+          -e 's/^enable_registration:.*/enable_registration: true/' \
+          -e 's/^enable_registration_without_verification:.*/enable_registration_without_verification: true/' \
+          synapse-data/homeserver.yaml
+        # Fix ownership back to uid 991 (sed -i as root changed it) and
+        # verify the settings took effect.
+        sudo chown 991:991 synapse-data/homeserver.yaml
+        grep -E '^enable_registration' synapse-data/homeserver.yaml
 
     - name: Start Synapse
       run: |

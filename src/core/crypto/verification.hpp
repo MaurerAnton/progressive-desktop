@@ -75,9 +75,8 @@ public:
         const std::string& commitment) const;
     std::string buildKeyContent(const std::string& txnId,
         const std::string& sasPubkey) const;
-    std::string buildMacContent(const std::string& txnId,
-        const std::string& ourDeviceId, const std::string& ourEd25519,
-        const std::string& ourCurve25519, SasSession& sas) const;
+    std::string buildMacContent(const VerificationTransaction& txn,
+        SasSession& sas) const;
     std::string buildDoneContent(const std::string& txnId) const;
     std::string buildCancelContent(const std::string& txnId, CancelCode code,
         const std::string& reason = "") const;

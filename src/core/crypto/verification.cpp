@@ -254,26 +254,27 @@ std::string VerificationManager::buildKeyContent(const std::string& txnId,
            "\"key\":\"" + esc(sasPubkey) + "\"}";
 }
 
-std::string VerificationManager::buildMacContent(const std::string& txnId,
-    const std::string& ourDeviceId, const std::string& ourEd25519,
-    const std::string& ourCurve25519, SasSession& sas) const {
-    std::string ed25519KeyId = "ed25519:" + ourDeviceId;
-    std::string curve25519KeyId = "curve25519:" + ourDeviceId;
+std::string VerificationManager::buildMacContent(const VerificationTransaction& txn,
+    SasSession& sas) const {
+    std::string ed25519KeyId = "ed25519:" + txn.ourDeviceId;
+    std::string curve25519KeyId = "curve25519:" + txn.ourDeviceId;
     std::string keysSorted = curve25519KeyId + "," + ed25519KeyId;
 
-    std::string ed25519Info = macInfo("", ourDeviceId, "", "", txnId, ed25519KeyId);
-    std::string curve25519Info = macInfo("", ourDeviceId, "", "", txnId, curve25519KeyId);
-    std::string keysInfo = macInfo("", ourDeviceId, "", "", txnId, "KEY_IDS");
+    std::string ed25519Info = macInfo(txn.ourUserId, txn.ourDeviceId,
+        txn.otherUserId, txn.otherDeviceId, txn.transactionId, ed25519KeyId);
+    std::string curve25519Info = macInfo(txn.ourUserId, txn.ourDeviceId,
+        txn.otherUserId, txn.otherDeviceId, txn.transactionId, curve25519KeyId);
+    std::string keysInfo = macInfo(txn.ourUserId, txn.ourDeviceId,
+        txn.otherUserId, txn.otherDeviceId, txn.transactionId, "KEY_IDS");
 
-    std::string ed25519mac = sasCalculateMac(sas, ourEd25519, ed25519Info);
-    std::string curve25519mac = sasCalculateMac(sas, ourCurve25519, curve25519Info);
+    std::string ed25519mac = sasCalculateMac(sas, txn.ourEd25519, ed25519Info);
+    std::string curve25519mac = sasCalculateMac(sas, txn.ourCurve25519, curve25519Info);
     std::string keysMac = sasCalculateMac(sas, keysSorted, keysInfo);
 
-    return "{\"transaction_id\":\"" + esc(txnId) + "\","
-           "\"mac\":{\"ed25519:" + esc(ourDeviceId) + "\":\"" + esc(ed25519mac) + "\","
-           "\"curve25519:" + esc(ourDeviceId) + "\":\"" + esc(curve25519mac) + "\","
-           "\"keys\":\"" + esc(keysMac) + "\"},"
-           "\"keys\":\"" + esc(keysSorted) + "\"}";
+    return "{\"transaction_id\":\"" + esc(txn.transactionId) + "\","
+           "\"mac\":{\"ed25519:" + esc(txn.ourDeviceId) + "\":\"" + esc(ed25519mac) + "\","
+           "\"curve25519:" + esc(txn.ourDeviceId) + "\":\"" + esc(curve25519mac) + "\"},"
+           "\"keys\":\"" + esc(keysMac) + "\"}";
 }
 
 std::string VerificationManager::buildDoneContent(const std::string& txnId) const {

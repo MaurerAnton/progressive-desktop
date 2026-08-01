@@ -201,10 +201,26 @@ VerificationTransaction* VerificationManager::handleEvent(
                 txn->state = VerificationState::KeyReceived;
         }
     } else if (eventType == "m.key.verification.mac") {
-        if (txn->state == VerificationState::MacSent)
-            txn->state = VerificationState::Done;
-        else
-            txn->state = VerificationState::MacReceived;
+        if (txn->state == VerificationState::MacSent) {
+            if (verifyTheirMac(*txn, contentJson)) {
+                txn->state = VerificationState::Done;
+                if (sendToDeviceFn_) {
+                    std::string doneContent = buildDoneContent(txnId);
+                    sendToDeviceFn_("m.key.verification.done", txnId, doneContent,
+                        txn->otherUserId, txn->otherDeviceId);
+                }
+            } else {
+                txn->state = VerificationState::Cancelled;
+                txn->cancelCode = CancelCode::KeyMismatch;
+            }
+        } else {
+            if (verifyTheirMac(*txn, contentJson)) {
+                txn->state = VerificationState::MacReceived;
+            } else {
+                txn->state = VerificationState::Cancelled;
+                txn->cancelCode = CancelCode::KeyMismatch;
+            }
+        }
     } else if (eventType == "m.key.verification.done") {
         if (txn->state == VerificationState::MacReceived ||
             txn->state == VerificationState::MacSent)

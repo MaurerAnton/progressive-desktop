@@ -196,6 +196,11 @@ VerificationTransaction* VerificationManager::handleEvent(
                 std::string expected = computeCommitment(txn->startContentJson,
                     txn->theirSasPubkey);
                 if (expected != txn->commitment) {
+                    if (sendToDeviceFn_) {
+                        sendToDeviceFn_("m.key.verification.cancel", txnId,
+                            buildCancelContent(txnId, CancelCode::KeyMismatch),
+                            txn->otherUserId, txn->otherDeviceId);
+                    }
                     txn->state = VerificationState::Cancelled;
                     txn->cancelCode = CancelCode::KeyMismatch;
                     return txn;
@@ -207,6 +212,15 @@ VerificationTransaction* VerificationManager::handleEvent(
                 txn->state = VerificationState::KeyReceived;
         }
     } else if (eventType == "m.key.verification.mac") {
+        auto cancelMismatch = [&]() {
+            if (sendToDeviceFn_) {
+                sendToDeviceFn_("m.key.verification.cancel", txnId,
+                    buildCancelContent(txnId, CancelCode::KeyMismatch),
+                    txn->otherUserId, txn->otherDeviceId);
+            }
+            txn->state = VerificationState::Cancelled;
+            txn->cancelCode = CancelCode::KeyMismatch;
+        };
         if (txn->state == VerificationState::MacSent) {
             if (verifyTheirMac(*txn, contentJson)) {
                 txn->state = VerificationState::Done;
@@ -216,15 +230,13 @@ VerificationTransaction* VerificationManager::handleEvent(
                         txn->otherUserId, txn->otherDeviceId);
                 }
             } else {
-                txn->state = VerificationState::Cancelled;
-                txn->cancelCode = CancelCode::KeyMismatch;
+                cancelMismatch();
             }
         } else {
             if (verifyTheirMac(*txn, contentJson)) {
                 txn->state = VerificationState::MacReceived;
             } else {
-                txn->state = VerificationState::Cancelled;
-                txn->cancelCode = CancelCode::KeyMismatch;
+                cancelMismatch();
             }
         }
     } else if (eventType == "m.key.verification.done") {

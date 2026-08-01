@@ -165,7 +165,7 @@ VerificationTransaction* VerificationManager::handleEvent(
             txn->sas = sasCreate();
             txn->startContentJson = contentJson;
             std::string commitment = computeCommitment(contentJson, txn->sas.ourPubkey);
-            std::string acceptContent = buildAcceptContent(txnId, commitment);
+            std::string acceptContent = buildAcceptContent(txn->ourDeviceId, txnId, commitment);
             if (sendToDeviceFn_) {
                 sendToDeviceFn_("m.key.verification.accept", txnId, acceptContent,
                     txn->otherUserId, txn->otherDeviceId);
@@ -274,9 +274,10 @@ std::string VerificationManager::buildStartContent(const std::string& ourDeviceI
            "\"short_authentication_string\":[\"emoji\",\"decimal\"]}";
 }
 
-std::string VerificationManager::buildAcceptContent(const std::string& txnId,
-    const std::string& commitment) const {
-    return "{\"transaction_id\":\"" + esc(txnId) + "\","
+std::string VerificationManager::buildAcceptContent(const std::string& ourDeviceId,
+    const std::string& txnId, const std::string& commitment) const {
+    return "{\"from_device\":\"" + esc(ourDeviceId) + "\","
+           "\"transaction_id\":\"" + esc(txnId) + "\","
            "\"key_agreement_protocol\":\"curve25519-hkdf-sha256\","
            "\"hash\":\"sha256\","
            "\"message_authentication_code\":\"hkdf-hmac-sha256\","

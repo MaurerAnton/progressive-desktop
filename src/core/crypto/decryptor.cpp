@@ -354,7 +354,11 @@ std::string Decryptor::buildFallbackKeysSection(const std::string& userId,
     //   {"curve25519":{"AAAA":"<b64>"}}
     // We rename "curve25519:" to "signed_curve25519:" and sign it like an OTK.
     std::string fallbackJson = account_->unpublishedFallbackKey();
-    if (fallbackJson.empty()) return {};
+    if (fallbackJson.empty()) {
+        if (!account_->generateFallbackKey()) return {};
+        fallbackJson = account_->unpublishedFallbackKey();
+        if (fallbackJson.empty()) return {};
+    }
 
     simdjson::dom::parser parser;
     auto doc = parser.parse(fallbackJson);

@@ -20,6 +20,7 @@ class TimelineModel;
 class RoomHandler;
 class SyncEngine;
 class AuthHandler;
+class VerificationHandler;
 
 class ToolbarHandler : public QObject {
     Q_OBJECT
@@ -41,6 +42,7 @@ public:
 
     void setRoomHandler(RoomHandler* rh) { roomHandler_ = rh; }
     void setAuthHandler(AuthHandler* a) { authHandler_ = a; }
+    void setVerificationHandler(VerificationHandler* vh) { verifyHandler_ = vh; }
     void setInterfaceElements(QPushButton* chatLog, QPushButton* threadBtn) {
         chatLogBtn_ = chatLog; threadBtn_ = threadBtn;
     }
@@ -75,6 +77,7 @@ private:
     SyncEngine* sync_ = nullptr;
     RoomHandler* roomHandler_ = nullptr;
     AuthHandler* authHandler_ = nullptr;
+    VerificationHandler* verifyHandler_ = nullptr;
     QPushButton* chatLogBtn_ = nullptr;
     QPushButton* threadBtn_ = nullptr;
     std::unique_ptr<ChatLogger> chatLogger_;

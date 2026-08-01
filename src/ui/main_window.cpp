@@ -5,6 +5,7 @@
 #include "handlers/room_handler.hpp"
 #include "handlers/thread_handler.hpp"
 #include "handlers/e2ee_init_handler.hpp"
+#include "handlers/verification_handler.hpp"
 #include "ui_layout_builder.hpp"
 #include "dialogs/login_dialog.hpp"
 #include "dialogs/image_viewer_dialog.hpp"
@@ -22,6 +23,7 @@
 #include <QMessageBox>
 #include <QPointer>
 #include <QApplication>
+#include <QStatusBar>
 #include <cstdlib>
 #include <QSplitter>
 #include <QToolBar>
@@ -83,6 +85,7 @@ void MainWindow::setClient(std::shared_ptr<MatrixClient> client) {
     if (attachmentHandler_) attachmentHandler_->setClient(client_);
     if (accountSwitcher_) accountSwitcher_->setClient(client_);
     if (syncHandler_) syncHandler_->setClient(client_);
+    if (verifyHandler_) verifyHandler_->setClient(client_);
 }
 
 void MainWindow::setSessionStore(std::shared_ptr<SessionStore> store) {
@@ -272,6 +275,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         accountCombo_, userLabel_, statusLabel_, roomModel_, timelineModel_,
         imageLoader_, timelineDelegate_, roomHandler_, chatView_,
         timelinePlaceholder_, timelineView_, messageEdit_, this);
+
+    verifyHandler_ = new VerificationHandler(this);
+    verifyHandler_->setSyncEngine(&sync_);
+    if (statusBar()) statusBar()->addWidget(verifyHandler_->bannerWidget(), 1);
+
+    toolbarHandler_->setVerificationHandler(verifyHandler_);
 
     connect(accountCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, [this](int index) {

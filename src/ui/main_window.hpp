@@ -36,6 +36,7 @@ class AttachmentHandler;
 class SlashCommandHandler;
 class SyncResponseHandler;
 class AccountSwitcher;
+class VerificationHandler;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -112,6 +113,7 @@ private:
     AttachmentHandler* attachmentHandler_ = nullptr;
     SlashCommandHandler* slashHandler_ = nullptr;
     AccountSwitcher* accountSwitcher_ = nullptr;
+    VerificationHandler* verifyHandler_ = nullptr;
 };
 
 } // namespace progressive::desktop

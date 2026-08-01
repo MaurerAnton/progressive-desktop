@@ -90,7 +90,8 @@ private:
     std::string computeCommitment(const std::string& startContentJson,
         const std::string& ourSasPubkey) const;
     std::string macInfo(const std::string& keyOwnerUser,
-        const std::string& sendingDeviceId, const std::string& receivingDeviceId,
+        const std::string& sendingDeviceId, const std::string& otherUser,
+        const std::string& receivingDeviceId,
         const std::string& txnId, const std::string& keyId) const;
 };
 

@@ -32,6 +32,8 @@ struct VerificationTransaction {
     std::string ourDeviceId;
     std::string ourEd25519;
     std::string ourCurve25519;
+    std::string theirEd25519;
+    std::string theirCurve25519;
     bool weInitiated = false;
     bool isIncoming = false;
     VerificationState state = VerificationState::Idle;
@@ -52,8 +54,12 @@ public:
     using SendToDeviceFn = std::function<void(const std::string& eventType,
         const std::string& txnId, const std::string& contentJson,
         const std::string& targetUserId, const std::string& targetDeviceId)>;
+    using DeviceKeyResolverFn = std::function<bool(
+        const std::string& userId, const std::string& deviceId,
+        std::string& outEd25519, std::string& outCurve25519)>;
 
     void setSendToDeviceFn(SendToDeviceFn fn) { sendToDeviceFn_ = std::move(fn); }
+    void setDeviceKeyResolverFn(DeviceKeyResolverFn fn) { deviceKeyResolverFn_ = std::move(fn); }
 
     static std::string generateTransactionId();
 
@@ -97,6 +103,7 @@ private:
     mutable std::mutex mtx_;
     std::vector<std::unique_ptr<VerificationTransaction>> transactions_;
     SendToDeviceFn sendToDeviceFn_;
+    DeviceKeyResolverFn deviceKeyResolverFn_;
     VerificationTransaction* findTransactionLocked(const std::string& txnId) const;
     std::string computeCommitment(const std::string& startContentJson,
         const std::string& ourSasPubkey) const;

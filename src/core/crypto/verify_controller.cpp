@@ -4,6 +4,7 @@
 #include "verification.hpp"
 #include "../sync_engine.hpp"
 #include "../debug_log.hpp"
+#include <simdjson.h>
 
 namespace progressive::desktop {
 
@@ -14,6 +15,57 @@ void VerificationController::setVerificationManager(VerificationManager* vm) {
             const std::string& txnId, const std::string& contentJson,
             const std::string& targetUserId, const std::string& targetDeviceId) {
             sendToDevice(eventType, txnId, contentJson, targetUserId, targetDeviceId);
+        });
+        vm_->setDeviceKeyResolverFn([this](const std::string& userId,
+            const std::string& deviceId, std::string& outEd25519,
+            std::string& outCurve25519) -> bool {
+            if (!client_) return false;
+            std::string queryBody = "{\"device_keys\":{\"" + userId + "\":[]}}";
+            auto resp = client_->queryKeys(queryBody);
+            if (!resp.ok) {
+                LOG(LogChannel::E2EE,
+                    "verifyController: keys/query FAILED http=%d — cannot resolve "
+                    "device keys for %s/%s",
+                    resp.httpStatus, userId.c_str(), deviceId.c_str());
+                return false;
+            }
+            simdjson::dom::parser p;
+            auto doc = p.parse(resp.data);
+            if (doc.error() != simdjson::SUCCESS) {
+                LOG(LogChannel::E2EE, "verifyController: keys/query response parse failed");
+                return false;
+            }
+            auto userObj = doc.value()["device_keys"][userId];
+            if (userObj.error() != simdjson::SUCCESS) {
+                LOG(LogChannel::E2EE,
+                    "verifyController: user %s not in keys/query response",
+                    userId.c_str());
+                return false;
+            }
+            auto devObj = userObj.value()[deviceId];
+            if (devObj.error() != simdjson::SUCCESS) {
+                LOG(LogChannel::E2EE,
+                    "verifyController: device %s/%s not in keys/query response",
+                    userId.c_str(), deviceId.c_str());
+                return false;
+            }
+            auto keysObj = devObj.value()["keys"].get_object();
+            if (keysObj.error() != simdjson::SUCCESS) return false;
+            for (auto k : keysObj.value()) {
+                std::string kKey(k.key);
+                auto v = k.value.get_string();
+                if (v.error() != simdjson::SUCCESS) continue;
+                if (kKey == "ed25519:" + deviceId) outEd25519 = std::string(v.value());
+                else if (kKey == "curve25519:" + deviceId) outCurve25519 = std::string(v.value());
+            }
+            if (outEd25519.empty() || outCurve25519.empty()) {
+                LOG(LogChannel::E2EE,
+                    "verifyController: device %s/%s missing keys (ed=%d curve=%d)",
+                    userId.c_str(), deviceId.c_str(),
+                    outEd25519.empty() ? 0 : 1, outCurve25519.empty() ? 0 : 1);
+                return false;
+            }
+            return true;
         });
     }
 }

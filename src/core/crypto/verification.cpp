@@ -192,6 +192,16 @@ VerificationTransaction* VerificationManager::handleEvent(
             txn->theirSasPubkey = std::string(keyResult.value());
             if (txn->sas.valid)
                 sasSetTheirKey(txn->sas, txn->theirSasPubkey);
+            if (txn->theirEd25519.empty() && txn->theirCurve25519.empty() &&
+                deviceKeyResolverFn_) {
+                if (!deviceKeyResolverFn_(txn->otherUserId, txn->otherDeviceId,
+                        txn->theirEd25519, txn->theirCurve25519)) {
+                    LOG(LogChannel::E2EE,
+                        "handleEvent: device key resolver FAILED for %s/%s — "
+                        "their MAC verification will fail (query failed vs real mismatch)",
+                        txn->otherUserId.c_str(), txn->otherDeviceId.c_str());
+                }
+            }
             if (!txn->commitment.empty() && !txn->startContentJson.empty()) {
                 std::string expected = computeCommitment(txn->startContentJson,
                     txn->theirSasPubkey);
@@ -384,8 +394,8 @@ bool VerificationManager::verifyTheirMac(VerificationTransaction& txn,
         auto theirMac = val.get_string();
         if (theirMac.error() == simdjson::SUCCESS) {
             std::string keyValue;
-            if (keyId.find("ed25519:") == 0) keyValue = txn.ourEd25519;
-            else if (keyId.find("curve25519:") == 0) keyValue = txn.ourCurve25519;
+            if (keyId.find("ed25519:") == 0) keyValue = txn.theirEd25519;
+            else if (keyId.find("curve25519:") == 0) keyValue = txn.theirCurve25519;
             if (!sasVerifyMac(txn.sas, std::string(theirMac.value()), keyValue, info))
                 return false;
         }

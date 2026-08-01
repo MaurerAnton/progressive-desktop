@@ -26,6 +26,7 @@
 #include "../src/ui/handlers/auth_handler.hpp"
 #include "../src/ui/handlers/attachment_handler.hpp"
 #include "../src/ui/handlers/thread_handler.hpp"
+#include "../src/ui/handlers/verification_handler.hpp"
 #include "../src/core/session_store.hpp"
 #include "../src/core/sync_engine.hpp"
 #include "core/debug_log.hpp"
@@ -362,6 +363,32 @@ static void test_threadHandler_smoke() {
     std::cout << "--- test_threadHandler_smoke passed ---\n";
 }
 
+static void test_verificationHandler_smoke() {
+    auto client = std::make_shared<MatrixClient>();
+    VerificationHandler handler(nullptr);
+    handler.setClient(client);
+
+    SyncEngine sync;
+    sync.setClient(client);
+    handler.setSyncEngine(&sync);
+
+    auto* vm = &sync.verificationManager();
+    CHECK(handler.bannerWidget() != nullptr, "handler owns a banner widget");
+    CHECK(handler.bannerWidget()->isHidden(), "banner starts hidden");
+
+    // Feed an incoming request — the handler's stateChangedFn (queued invoke)
+    // must show the accept/reject banner after the event loop is pumped.
+    std::string txnId = "pdv_smoke_txn_1";
+    vm->handleEvent("m.key.verification.request", "@bob:test",
+        vm->buildRequestContent("DEVB", txnId),
+        "@alice:test", "DEVA", "edA", "curveA");
+    QTest::qWait(0);
+    QCoreApplication::processEvents();
+
+    CHECK(!handler.bannerWidget()->isHidden(), "banner visible after incoming request (queued invoke pumped)");
+    std::cout << "--- test_verificationHandler_smoke passed ---\n";
+}
+
 int main(int argc, char** argv) {
     QApplication app(argc, argv);
     std::cout << "=== Progressive Visual Tests ===\n\n";
@@ -378,6 +405,7 @@ int main(int argc, char** argv) {
     test_authHandler_smoke();
     test_attachmentHandler_smoke();
     test_threadHandler_smoke();
+    test_verificationHandler_smoke();
 
     std::cout << "\n";
     if (failures == 0) {

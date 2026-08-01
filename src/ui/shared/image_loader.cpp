@@ -9,6 +9,9 @@
 
 namespace progressive::desktop {
 
+// Bounds the GIF movie pool — otherwise it grows without limit on small devices.
+static const int kMaxCachedMovies = 20;
+
 ImageLoader::ImageLoader(std::shared_ptr<MatrixClient> client, QObject* parent)
     : QObject(parent), client_(std::move(client)) {}
 
@@ -61,6 +64,13 @@ void ImageLoader::fetchMovie(const std::string& mxcUrl,
             buf->open(QIODevice::ReadOnly);
             movie->setDevice(buf);
             movie->setCacheMode(QMovie::CacheAll);
+            if (moviePool_.size() >= kMaxCachedMovies && !moviePool_.contains(key)) {
+                auto it = moviePool_.begin();
+                if (it != moviePool_.end()) {
+                    (*it)->deleteLater();
+                    moviePool_.erase(it);
+                }
+            }
             moviePool_[key] = movie;
             cb(movie);
         }, Qt::QueuedConnection);

@@ -18,6 +18,7 @@
 #include "../dialogs/threads_dialog.hpp"
 #include "../dialogs/prefs_dialog.hpp"
 #include "../dialogs/color_settings_dialog.hpp"
+#include "verification_handler.hpp"
 #include "../dialogs/network_log_dialog.hpp"
 #include "../shared/image_loader.hpp"
 #include "../chat/chat_logger.hpp"
@@ -182,6 +183,12 @@ void ToolbarHandler::onRoomSettings() {
 void ToolbarHandler::onRoomMembers() {
     if (!client_) { QMessageBox::information(parentWidget_, "Members", "Select a room first."); return; }
     RoomMembersDialog dlg(client_.get(), "", parentWidget_);
+    connect(&dlg, &RoomMembersDialog::verifyRequested, this,
+        [this](const QString& userId, const QString& deviceId) {
+            if (verifyHandler_)
+                verifyHandler_->startUserVerification(userId.toStdString(),
+                    deviceId.toStdString());
+        });
     dlg.exec();
 }
 

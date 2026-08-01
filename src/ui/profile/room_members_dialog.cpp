@@ -9,6 +9,7 @@
 #include <QMetaObject>
 #include <QPointer>
 #include <QMessageBox>
+#include <QMenu>
 #include <QThread>
 #include "core/thread_pool.hpp"
 
@@ -61,6 +62,8 @@ RoomMembersDialog::RoomMembersDialog(MatrixClient* client, const std::string& ro
     });
     connect(debounceTimer_, &QTimer::timeout, this, &RoomMembersDialog::applyFilter);
     connect(list_, &QListWidget::itemClicked, this, &RoomMembersDialog::onMemberClicked);
+    connect(list_, &QListWidget::customContextMenuRequested, this, &RoomMembersDialog::onMemberContextMenu);
+    list_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(closeBtn_, &QPushButton::clicked, this, &QDialog::accept);
 
     loadMembers();
@@ -152,6 +155,52 @@ void RoomMembersDialog::onMemberClicked(QListWidgetItem* item) {
     QString userId = item->data(Qt::UserRole).toString();
     UserProfileDialog dlg(client_, roomId_, userId.toStdString(), this);
     dlg.exec();
+}
+
+void RoomMembersDialog::onMemberContextMenu(const QPoint& pos) {
+    auto* item = list_->itemAt(pos);
+    if (!item) return;
+    QString userId = item->data(Qt::UserRole).toString();
+
+    QMenu menu(this);
+    QAction* verifyAction = menu.addAction("Verify…");
+    QAction* chosen = menu.exec(list_->mapToGlobal(pos));
+    if (chosen == verifyAction)
+        startVerifyForUser(userId);
+}
+
+void RoomMembersDialog::startVerifyForUser(const QString& userId) {
+    if (!client_ || !client_->isLoggedIn()) return;
+    const std::string ourDeviceId = client_->account().deviceId;
+
+    std::string queryBody = "{\"device_keys\":{\"" + userId.toStdString() + "\":[]}}";
+    auto resp = client_->queryKeys(queryBody);
+    if (!resp.ok) {
+        QMessageBox::information(this, "Verify",
+            QString("Could not fetch devices for %1.").arg(userId));
+        return;
+    }
+
+    simdjson::dom::parser p;
+    auto doc = p.parse(resp.data);
+    if (doc.error() != simdjson::SUCCESS) {
+        QMessageBox::information(this, "Verify", "Could not parse device keys.");
+        return;
+    }
+    auto userObj = doc.value()["device_keys"][userId.toStdString()];
+    if (userObj.error() != simdjson::SUCCESS) {
+        QMessageBox::information(this, "Verify",
+            QString("%1 has no devices to verify.").arg(userId));
+        return;
+    }
+
+    for (auto dev : userObj.value().get_object().value()) {
+        std::string deviceId(dev.key);
+        if (deviceId == ourDeviceId) continue;  // don't verify our own device
+        emit verifyRequested(userId, QString::fromStdString(deviceId));
+        return;
+    }
+    QMessageBox::information(this, "Verify", "No other devices found to verify.");
 }
 
 } // namespace progressive::desktop

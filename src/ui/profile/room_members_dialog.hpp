@@ -28,6 +28,10 @@ public:
 private slots:
     void onSearchChanged();
     void onMemberClicked(QListWidgetItem* item);
+    void onMemberContextMenu(const QPoint& pos);
+
+signals:
+    void verifyRequested(const QString& userId, const QString& deviceId);
 
 private:
     MatrixClient* client_;
@@ -42,6 +46,7 @@ private:
 
     void loadMembers();
     void applyFilter();
+    void startVerifyForUser(const QString& userId);
 };
 
 } // namespace progressive::desktop

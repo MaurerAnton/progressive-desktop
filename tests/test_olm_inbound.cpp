@@ -245,11 +245,117 @@ static void test_real_account_roundtrip(const std::string& pickleRaw, const std:
     std::cout << "--- test_real_account_roundtrip PASSED ---\n";
 }
 
+// Bob generates a fallback key; Alice "claims" it and creates an outbound
+// session just like with an OTK. Validates libolm lookup_key fallback branch
+// (account.cpp:35-49 current_fallback_key + prev_fallback_key).
+static void test_olm_fallback_key() {
+    // Bob: create account
+    std::vector<uint8_t> bobBuf(::olm_account_size());
+    ::OlmAccount* bobAcc = ::olm_account(bobBuf.data());
+    size_t rnd = ::olm_create_account_random_length(bobAcc);
+    std::vector<uint8_t> rndBuf(rnd);
+    fill_random(rndBuf.data(), rnd);
+    int rc = ::olm_create_account(bobAcc, rndBuf.data(), rnd);
+    CHECK(rc != ::olm_error(), "fb: Bob account created");
+
+    // Bob: generate fallback key
+    rnd = ::olm_account_generate_fallback_key_random_length(bobAcc);
+    rndBuf.resize(rnd);
+    fill_random(rndBuf.data(), rnd);
+    rc = ::olm_account_generate_fallback_key(bobAcc, rndBuf.data(), rnd);
+    CHECK(rc != ::olm_error(), "fb: Bob generated fallback key");
+
+    // Bob: get fallback key JSON
+    size_t fkLen = ::olm_account_unpublished_fallback_key_length(bobAcc);
+    CHECK(fkLen > 0, "fb: fallback key length > 0");
+    std::vector<uint8_t> fkJson(fkLen);
+    ::olm_account_unpublished_fallback_key(bobAcc, fkJson.data(), fkLen);
+    std::string fkStr((char*)fkJson.data(), fkLen);
+
+    // Bob: get identity keys
+    size_t idLen = ::olm_account_identity_keys_length(bobAcc);
+    std::vector<uint8_t> bobIdKeys(idLen);
+    ::olm_account_identity_keys(bobAcc, bobIdKeys.data(), idLen);
+    std::string idStr((char*)bobIdKeys.data(), idLen);
+
+    // Extract Bob's curve25519 identity key base64
+    auto pos = idStr.find("\"curve25519\":\"");
+    CHECK(pos != std::string::npos, "fb: find curve25519 in identity keys");
+    auto ikStart = pos + 14;
+    auto ikEnd = idStr.find('"', ikStart);
+    std::string bobIkB64 = idStr.substr(ikStart, ikEnd - ikStart);
+    CHECK(bobIkB64.size() == 43, "fb: Bob IK base64 is 43 chars");
+
+    // Extract fallback key value base64 from nested JSON
+    pos = fkStr.find("\"curve25519\":{\"");
+    CHECK(pos != std::string::npos, "fb: find curve25519 object in fallback JSON");
+    pos = fkStr.find("\":\"", pos);
+    CHECK(pos != std::string::npos, "fb: find key value in fallback JSON");
+    auto fkStart = pos + 3;
+    auto fkEnd = fkStr.find('"', fkStart);
+    std::string bobFkB64 = fkStr.substr(fkStart, fkEnd - fkStart);
+    CHECK(bobFkB64.size() == 43, "fb: fallback key base64 is 43 chars");
+
+    // Alice: create account
+    std::vector<uint8_t> aliceBuf(::olm_account_size());
+    ::OlmAccount* aliceAcc = ::olm_account(aliceBuf.data());
+    rnd = ::olm_create_account_random_length(aliceAcc);
+    rndBuf.resize(rnd);
+    fill_random(rndBuf.data(), rnd);
+    rc = ::olm_create_account(aliceAcc, rndBuf.data(), rnd);
+    CHECK(rc != ::olm_error(), "fb: Alice account created");
+
+    // Alice: create outbound session using Bob's IK + fallback key
+    std::vector<uint8_t> sessBuf(::olm_session_size());
+    ::OlmSession* aSess = ::olm_session(sessBuf.data());
+    rnd = ::olm_create_outbound_session_random_length(aSess);
+    rndBuf.resize(rnd);
+    fill_random(rndBuf.data(), rnd);
+    rc = ::olm_create_outbound_session(aSess, aliceAcc,
+        bobIkB64.data(), 43,
+        bobFkB64.data(), 43,
+        rndBuf.data(), rnd);
+    CHECK(rc != ::olm_error(), "fb: Alice created outbound session with fallback key");
+
+    // Alice: encrypt
+    std::string fbText = "fallback";
+    rnd = ::olm_encrypt_random_length(aSess);
+    rndBuf.resize(rnd);
+    fill_random(rndBuf.data(), rnd);
+    size_t msgLen = ::olm_encrypt_message_length(aSess, fbText.size());
+    std::vector<uint8_t> msg(msgLen);
+    size_t written = ::olm_encrypt(aSess, (void*)fbText.data(), fbText.size(),
+        rndBuf.data(), rnd, msg.data(), msgLen);
+    CHECK(written != ::olm_error(), "fb: Alice encrypted message");
+
+    // Bob: create inbound session from Alice's initial message
+    std::vector<uint8_t> bSessBuf(::olm_session_size());
+    ::OlmSession* bSess = ::olm_session(bSessBuf.data());
+    std::vector<uint8_t> tmpMsg(msg.begin(), msg.begin() + written);
+    rc = ::olm_create_inbound_session(bSess, bobAcc, tmpMsg.data(), written);
+    CHECK(rc != ::olm_error(), "fb: Bob created inbound session (lookup_key matched fallback)");
+
+    // Bob: decrypt — restore message copy
+    tmpMsg.resize(written);
+    std::memcpy(tmpMsg.data(), msg.data(), written);
+    size_t ptLen = ::olm_decrypt_max_plaintext_length(bSess, 0, tmpMsg.data(), written);
+    CHECK(ptLen != ::olm_error(), "fb: Bob decrypt ptLen valid");
+    std::vector<uint8_t> ptBuf(ptLen);
+    tmpMsg.resize(written);
+    std::memcpy(tmpMsg.data(), msg.data(), written);
+    int dc = ::olm_decrypt(bSess, 0, tmpMsg.data(), written, ptBuf.data(), ptLen);
+    CHECK(dc != ::olm_error(), "fb: Bob decrypted Alice's message");
+    std::string fbResult((char*)ptBuf.data(), dc);
+    CHECK(fbResult == "fallback", "fb: decrypted text matches");
+}
+
+
 int main(int argc, char** argv) {
     std::cout << "=== Olm Inbound Test (raw C API) ===\n\n";
 
     // Always run the synthetic roundtrip
     test_olm_roundtrip();
+    test_olm_fallback_key();
 
     // If pickle + key provided, test real account roundtrip
     if (argc >= 3) {

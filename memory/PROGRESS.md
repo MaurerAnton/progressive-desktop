@@ -139,6 +139,12 @@
 [x] Multi-account UI — DONE (account_switcher.cpp addAccount/switchAccount/logout wired via combo in main_window.cpp:285; LoginDialog flow verified Aug 2)
 [ ] Copy messages: cannot copy message text from timeline (no copy-to-clipboard)
 [ ] Event source viewer: cannot see raw event JSON (sender_id, body, type, etc.) like Element
+[ ] Message delivery ~3s delay — Progressive→Progressive (plaintext room): BOTH sides wait ~3s;
+    Element→Element is instant; Progressive→Element arrives late on Element too. Since Element's
+    long-poll is proven fast, the delay appears to be on Progressive's SEND side (message reaches
+    server late) — but the send is enqueued immediately (chat_view.cpp:121,209). Needs diagnostic
+    LOGs: (a) send start time on ThreadPool vs press time, (b) HTTP elapsed for sendMessage,
+    (c) sync sent/returned timestamps. See PLANNER 9-step log analysis. Do NOT guess-fix.
 ```
 
 ### Active — Medium

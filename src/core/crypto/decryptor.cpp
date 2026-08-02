@@ -115,6 +115,7 @@ DecryptionResult Decryptor::decryptMegolmEvent(const std::string& roomId,
     auto sk = val["sender_key"].get_string();
     auto sid = val["session_id"].get_string();
     auto ct = val["ciphertext"].get_string();
+    auto devId = val["device_id"].get_string();
     if (sk.error() != simdjson::SUCCESS || sid.error() != simdjson::SUCCESS ||
         ct.error() != simdjson::SUCCESS) {
         r.error = "missing sender_key/session_id/ciphertext";
@@ -123,6 +124,8 @@ DecryptionResult Decryptor::decryptMegolmEvent(const std::string& roomId,
     std::string senderKey(sk.value());
     std::string sessionId(sid.value());
     std::string ciphertext(ct.value());
+    std::string senderDeviceId = (devId.error() == simdjson::SUCCESS)
+        ? std::string(devId.value()) : "";
 
     if (!megolm_->hasSession(roomId, senderKey, sessionId)) {
         r.error = "no megolm session — waiting for room_key";
@@ -137,7 +140,7 @@ DecryptionResult Decryptor::decryptMegolmEvent(const std::string& roomId,
         p.eventId = eventId;
         p.originServerTs = originServerTs;
         megolm_->addPending(p);
-        requestRoomKey(roomId, senderId, senderKey, sessionId);
+        requestRoomKey(roomId, senderId, senderKey, sessionId, senderDeviceId);
         return r;
     }
 
@@ -1153,7 +1156,8 @@ void Decryptor::setCryptoContext(const std::string& ourUserId, const std::string
 }
 
 void Decryptor::requestRoomKey(const std::string& roomId, const std::string& senderId,
-                                const std::string& senderKey, const std::string& sessionId) {
+                                const std::string& senderKey, const std::string& sessionId,
+                                const std::string& senderDeviceId) {
     if (ctxHomeserver_.empty() || ctxToken_.empty() || senderId.empty()) return;
     std::string key = roomId + "|" + sessionId + "|" + senderKey;
     {
@@ -1165,8 +1169,11 @@ void Decryptor::requestRoomKey(const std::string& roomId, const std::string& sen
         static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count())
         + g_txnCounter.fetch_add(1));
     std::ostringstream body;
+    // Address the sending device directly (known from the megolm content's
+    // device_id) — more reliable than the "*" wildcard.
+    std::string targetDevice = senderDeviceId.empty() ? "*" : senderDeviceId;
     body << "{\"messages\":{\""
-         << senderId << "\":{\"*\":{\"action\":\"request\","
+         << senderId << "\":{\"" << targetDevice << "\":{\"action\":\"request\","
          << "\"body\":{\"algorithm\":\"m.megolm.v1.aes-sha2\","
          << "\"room_id\":\"" << roomId << "\","
          << "\"sender_key\":\"" << senderKey << "\","

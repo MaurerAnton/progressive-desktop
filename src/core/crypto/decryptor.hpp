@@ -210,7 +210,8 @@ public:
     bool shareKeysVerifiedOnly() const { return shareKeysVerifiedOnly_; }
 
     void requestRoomKey(const std::string& roomId, const std::string& senderId,
-                        const std::string& senderKey, const std::string& sessionId);
+                        const std::string& senderKey, const std::string& sessionId,
+                        const std::string& senderDeviceId = "");
 
     // Force a new Olm session with a sender by sending m.dummy (to-device).
     // Creates an outbound Olm session, pickles+stores it so we can decrypt

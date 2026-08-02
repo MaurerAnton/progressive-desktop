@@ -10,10 +10,12 @@
 
 #include "olm_account.hpp"
 #include "megolm_store.hpp"
+#include <progressive/room_encryption.hpp>
 #include <memory>
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <map>
 #include <mutex>
 #include <unordered_set>
 
@@ -41,6 +43,8 @@ struct OutboundMegolmSession {
     std::string sessionKey;     // base64 — for sharing with other devices
     void* session = nullptr;     // OlmOutboundGroupSession* (libolm)
     int messageIndex = 0;
+    int messageCount = 0;        // messages sent with this session (rotation)
+    int64_t startTimeMs = 0;     // session creation time (rotation)
 };
 
 class Decryptor {
@@ -198,6 +202,11 @@ public:
                               const std::string& senderId,
                               bool requesterVerified);
     void setShareKeysVerifiedOnly(bool v) { shareKeysVerifiedOnly_ = v; }
+
+    // Set the room's m.room.encryption config (rotation policy) from a
+    // state-event content JSON. Rotation check happens at outbound reuse.
+    void setRoomEncryptionConfig(const std::string& roomId,
+                                 const std::string& stateContentJson);
     bool shareKeysVerifiedOnly() const { return shareKeysVerifiedOnly_; }
 
     void requestRoomKey(const std::string& roomId, const std::string& senderId,
@@ -213,6 +222,7 @@ private:
     std::unique_ptr<MegolmStore> megolm_;
     // Per-room outbound megolm sessions.
     std::unordered_map<std::string, OutboundMegolmSession> outboundSessions_;
+    std::map<std::string, progressive::EncryptionConfig> roomEncryptionConfigs_;
     mutable std::mutex outboundMtx_;
     // Inbound Olm 1:1 sessions, keyed by (senderCurve25519).
     // We store them as pickled strings; created on-demand from pre-key messages.

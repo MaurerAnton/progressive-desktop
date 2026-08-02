@@ -621,11 +621,30 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
 
 // ---- Outbound Megolm sessions ----
 
+void Decryptor::setRoomEncryptionConfig(const std::string& roomId,
+    const std::string& stateContentJson) {
+    roomEncryptionConfigs_[roomId] = progressive::parseEncryptionConfig(stateContentJson);
+}
+
 std::string Decryptor::getOrCreateOutboundSession(const std::string& roomId) {
     std::lock_guard<std::mutex> lk(outboundMtx_);
     auto it = outboundSessions_.find(roomId);
     if (it != outboundSessions_.end()) {
-        return it->second.sessionId;
+        // Rotation: if the room's encryption config says this session is due
+        // (message count or time period), drop it and create a fresh one.
+        auto cfgIt = roomEncryptionConfigs_.find(roomId);
+        if (cfgIt != roomEncryptionConfigs_.end() &&
+            progressive::isRotationDue(cfgIt->second, it->second.messageCount,
+                                       it->second.startTimeMs)) {
+            LOG(LogChannel::E2EE, "getOrCreateOutboundSession: rotating session for room=%.40s",
+                roomId.c_str());
+            olm_clear_outbound_group_session(static_cast<::OlmOutboundGroupSession*>(
+                it->second.session));
+            free(it->second.session);
+            outboundSessions_.erase(it);
+        } else {
+            return it->second.sessionId;
+        }
     }
 
     // Create new outbound megolm session using libolm directly
@@ -663,6 +682,9 @@ std::string Decryptor::getOrCreateOutboundSession(const std::string& roomId) {
     // Import outbound session as inbound so we can decrypt our own message echoes.
     megolm_->addInboundSession(roomId, curve25519Key(), sessionId, sessionKey);
     s.messageIndex = 0;
+    s.messageCount = 0;
+    s.startTimeMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
     outboundSessions_[roomId] = std::move(s);
     roomKeysShared_[roomId] = false;
     return sessionId;
@@ -676,6 +698,7 @@ std::string Decryptor::encryptMessage(const std::string& roomId,
     if (it == outboundSessions_.end()) {
         return {};  // no session — caller should call getOrCreateOutboundSession first
     }
+    it->second.messageCount++;
 
     auto* olmSession = static_cast<::OlmOutboundGroupSession*>(it->second.session);
     // libolm overwrites the message buffer — copy plaintext

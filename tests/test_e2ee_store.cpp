@@ -78,7 +78,31 @@ static void test_key_export_import() {
     (void)n;
 }
 
+
+// Rotation: with rotation_period_msgs=1, sending a message then re-requesting
+// the outbound session must yield a NEW session id.
+static void test_megolm_rotation() {
+    progressive::desktop::Decryptor dec;
+    CHECK(dec.init(), "rot: init");
+    std::string s1 = dec.getOrCreateOutboundSession("!r:test");
+    CHECK(!s1.empty(), "rot: session created");
+
+    dec.setRoomEncryptionConfig("!r:test",
+        "{\"algorithm\":\"m.megolm.v1.aes-sha2\",\"rotation_period_msgs\":1}");
+
+    std::string enc = dec.encryptMessage("!r:test", "DEV", "{}");
+    CHECK(!enc.empty(), "rot: encrypted");
+
+    std::string s2 = dec.getOrCreateOutboundSession("!r:test");
+    CHECK(s2 != s1, "rot: session rotated after message count reached");
+
+    // Without a config, no rotation.
+    std::string s3 = dec.getOrCreateOutboundSession("!r:test");
+    CHECK(s3 == s2, "rot: no rotation without config");
+}
+
 int main() {
+    test_megolm_rotation();
     test_key_export_import();
     test_megolm_empty_pickle();
     test_megolm_garbage_unpickle();

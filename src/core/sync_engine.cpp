@@ -216,6 +216,18 @@ void SyncEngine::run() {
 
         stats_.roomsJoined += static_cast<int>(result.data.joinedRooms.size());
         stats_.invites     += static_cast<int>(result.data.invitedRooms.size());
+
+        // Feed m.room.encryption state (rotation policy) to the decryptor.
+        for (const auto& [rid, room] : result.data.joinedRooms) {
+            if (!room.isEncrypted) continue;
+            for (const auto& se : room.stateEvents) {
+                if (se.type == "m.room.encryption") {
+                    decryptor_.setRoomEncryptionConfig(
+                        std::string(rid), std::string(se.contentJson));
+                    break;
+                }
+            }
+        }
         stats_.timelineEvents += result.data.totalTimelineEvents;
         stats_.toDeviceEvents += result.data.toDeviceEvents;
 

@@ -202,9 +202,52 @@ static void test_corrupted_mac_cancels() {
     CHECK(sentKeyMismatch, "B forwarded cancel contains \"code\":\"m.key_mismatch\"");
 }
 
+
+// Pruning sweep: expired active txn -> erased + m.timeout cancel sent;
+// expired finished txn -> erased silently.
+static void test_expired_sweep() {
+    Harness h;
+    auto* txn = h.a.startVerification(h.bUser, h.bDev, h.aDev);
+    CHECK(txn != nullptr, "sweep: txn created");
+    std::string txnId = txn->transactionId;
+    txn->startTime = std::chrono::steady_clock::now() - std::chrono::minutes(11);
+
+    // Feed a new .request event — the sweep runs first (under the held lock).
+    h.a.handleEvent("m.key.verification.request", h.bUser,
+        h.a.buildRequestContent(h.aDev, "newtxn1"), h.aUser, h.aDev, h.aEd, h.aCurve);
+
+    CHECK(h.a.findTransaction(txnId) == nullptr, "sweep: expired active txn erased");
+    bool sentTimeout = false;
+    for (auto& [t, c] : h.sentByA) {
+        if (t == "m.key.verification.cancel" && c.find("m.timeout") != std::string::npos)
+            sentTimeout = true;
+    }
+    CHECK(sentTimeout, "sweep: m.timeout cancel sent for expired active txn");
+
+    // Expired Cancelled txn: erased WITHOUT a cancel.
+    auto* txn2 = h.a.startVerification(h.bUser, h.bDev, h.aDev);
+    CHECK(txn2 != nullptr, "sweep: second txn created");
+    std::string txn2Id = txn2->transactionId;  // save BEFORE sweep frees it
+    txn2->startTime = std::chrono::steady_clock::now() - std::chrono::minutes(11);
+    txn2->state = VerificationState::Cancelled;
+    h.a.handleEvent("m.key.verification.request", h.bUser,
+        h.a.buildRequestContent(h.aDev, "newtxn2"), h.aUser, h.aDev, h.aEd, h.aCurve);
+    CHECK(h.a.findTransaction(txn2Id) == nullptr,
+          "sweep: expired cancelled txn erased");
+
+    // Fresh txn survives the sweep.
+    auto* txn3 = h.a.startVerification(h.bUser, h.bDev, h.aDev);
+    CHECK(txn3 != nullptr, "sweep: third txn created");
+    h.a.handleEvent("m.key.verification.request", h.bUser,
+        h.a.buildRequestContent(h.aDev, "newtxn3"), h.aUser, h.aDev, h.aEd, h.aCurve);
+    CHECK(h.a.findTransaction(txn3->transactionId) != nullptr,
+          "sweep: fresh txn survives");
+}
+
 int main() {
     test_happy_path();
     test_corrupted_mac_cancels();
+    test_expired_sweep();
     if (failures > 0) {
         std::cerr << "\n" << failures << " test(s) FAILED\n";
         return 1;

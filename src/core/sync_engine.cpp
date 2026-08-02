@@ -359,27 +359,10 @@ void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
         } else if (evt.type == "m.forwarded_room_key") {
             decryptor_.handleForwardedRoomKey(std::string(evt.contentJson));
         } else if (evt.type == "m.room_key_request") {
-            // Another device asks us to re-share a room key.
-            std::string contentStr(evt.contentJson);
-            std::string senderStr(evt.senderId);
-            bool requesterVerified = false;
-            if (store_) {
-                simdjson::dom::parser p;
-                auto d = p.parse(contentStr);
-                if (d.error() == simdjson::SUCCESS) {
-                    auto rd = d.value()["requesting_device_id"].get_string();
-                    if (rd.error() != simdjson::SUCCESS) {
-                        auto b = d.value()["body"].get_object();
-                        if (b.error() == simdjson::SUCCESS)
-                            rd = b.value()["requesting_device_id"].get_string();
-                    }
-                    if (rd.error() == simdjson::SUCCESS) {
-                        requesterVerified = store_->isDeviceVerified(
-                            senderStr, std::string(rd.value()));
-                    }
-                }
-            }
-            decryptor_.handleRoomKeyRequest(contentStr, senderStr, requesterVerified);
+            // Another device asks us to re-share a room key. Verified-only
+            // policy is enforced inside handleRoomKeyRequest via the checker.
+            decryptor_.handleRoomKeyRequest(std::string(evt.contentJson),
+                                            std::string(evt.senderId));
         } else if (evt.type.find("m.key.verification.") == 0) {
             LOG(LogChannel::E2EE, "processToDevice: verification event type=%s from=%s",
                 std::string(evt.type).c_str(), std::string(evt.senderId).c_str());

@@ -165,11 +165,10 @@ static bool test_key_request_loop(const std::string& hs,
         if (!resp.ok) { std::this_thread::sleep_for(std::chrono::milliseconds(500)); continue; }
         aliceSince = std::string(resp.data.nextBatch);
         for (const auto& evt : resp.data.toDeviceEventList) {
-            if (evt.type == "m.room_key_request") {
-                bool ok = alice.decryptor.handleRoomKeyRequest(
-                    std::string(evt.contentJson), std::string(evt.senderId), false);
-                if (ok) forwarded = true;
-            }
+            if (evt.type != "m.room.encrypted") continue;
+            std::string inner = alice.decryptor.handleOlmEncryptedToDevice(
+                std::string(evt.senderId), std::string(evt.contentJson));
+            if (inner.find("m.room_key_request") != std::string::npos) forwarded = true;
         }
         if (!forwarded) std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
@@ -182,8 +181,9 @@ static bool test_key_request_loop(const std::string& hs,
         if (!resp.ok) { std::this_thread::sleep_for(std::chrono::milliseconds(500)); continue; }
         bobSince = std::string(resp.data.nextBatch);
         for (const auto& evt : resp.data.toDeviceEventList) {
-            if (evt.type == "m.forwarded_room_key") {
-                bob.decryptor.handleForwardedRoomKey(std::string(evt.contentJson));
+            if (evt.type == "m.room.encrypted") {
+                bob.decryptor.handleOlmEncryptedToDevice(
+                    std::string(evt.senderId), std::string(evt.contentJson));
             }
         }
         for (const auto& d : bob.decryptor.takeDecryptedEvents()) {

@@ -58,7 +58,13 @@ public:
     ~SyncEngine();
 
     void setClient(std::shared_ptr<MatrixClient> c) { client_ = std::move(c); }
-    void setSessionStore(std::shared_ptr<SessionStore> s) { store_ = std::move(s); }
+    void setSessionStore(std::shared_ptr<SessionStore> s) {
+        store_ = std::move(s);
+        decryptor_.setVerifiedDeviceChecker([this](const std::string& userId,
+            const std::string& deviceId) {
+            return store_ ? store_->isDeviceVerified(userId, deviceId) : false;
+        });
+    }
     void onSync(SyncCallback cb) { syncCb_ = std::move(cb); }
     void onStateChange(StateCallback cb) { stateCb_ = std::move(cb); }
     // Called when the access token is invalid (M_UNKNOWN_TOKEN) — UI should

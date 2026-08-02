@@ -601,21 +601,31 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
                         std::string(senderKeys.value()).c_str());
                 }
 
-                if (typeVal == "m.room_key") {
-                std::fprintf(stderr, "[E2EE] Olm plaintext: size=%zu full='%.400s'\n",
-                    plaintext.size(), plaintext.c_str());
-                LOG(LogChannel::E2EE, "Olm: inner type=m.room_key — calling handleRoomKey (simdjson)");
                 auto cr = pd.value()["content"];
-                if (cr.error() == simdjson::SUCCESS) {
-                    std::string innerContent = simdjson::to_string(cr.value());
-                    if (innerContent.find("\"sender_key\"") == std::string::npos) {
-                        innerContent.insert(innerContent.size() - 1,
-                            ",\"sender_key\":\"" + senderKey + "\"");
+                std::string innerContent;
+                if (cr.error() == simdjson::SUCCESS)
+                    innerContent = simdjson::to_string(cr.value());
+                if (typeVal == "m.room_key") {
+                    LOG(LogChannel::E2EE, "Olm: inner type=m.room_key — calling handleRoomKey");
+                    if (!innerContent.empty()) {
+                        if (innerContent.find("\"sender_key\"") == std::string::npos) {
+                            innerContent.insert(innerContent.size() - 1,
+                                ",\"sender_key\":\"" + senderKey + "\"");
+                        }
+                        handleRoomKey(innerContent);
                     }
-                    handleRoomKey(innerContent);
+                } else if (typeVal == "m.room_key_request") {
+                    // Another device's encrypted key request — route to the responder.
+                    LOG(LogChannel::E2EE, "Olm: inner type=m.room_key_request — responding");
+                    if (!innerContent.empty())
+                        handleRoomKeyRequest(innerContent, senderId);
+                } else if (typeVal == "m.forwarded_room_key") {
+                    // An Olm-encrypted forwarded key — import + replay pending.
+                    LOG(LogChannel::E2EE, "Olm: inner type=m.forwarded_room_key — importing");
+                    if (!innerContent.empty())
+                        handleForwardedRoomKey(innerContent);
                 }
             }
-        }
         }
         return plaintext;
     }
@@ -1168,33 +1178,27 @@ void Decryptor::requestRoomKey(const std::string& roomId, const std::string& sen
     std::string reqId = "pdrkr" + std::to_string(
         static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count())
         + g_txnCounter.fetch_add(1));
-    std::ostringstream body;
+    // The request content (m.room_key_request) — sent Olm-encrypted per spec.
+    std::string requestContent = "{\"action\":\"request\","
+        "\"body\":{\"algorithm\":\"m.megolm.v1.aes-sha2\","
+        "\"room_id\":\"" + roomId + "\","
+        "\"sender_key\":\"" + senderKey + "\","
+        "\"session_id\":\"" + sessionId + "\"},"
+        "\"request_id\":\"" + reqId + "\","
+        "\"requesting_device_id\":\"" + ctxDeviceId_ + "\"}";
     // Address the sending device directly (known from the megolm content's
     // device_id) — more reliable than the "*" wildcard.
-    std::string targetDevice = senderDeviceId.empty() ? "*" : senderDeviceId;
-    body << "{\"messages\":{\""
-         << senderId << "\":{\"" << targetDevice << "\":{\"action\":\"request\","
-         << "\"body\":{\"algorithm\":\"m.megolm.v1.aes-sha2\","
-         << "\"room_id\":\"" << roomId << "\","
-         << "\"sender_key\":\"" << senderKey << "\","
-         << "\"session_id\":\"" << sessionId << "\"},"
-         << "\"request_id\":\"" << reqId << "\","
-         << "\"requesting_device_id\":\"" << ctxDeviceId_ << "\"}}}}";
-    forceNewOlmSession(senderId, senderKey);  // MUST be first — establishes new Olm session before requesting re-share
-    auto hdrs = makeAuthHeaders(ctxToken_);
-    std::string url = ctxHomeserver_ + "/_matrix/client/v3/sendToDevice/m.room_key_request/" + reqId;
-    auto resp = httpPut(url, body.str(), hdrs, 15000);
-    LOG(LogChannel::E2EE, "requestRoomKey: sent for room=%.40s sid=%.20s sender=%s ok=%d status=%d err=%s",
-        roomId.c_str(), sessionId.c_str(), senderId.c_str(), resp.success ? 1 : 0,
-        resp.statusCode, resp.errorMessage.c_str());
-    std::fprintf(stderr, "[e2ee] requestRoomKey: room=%.40s sid=%.20s sender=%s ok=%d status=%d err=%s\n",
-                 roomId.c_str(), sessionId.c_str(), senderId.c_str(), resp.success ? 1 : 0,
-                 resp.statusCode, resp.errorMessage.c_str());
+    bool ok = !senderDeviceId.empty() &&
+        sendOlmToDevice(senderId, senderDeviceId, "m.room_key_request", requestContent);
+    LOG(LogChannel::E2EE, "requestRoomKey: sent for room=%.40s sid=%.20s sender=%s ok=%d",
+        roomId.c_str(), sessionId.c_str(), senderId.c_str(), ok ? 1 : 0);
+    std::fprintf(stderr, "[e2ee] requestRoomKey: room=%.40s sid=%.20s sender=%s ok=%d\n",
+                 roomId.c_str(), sessionId.c_str(), senderId.c_str(), ok ? 1 : 0);
 }
 
 
 bool Decryptor::handleRoomKeyRequest(const std::string& contentJson,
-    const std::string& senderId, bool requesterVerified) {
+    const std::string& senderId) {
     if (ctxHomeserver_.empty() || ctxToken_.empty()) return false;
 
     simdjson::dom::parser p;
@@ -1239,7 +1243,24 @@ bool Decryptor::handleRoomKeyRequest(const std::string& contentJson,
     }
 
     // Policy: verified-only mode requires the requesting device to be SAS-verified.
-    if (shareKeysVerifiedOnly_ && !requesterVerified) return false;
+    if (shareKeysVerifiedOnly_) {
+        bool verified = false;
+        if (verifiedDeviceChecker_) {
+            simdjson::dom::parser vp;
+            auto vd = vp.parse(contentJson);
+            if (vd.error() == simdjson::SUCCESS) {
+                auto rd = vd.value()["requesting_device_id"].get_string();
+                if (rd.error() != simdjson::SUCCESS) {
+                    auto b = vd.value()["body"].get_object();
+                    if (b.error() == simdjson::SUCCESS)
+                        rd = b.value()["requesting_device_id"].get_string();
+                }
+                if (rd.error() == simdjson::SUCCESS)
+                    verified = verifiedDeviceChecker_(senderId, std::string(rd.value()));
+            }
+        }
+        if (!verified) return false;
+    }
     // We must actually hold the requested session.
     if (!megolm_->hasSession(roomId, senderKey, sessionId)) return false;
 
@@ -1256,20 +1277,12 @@ bool Decryptor::handleRoomKeyRequest(const std::string& contentJson,
             << "\"forwarding_curve25519_key_chain\":[],"
             << "\"org.matrix.msc3061.shared_history\":true}";
 
-    std::ostringstream sendBody;
-    sendBody << "{\"messages\":{\"" << senderId << "\":{\""
-             << requestingDeviceId << "\":" << content.str() << "}}}";
-
-    auto hdrs = makeAuthHeaders(ctxToken_);
-    std::string txnId = "fwk-" + std::to_string(
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count());
-    std::string url = ctxHomeserver_ + "/_matrix/client/v3/sendToDevice/m.forwarded_room_key/" + txnId;
-    auto resp = httpPut(url, sendBody.str(), hdrs, 15000);
-    LOG(LogChannel::E2EE, "handleRoomKeyRequest: forwarded key room=%.40s sid=%.20s to=%s/%s ok=%d status=%d",
+    bool ok = sendOlmToDevice(senderId, requestingDeviceId,
+        "m.forwarded_room_key", content.str());
+    LOG(LogChannel::E2EE, "handleRoomKeyRequest: forwarded key room=%.40s sid=%.20s to=%s/%s ok=%d",
         roomId.c_str(), sessionId.c_str(), senderId.c_str(),
-        requestingDeviceId.c_str(), resp.success ? 1 : 0, resp.statusCode);
-    return resp.success;
+        requestingDeviceId.c_str(), ok ? 1 : 0);
+    return ok;
 }
 
 
@@ -1348,6 +1361,93 @@ int Decryptor::importKeys(const std::string& json) {
     }
     LOG(LogChannel::E2EE, "importKeys: imported %d sessions", imported);
     return imported;
+}
+
+
+
+// Send an Olm-encrypted to-device event to a single device: query keys ->
+// claim OTK -> create outbound session -> encrypt inner event -> PUT
+// /sendToDevice/m.room.encrypted. Matches shareRoomKey's envelope format.
+bool Decryptor::sendOlmToDevice(const std::string& targetUserId,
+    const std::string& targetDeviceId, const std::string& innerType,
+    const std::string& innerContent) {
+    if (ctxHomeserver_.empty() || ctxToken_.empty()) return false;
+    auto hdrs = makeAuthHeaders(ctxToken_);
+
+    // 1. Query the target device's keys (curve25519 + ed25519).
+    std::string queryBody = "{\"device_keys\":{\"" + targetUserId + "\":[]}}";
+    auto queryResp = httpPost(ctxHomeserver_ + "/_matrix/client/v3/keys/query",
+                              queryBody, hdrs, 15000);
+    if (!queryResp.success) return false;
+    std::string theirCurve, theirEd;
+    {
+        simdjson::dom::parser p;
+        auto doc = p.parse(queryResp.body);
+        if (doc.error() != simdjson::SUCCESS) return false;
+        auto devObj = doc.value()["device_keys"][targetUserId][targetDeviceId];
+        auto keysObj = devObj["keys"].get_object();
+        if (keysObj.error() != simdjson::SUCCESS) return false;
+        for (auto k : keysObj.value()) {
+            auto v = k.value.get_string();
+            if (v.error() != simdjson::SUCCESS) continue;
+            std::string key(k.key);
+            if (key == "curve25519:" + targetDeviceId) theirCurve = std::string(v.value());
+            else if (key == "ed25519:" + targetDeviceId) theirEd = std::string(v.value());
+        }
+    }
+    if (theirCurve.empty() || theirEd.empty()) return false;
+
+    // 2. Claim an OTK (fallback key returned when the pool is exhausted).
+    std::string claimBody = "{\"one_time_keys\":{\"" + targetUserId
+        + "\":{\"" + targetDeviceId + "\":\"signed_curve25519\"}}}";
+    auto claimResp = httpPost(ctxHomeserver_ + "/_matrix/client/v3/keys/claim",
+                              claimBody, hdrs, 15000);
+    if (!claimResp.success) return false;
+    std::string oneTimeKey;
+    {
+        simdjson::dom::parser p;
+        auto doc = p.parse(claimResp.body);
+        if (doc.error() != simdjson::SUCCESS) return false;
+        auto devObj = doc.value()["one_time_keys"][targetUserId][targetDeviceId];
+        auto keyObj = devObj.get_object();
+        if (keyObj.error() != simdjson::SUCCESS) return false;
+        for (auto k : keyObj.value()) {
+            if (std::string(k.key).find("signed_curve25519:") != 0) continue;
+            auto kv = k.value["key"].get_string();
+            if (kv.error() == simdjson::SUCCESS) { oneTimeKey = std::string(kv.value()); break; }
+        }
+    }
+    if (oneTimeKey.empty()) return false;
+
+    // 3. Create outbound session + encrypt the inner event.
+    progressive::OlmSession session;
+    auto* acc = static_cast<progressive::OlmAccount*>(account_->rawAccount());
+    auto sessResult = session.createOutbound(*acc, theirCurve, oneTimeKey);
+    if (!sessResult.success) return false;
+
+    std::string plaintext = "{\"type\":\"" + innerType + "\",\"content\":" + innerContent
+        + ",\"sender\":\"" + ctxUserId_ + "\""
+        + ",\"recipient\":\"" + targetUserId + "\""
+        + ",\"keys\":{\"ed25519\":\"" + ed25519Key() + "\"}"
+        + ",\"recipient_keys\":{\"ed25519\":\"" + theirEd + "\"}}";
+    auto encResult = session.encrypt(plaintext);
+    if (!encResult.success || encResult.data.empty()) return false;
+
+    // 4. Build + send m.room.encrypted to-device body.
+    std::string sendBody = "{\"messages\":{\"" + targetUserId + "\":{\"" + targetDeviceId
+        + "\":{\"algorithm\":\"m.olm.v1.curve25519-aes-sha2\","
+        + "\"ciphertext\":{\"" + theirCurve + "\":{\"body\":\"" + encResult.data
+        + "\",\"type\":0}},"
+        + "\"sender_key\":\"" + curve25519Key() + "\"}}}}";
+    std::string txnId = "pdolm" + std::to_string(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count());
+    std::string url = ctxHomeserver_ + "/_matrix/client/v3/sendToDevice/m.room.encrypted/" + txnId;
+    auto resp = httpPut(url, sendBody, hdrs, 15000);
+    LOG(LogChannel::E2EE, "sendOlmToDevice: %s to=%s/%s ok=%d status=%d",
+        innerType.c_str(), targetUserId.c_str(), targetDeviceId.c_str(),
+        resp.success ? 1 : 0, resp.statusCode);
+    return resp.success;
 }
 
 

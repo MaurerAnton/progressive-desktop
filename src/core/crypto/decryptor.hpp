@@ -18,6 +18,7 @@
 #include <map>
 #include <mutex>
 #include <unordered_set>
+#include <functional>
 
 namespace progressive::desktop {
 
@@ -198,9 +199,26 @@ public:
     // Import a MegolmSessionData envelope. Returns number imported (>0 = ok).
     int importKeys(const std::string& json);
 
+    // Handle an incoming m.room_key_request (another device asks us to
+    // re-share a megolm room key). Sends m.forwarded_room_key (Olm-encrypted)
+    // on success. Verified-only policy checked internally via the checker.
     bool handleRoomKeyRequest(const std::string& contentJson,
-                              const std::string& senderId,
-                              bool requesterVerified);
+                              const std::string& senderId);
+
+    // Callback: "is (userId, deviceId) SAS-verified?" — used by the
+    // verified-only key-sharing policy. Wired by SyncEngine to the store.
+    using VerifiedDeviceChecker = std::function<bool(const std::string& userId,
+                                                     const std::string& deviceId)>;
+    void setVerifiedDeviceChecker(VerifiedDeviceChecker fn) { verifiedDeviceChecker_ = std::move(fn); }
+
+    // Send an Olm-encrypted to-device event (m.room.encrypted wrapping) to a
+    // single device: query keys -> claim OTK -> create outbound session ->
+    // encrypt inner {type, content, sender/recipient envelope} -> PUT.
+    bool sendOlmToDevice(const std::string& targetUserId,
+                         const std::string& targetDeviceId,
+                         const std::string& innerType,
+                         const std::string& innerContent);
+
     void setShareKeysVerifiedOnly(bool v) { shareKeysVerifiedOnly_ = v; }
 
     // Set the room's m.room.encryption config (rotation policy) from a
@@ -235,6 +253,7 @@ private:
     std::unordered_set<std::string> requestedKeys_;
     std::unordered_set<std::string> recentKeyRequests_;  // dedup by request_id (capped)
     bool shareKeysVerifiedOnly_ = false;  // policy: only share with SAS-verified devices
+    VerifiedDeviceChecker verifiedDeviceChecker_;
     std::unordered_set<std::string> forcedOlm_;  // throttle: one m.dummy per senderKey per run
     std::mutex requestMtx_;
     // Track which rooms have had their key shared for current outbound session

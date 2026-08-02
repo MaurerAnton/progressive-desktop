@@ -217,6 +217,7 @@ void ToolbarHandler::onSettings() {
         PrefsDialog dlg(parentWidget_);
         dlg.setClient(client_);
         dlg.setVerificationHandler(verifyHandler_);
+        if (sync_) dlg.setDecryptor(sync_->decryptor());
         connect(&dlg, &PrefsDialog::settingsChanged, this, &ToolbarHandler::prefsChanged);
         dlg.exec();
     } else if (selected == shortcutsAction) {

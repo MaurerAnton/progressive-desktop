@@ -1273,6 +1273,78 @@ bool Decryptor::handleForwardedRoomKey(const std::string& contentJson) {
 }
 
 
+
+// Export all megolm keys (inbound + outbound) as a MegolmSessionData envelope.
+std::string Decryptor::exportAllKeys() {
+    std::string inbound = megolm_->exportAllJson();
+
+    // Build the outbound rooms fragment: "roomId":{"sessions":[...]}
+    std::string outboundRooms;
+    {
+        std::lock_guard<std::mutex> lk(outboundMtx_);
+        bool firstRoom = true;
+        for (auto& [roomId, s] : outboundSessions_) {
+            if (!firstRoom) outboundRooms += ",";
+            firstRoom = false;
+            outboundRooms += "\"" + roomId + "\":{\"sessions\":[{"
+                "\"algorithm\":\"m.megolm.v1.aes-sha2\","
+                "\"room_id\":\"" + roomId + "\","
+                "\"session_id\":\"" + s.sessionId + "\","
+                "\"session_key\":\"" + s.sessionKey + "\","
+                "\"sender_key\":\"" + curve25519Key() + "\","
+                "\"sender_claimed_keys\":{\"ed25519\":\"" + ed25519Key() + "\"},"
+                "\"forwarding_curve25519_key_chain\":[]}]}";
+        }
+    }
+    if (outboundRooms.empty()) return inbound;
+
+    // Merge: re-serialize inbound rooms, then append outbound rooms.
+    simdjson::dom::parser p;
+    auto doc = p.parse(inbound);
+    if (doc.error() != simdjson::SUCCESS) return inbound;
+    auto rooms = doc.value()["rooms"].get_object();
+    if (rooms.error() != simdjson::SUCCESS) return inbound;
+
+    std::string merged = "{\"version\":1,\"rooms\":{";
+    bool first = true;
+    for (auto room : rooms.value()) {
+        if (!first) merged += ",";
+        first = false;
+        merged += "\"" + std::string(room.key) + "\":"
+                  + simdjson::to_string(room.value);
+    }
+    if (!first) merged += ",";
+    merged += outboundRooms;
+    merged += "}}";
+    return merged;
+}
+
+// Import a MegolmSessionData envelope (v1). Returns count imported.
+int Decryptor::importKeys(const std::string& json) {
+    simdjson::dom::parser p;
+    auto doc = p.parse(json);
+    if (doc.error() != simdjson::SUCCESS) return 0;
+    auto rooms = doc.value()["rooms"].get_object();
+    if (rooms.error() != simdjson::SUCCESS) return 0;
+    int imported = 0;
+    for (auto room : rooms.value()) {
+        std::string roomId(room.key);
+        auto sessions = room.value["sessions"].get_array();
+        if (sessions.error() != simdjson::SUCCESS) continue;
+        for (auto sess : sessions.value()) {
+            auto skey = sess["sender_key"].get_string();
+            auto key = sess["session_key"].get_string();
+            if (skey.error() != simdjson::SUCCESS || key.error() != simdjson::SUCCESS) continue;
+            if (megolm_->addImportedSession(roomId, std::string(skey.value()),
+                                            std::string(key.value())))
+                imported++;
+        }
+    }
+    LOG(LogChannel::E2EE, "importKeys: imported %d sessions", imported);
+    return imported;
+}
+
+
 void Decryptor::forceNewOlmSession(const std::string& senderId, const std::string& senderKey) {
     if (ctxHomeserver_.empty() || ctxToken_.empty()) return;
 

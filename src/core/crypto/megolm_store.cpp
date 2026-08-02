@@ -54,6 +54,11 @@ bool MegolmStore::addImportedSession(const std::string& roomId,
     return impl_->mgr.addImportedSession(roomId, senderKey, sessionKeyExportBase64);
 }
 
+std::string MegolmStore::exportAllJson() {
+    std::lock_guard<std::mutex> lk(mtx_);
+    return impl_->mgr.exportAllSessionsJson();
+}
+
 std::string MegolmStore::exportSessionKey(const std::string& roomId,
     const std::string& senderKey, const std::string& sessionId) {
     std::lock_guard<std::mutex> lk(mtx_);

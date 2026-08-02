@@ -52,6 +52,9 @@ public:
                             const std::string& senderKey,
                             const std::string& sessionKeyExportBase64);
 
+    // Export ALL inbound sessions as a MegolmSessionData JSON envelope.
+    std::string exportAllJson();
+
     std::string exportSessionKey(const std::string& roomId,
                                  const std::string& senderKey,
                                  const std::string& sessionId);

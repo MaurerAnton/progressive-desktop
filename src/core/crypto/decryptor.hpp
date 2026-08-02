@@ -187,6 +187,13 @@ public:
     // Import an m.forwarded_room_key (v1 export format) into the megolm store.
     bool handleForwardedRoomKey(const std::string& contentJson);
 
+    // Export all megolm keys (inbound + outbound) as a MegolmSessionData
+    // JSON envelope (version 1). For backup / export file.
+    std::string exportAllKeys();
+
+    // Import a MegolmSessionData envelope. Returns number imported (>0 = ok).
+    int importKeys(const std::string& json);
+
     bool handleRoomKeyRequest(const std::string& contentJson,
                               const std::string& senderId,
                               bool requesterVerified);

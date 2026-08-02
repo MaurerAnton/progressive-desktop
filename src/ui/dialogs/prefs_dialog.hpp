@@ -12,6 +12,7 @@ namespace progressive::desktop {
 
 class MatrixClient;
 class VerificationHandler;
+class Decryptor;
 
 class PrefsDialog : public QDialog {
     Q_OBJECT
@@ -20,6 +21,7 @@ public:
 
     void setClient(std::shared_ptr<MatrixClient> c) { client_ = std::move(c); }
     void setVerificationHandler(VerificationHandler* vh) { verifyHandler_ = vh; }
+    void setDecryptor(Decryptor* d) { decryptor_ = d; }
 
     static int imageCacheSize() {
         QSettings s;
@@ -57,6 +59,7 @@ private:
 
     std::shared_ptr<MatrixClient> client_;
     VerificationHandler* verifyHandler_ = nullptr;
+    Decryptor* decryptor_ = nullptr;
     QSpinBox* cacheSpin_;
     QSpinBox* syncTimeoutSpin_ = nullptr;
     QSpinBox* historySpin_ = nullptr;

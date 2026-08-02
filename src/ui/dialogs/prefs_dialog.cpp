@@ -1,6 +1,10 @@
 // src/ui/prefs_dialog.cpp
 #include "prefs_dialog.hpp"
 #include "../handlers/verification_handler.hpp"
+#include "core/crypto/decryptor.hpp"
+#include <QFileDialog>
+#include <QMessageBox>
+#include <QTextStream>
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -65,6 +69,43 @@ PrefsDialog::PrefsDialog(QWidget* parent) : QDialog(parent) {
         "When enabled, only SAS-verified devices can request room keys from you. "
         "Default off (share with all room members).");
     form->addRow("Key sharing:", verifiedOnlyCheck_);
+
+    auto* backupGroup = new QGroupBox("Key backup", this);
+    auto* backupLayout = new QVBoxLayout(backupGroup);
+    auto* exportBtn = new QPushButton("Export room keys to file…", this);
+    auto* importBtn = new QPushButton("Import room keys from file…", this);
+    backupLayout->addWidget(exportBtn);
+    backupLayout->addWidget(importBtn);
+    root->addWidget(backupGroup);
+
+    connect(exportBtn, &QPushButton::clicked, this, [this]() {
+        if (!decryptor_) { QMessageBox::information(this, "Key backup", "E2EE not initialized."); return; }
+        QString file = QFileDialog::getSaveFileName(this, "Export room keys", "megolm-keys.json");
+        if (file.isEmpty()) return;
+        QFile f(file);
+        if (!f.open(QIODevice::WriteOnly)) {
+            QMessageBox::warning(this, "Key backup", "Could not open file for writing.");
+            return;
+        }
+        QTextStream ts(&f);
+        ts << QString::fromStdString(decryptor_->exportAllKeys());
+        QMessageBox::information(this, "Key backup", "Room keys exported.");
+    });
+    connect(importBtn, &QPushButton::clicked, this, [this]() {
+        if (!decryptor_) { QMessageBox::information(this, "Key backup", "E2EE not initialized."); return; }
+        QString file = QFileDialog::getOpenFileName(this, "Import room keys", "megolm-keys.json");
+        if (file.isEmpty()) return;
+        QFile f(file);
+        if (!f.open(QIODevice::ReadOnly)) {
+            QMessageBox::warning(this, "Key backup", "Could not open file for reading.");
+            return;
+        }
+        std::string json = f.readAll().toStdString();
+        int n = decryptor_->importKeys(json);
+        QMessageBox::information(this, "Key backup",
+            n > 0 ? QString("Imported %1 session(s).").arg(n)
+                  : "No sessions imported (invalid file or no new keys).");
+    });
 
     root->addLayout(form);
 

@@ -71,6 +71,10 @@ public:
     bool saveE2eeFlag(const std::string& key, bool value);
     std::optional<bool> loadE2eeFlag(const std::string& key);
 
+    // ---- Cross-signing keys (MSC1756) ----
+    bool saveCrossSigningKeys(const std::string& userId, const std::string& json);
+    std::optional<std::string> loadCrossSigningKeys(const std::string& userId);
+
     // ---- Verified devices (SAS-verified for key-sharing policy) ----
     bool saveVerifiedDevice(const std::string& userId, const std::string& deviceId);
     bool isDeviceVerified(const std::string& userId, const std::string& deviceId);

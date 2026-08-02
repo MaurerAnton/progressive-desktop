@@ -71,6 +71,10 @@ bool SessionStore::createSchema() {
         "CREATE TABLE IF NOT EXISTS hidden_rooms ("
         "  room_id TEXT PRIMARY KEY"
         ") WITHOUT ROWID;"
+        "CREATE TABLE IF NOT EXISTS cross_signing ("
+        "  user_id TEXT PRIMARY KEY,"
+        "  data TEXT NOT NULL"
+        ");"
         "CREATE TABLE IF NOT EXISTS verified_devices ("
         "  user_id TEXT NOT NULL,"
         "  device_id TEXT NOT NULL,"
@@ -372,6 +376,35 @@ std::optional<bool> SessionStore::loadE2eeFlag(const std::string& key) {
         r = (std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0))) == "1");
     sqlite3_finalize(stmt);
     return r;
+}
+
+bool SessionStore::saveCrossSigningKeys(const std::string& userId,
+    const std::string& json) {
+    if (!db_) return false;
+    const char* sql = "INSERT INTO cross_signing(user_id, data) VALUES(?,?) "
+                      "ON CONFLICT(user_id) DO UPDATE SET data=excluded.data;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, userId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, json.c_str(), -1, SQLITE_TRANSIENT);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
+std::optional<std::string> SessionStore::loadCrossSigningKeys(const std::string& userId) {
+    std::optional<std::string> result;
+    if (!db_) return result;
+    const char* sql = "SELECT data FROM cross_signing WHERE user_id=? LIMIT 1;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return result;
+    sqlite3_bind_text(stmt, 1, userId.c_str(), -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        auto txt = sqlite3_column_text(stmt, 0);
+        if (txt) result = std::string(reinterpret_cast<const char*>(txt));
+    }
+    sqlite3_finalize(stmt);
+    return result;
 }
 
 bool SessionStore::saveVerifiedDevice(const std::string& userId,

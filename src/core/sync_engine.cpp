@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <ctime>
 #include "core/debug_log.hpp"
+#include "core/crypto/cross_sign.hpp"
 #include <simdjson.h>
 
 namespace progressive::desktop {
@@ -484,6 +485,37 @@ void SyncEngine::uploadDeviceKeys(bool force) {
                 decryptor_.accountShared() ? 1 : 0, result.ok ? 1 : 0);
         }
     }
+}
+
+bool SyncEngine::setupCrossSigning() {
+    if (!client_ || !client_->isLoggedIn()) return false;
+    std::string userId = client_->account().userId;
+    if (store_ && store_->loadCrossSigningKeys(userId).has_value()) return true;
+
+    auto keys = generateCrossSigningKeys();
+    if (keys.masterPub.empty()) return false;
+
+    auto masterContent = buildCrossSigningContent("m.cross_signing.master",
+        keys.masterPub, "", "", userId);
+    auto selfContent = buildCrossSigningContent("m.cross_signing.self_signing",
+        keys.selfPub, keys.masterPub, keys.masterPriv, userId);
+    auto userContent = buildCrossSigningContent("m.cross_signing.user_signing",
+        keys.userPub, keys.masterPub, keys.masterPriv, userId);
+
+    if (!client_->setAccountData("m.cross_signing.master", masterContent).ok) return false;
+    if (!client_->setAccountData("m.cross_signing.self_signing", selfContent).ok) return false;
+    if (!client_->setAccountData("m.cross_signing.user_signing", userContent).ok) return false;
+
+    std::string json = "{\"master\":{\"pub\":\"" + keys.masterPub
+        + "\",\"priv\":\"" + keys.masterPriv
+        + "\"},\"user\":{\"pub\":\"" + keys.userPub
+        + "\",\"priv\":\"" + keys.userPriv
+        + "\"},\"self\":{\"pub\":\"" + keys.selfPub
+        + "\",\"priv\":\"" + keys.selfPriv + "\"}}";
+    if (store_) store_->saveCrossSigningKeys(userId, json);
+    LOG(LogChannel::E2EE, "setupCrossSigning: keys generated + uploaded for %s",
+        userId.c_str());
+    return true;
 }
 
 void SyncEngine::uploadFallbackKey() {

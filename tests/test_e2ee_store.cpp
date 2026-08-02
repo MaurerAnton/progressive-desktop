@@ -1,5 +1,6 @@
 #include "core/crypto/megolm_store.hpp"
 #include "core/crypto/decryptor.hpp"
+#include "core/crypto/cross_sign.hpp"
 #include <iostream>
 #include <string>
 #include <vector>
@@ -116,7 +117,37 @@ static void test_megolm_rotation() {
     CHECK(s3 == s2, "rot: no rotation without config");
 }
 
-int main() {
+
+// Cross-signing: keygen, sign/verify roundtrip, tamper rejection, builders.
+static void test_cross_signing() {
+    auto keys = progressive::desktop::generateCrossSigningKeys();
+    CHECK(!keys.masterPub.empty() && !keys.selfPriv.empty(), "xs: keys generated");
+    CHECK(keys.selfPub != keys.masterPub && keys.selfPub != keys.userPub,
+          "xs: distinct keypairs");
+
+    std::string msg = "hello-cross-sign";
+    std::string sig = progressive::desktop::signEd25519(keys.masterPriv, msg);
+    CHECK(!sig.empty(), "xs: signature produced");
+    CHECK(progressive::desktop::verifyEd25519(keys.masterPub, msg, sig),
+          "xs: signature verifies");
+    CHECK(!progressive::desktop::verifyEd25519(keys.masterPub, msg + "x", sig),
+          "xs: tampered message rejected");
+    CHECK(!progressive::desktop::verifyEd25519(keys.selfPub, msg, sig),
+          "xs: wrong key rejected");
+
+    std::string content = progressive::desktop::buildCrossSigningContent(
+        "m.cross_signing.self_signing", keys.selfPub,
+        keys.masterPub, keys.masterPriv, "@alice:test");
+    CHECK(content.find("\"signatures\"") != std::string::npos
+          && content.find("@alice:test") != std::string::npos,
+          "xs: content has signatures map with our user");
+    std::string canonical = progressive::desktop::crossSigningKeysCanonical(keys.selfPub);
+    CHECK(canonical.find("ed25519:" + keys.selfPub) != std::string::npos,
+          "xs: canonical keys object");
+}
+
+int main() {    test_cross_signing();
+
     test_megolm_rotation();
     test_key_export_import();
     test_megolm_empty_pickle();

@@ -87,6 +87,10 @@ public:
     // loop when the server reports no unused fallback key of our type.
     void uploadFallbackKey();
 
+    // Generate MSK/USK/SSK, upload the three m.cross_signing.* account_data
+    // types, and persist the private keys. No-op if already set up.
+    bool setupCrossSigning();
+
     const SyncEngineStats& stats() const { return stats_; }
 
     // Start the loop. If a saved since-token exists, continues incremental;

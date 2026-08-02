@@ -1008,6 +1008,19 @@ ApiResult<std::string> MatrixClient::uploadKeys(const std::string& body) {
     return r;
 }
 
+ApiResult<bool> MatrixClient::setAccountData(const std::string& type,
+                                             const std::string& contentJson) {
+    ApiResult<bool> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    auto resp = httpPut(account().homeserverUrl + "/_matrix/client/v3/user/"
+                        + account().userId + "/account_data/" + type,
+                        contentJson, authHeaders(), 15000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) { r.ok = true; }
+    else { r.error.message = resp.errorMessage.empty() ? "account_data failed" : resp.errorMessage; }
+    return r;
+}
+
 ApiResult<std::string> MatrixClient::queryKeys(const std::string& body) {
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }

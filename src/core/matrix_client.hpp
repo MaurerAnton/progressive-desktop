@@ -296,6 +296,11 @@ public:
     // Returns raw server response (with one_time_key_counts).
     ApiResult<std::string> uploadKeys(const std::string& body);
 
+    // PUT /_matrix/client/v3/user/{userId}/account_data/{type}
+    // Store account data (e.g. m.cross_signing.*). Content is a JSON object.
+    ApiResult<bool> setAccountData(const std::string& type,
+                                   const std::string& contentJson);
+
     // POST /_matrix/client/v3/keys/query
     // Query device keys for a list of users. Body:
     //   {"device_keys":{"@user:server":[]}}

@@ -77,6 +77,7 @@ add_library(progressive_core STATIC
     src/core/crypto/verification.cpp
     src/core/crypto/verify_controller.cpp
     src/core/crypto/megolm_store.cpp
+    src/core/crypto/cross_sign.cpp
     src/core/crypto/decryptor.cpp
 )
 target_include_directories(progressive_core PUBLIC

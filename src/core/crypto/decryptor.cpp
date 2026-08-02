@@ -1379,7 +1379,7 @@ bool Decryptor::sendOlmToDevice(const std::string& targetUserId,
     auto queryResp = httpPost(ctxHomeserver_ + "/_matrix/client/v3/keys/query",
                               queryBody, hdrs, 15000);
     if (!queryResp.success) return false;
-    std::string theirCurve, theirEd;
+    std::string theirCurve, theirEd, deviceSig;
     {
         simdjson::dom::parser p;
         auto doc = p.parse(queryResp.body);
@@ -1394,8 +1394,17 @@ bool Decryptor::sendOlmToDevice(const std::string& targetUserId,
             if (key == "curve25519:" + targetDeviceId) theirCurve = std::string(v.value());
             else if (key == "ed25519:" + targetDeviceId) theirEd = std::string(v.value());
         }
+        auto sig = devObj["signatures"][targetUserId]["ed25519:" + targetDeviceId].get_string();
+        if (sig.error() == simdjson::SUCCESS) deviceSig = std::string(sig.value());
     }
     if (theirCurve.empty() || theirEd.empty()) return false;
+    // Verify the device key signature (mirror shareRoomKey) — fail closed.
+    if (!deviceSig.empty() &&
+        !verifyDeviceKeys(targetUserId, targetDeviceId, theirCurve, theirEd, deviceSig)) {
+        LOG(LogChannel::E2EE, "sendOlmToDevice: device key sig INVALID for %s/%s — refusing",
+            targetUserId.c_str(), targetDeviceId.c_str());
+        return false;
+    }
 
     // 2. Claim an OTK (fallback key returned when the pool is exhausted).
     std::string claimBody = "{\"one_time_keys\":{\"" + targetUserId
@@ -1403,7 +1412,7 @@ bool Decryptor::sendOlmToDevice(const std::string& targetUserId,
     auto claimResp = httpPost(ctxHomeserver_ + "/_matrix/client/v3/keys/claim",
                               claimBody, hdrs, 15000);
     if (!claimResp.success) return false;
-    std::string oneTimeKey;
+    std::string oneTimeKey, otkSig;
     {
         simdjson::dom::parser p;
         auto doc = p.parse(claimResp.body);
@@ -1414,10 +1423,19 @@ bool Decryptor::sendOlmToDevice(const std::string& targetUserId,
         for (auto k : keyObj.value()) {
             if (std::string(k.key).find("signed_curve25519:") != 0) continue;
             auto kv = k.value["key"].get_string();
-            if (kv.error() == simdjson::SUCCESS) { oneTimeKey = std::string(kv.value()); break; }
+            if (kv.error() == simdjson::SUCCESS) oneTimeKey = std::string(kv.value());
+            auto sig = k.value["signatures"][targetUserId]["ed25519:" + targetDeviceId].get_string();
+            if (sig.error() == simdjson::SUCCESS) otkSig = std::string(sig.value());
+            break;
         }
     }
     if (oneTimeKey.empty()) return false;
+    // Verify the claimed key signature (OTK or fallback — both signed like OTKs).
+    if (!otkSig.empty() && !verifyOtk(theirEd, oneTimeKey, otkSig)) {
+        LOG(LogChannel::E2EE, "sendOlmToDevice: OTK sig INVALID for %s/%s — refusing",
+            targetUserId.c_str(), targetDeviceId.c_str());
+        return false;
+    }
 
     // 3. Create outbound session + encrypt the inner event.
     progressive::OlmSession session;

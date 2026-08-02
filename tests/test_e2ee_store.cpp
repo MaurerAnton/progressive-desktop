@@ -156,8 +156,14 @@ static void test_cross_signing() {
         if (sigEnd != std::string::npos) contentSig = content.substr(sigPos, sigEnd - sigPos);
     }
     CHECK(!contentSig.empty(), "xs: extracted content signature");
-    CHECK(progressive::desktop::verifyEd25519(keys.masterPub, canonical, contentSig),
+    // The signature is over the FULL canonical CrossSigningKey (keys + usage + user_id).
+    std::string fullCanonical = progressive::desktop::crossSigningKeyCanonical(
+        keys.selfPub, "self_signing", "@alice:test");
+    CHECK(progressive::desktop::verifyEd25519(keys.masterPub, fullCanonical, contentSig),
           "xs: content signature verifies with the master key");
+    // And it must NOT verify over the keys-only canonical (regression guard).
+    CHECK(!progressive::desktop::verifyEd25519(keys.masterPub, canonical, contentSig),
+          "xs: keys-only canonical does NOT verify (full canonical required)");
 }
 
 int main() {    test_cross_signing();

@@ -88,19 +88,31 @@ std::string crossSigningKeysCanonical(const std::string& pubKeyB64) {
     return "{\"ed25519:" + pubKeyB64 + "\":\"" + pubKeyB64 + "\"}";
 }
 
+std::string crossSigningKeyCanonical(const std::string& pubKeyB64,
+                                     const std::string& usage,
+                                     const std::string& userId) {
+    return "{\"keys\":" + crossSigningKeysCanonical(pubKeyB64)
+        + ",\"usage\":[\"" + usage + "\"],\"user_id\":\"" + userId + "\"}";
+}
+
 std::string buildCrossSigningContent(const std::string& type,
                                      const std::string& pubKeyB64,
                                      const std::string& signingPubB64,
                                      const std::string& signingPrivB64,
                                      const std::string& userId) {
-    std::string keysJson = crossSigningKeysCanonical(pubKeyB64);
-    std::string sig;
-    if (!signingPrivB64.empty())
-        sig = signEd25519(signingPrivB64, keysJson);
     std::string usage;
     if (type.find("self_signing") != std::string::npos) usage = "self_signing";
     else if (type.find("user_signing") != std::string::npos) usage = "user_signing";
     else usage = "master";
+
+    std::string keysJson = crossSigningKeysCanonical(pubKeyB64);
+    std::string sig;
+    if (!signingPrivB64.empty()) {
+        // The server verifies the signature over the FULL canonical
+        // CrossSigningKey (keys + usage + user_id), not just the keys object.
+        std::string signedJson = crossSigningKeyCanonical(pubKeyB64, usage, userId);
+        sig = signEd25519(signingPrivB64, signedJson);
+    }
 
     std::string out = "{\"keys\":" + keysJson;
     if (!sig.empty()) {

@@ -32,7 +32,13 @@ std::string buildCrossSigningContent(const std::string& type,
                                      const std::string& signingPrivB64,
                                      const std::string& userId);
 
-// Canonical form of the "keys" object used as the signature message.
+// Canonical form of the "keys" object (the value of a CrossSigningKey.keys).
 std::string crossSigningKeysCanonical(const std::string& pubKeyB64);
+
+// Canonical form of the FULL CrossSigningKey (keys + usage + user_id, sorted
+// lexicographically) — the signature message the server verifies.
+std::string crossSigningKeyCanonical(const std::string& pubKeyB64,
+                                     const std::string& usage,
+                                     const std::string& userId);
 
 } // namespace progressive::desktop

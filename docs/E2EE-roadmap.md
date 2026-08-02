@@ -54,20 +54,23 @@ Unblocks P4. Removes "OTKs exhausted → can't receive" failure mode.
 - NOTE: accounts created BEFORE the CSPRNG fix have rand()-derived keys — reset device keys / re-login to regenerate
 - [x] Tests: lifecycle, pickle roundtrip, /sync parse, RNG regression, claimed-fallback session
 
-## Phase 4 — Key sharing + forwarded keys + export/import (2-3 sessions)
-- Port keyshare.cpp (incoming m.room_key_request handling — REAL, 103L)
-  - shouldShareKey policy
-  - buildForwardedKeyContent (with MSC3061 shared_history)
-- Wire to-device handler for incoming m.room_key_request
-- m.forwarded_room_key receive + import via olm_import_inbound_group_session
-- Key export/import file format (MegolmSessionData JSON envelope)
-- Key export/import UI
+## Phase 4 — Key sharing + forwarded keys + export/import ✅ COMPLETE (Aug 2026)
+- [x] Incoming m.room_key_request — policy toggle (verified-only vs all) via
+      SAS-verified device persistence (session_store verified_devices table)
+- [x] m.forwarded_room_key with MSC3061 shared_history, dedup by request_id
+- [x] m.forwarded_room_key receive + import (olm_import_inbound_group_session,
+      real session id via submodule addImportedSession)
+- [x] Key export/import — MegolmSessionData envelope (submodule exportAllSessionsJson
+      + outbound merge), PrefsDialog Export/Import buttons
+- [x] Tests: export/import roundtrip
 
-## Phase 5 — Megolm rotation (1 session)
-- Port room_encryption.cpp isEncryptionRotationDue() (REAL, 123L)
-- Wire into outbound session path: when due, drop + recreate outbound
-- Forward secrecy: don't re-share rotated keys to late joiners
-- Parse rotation config from m.room.encryption state event
+## Phase 5 — Megolm rotation ✅ COMPLETE (Aug 2026)
+- [x] isRotationDue + parseEncryptionConfig ported (submodule, called directly)
+- [x] Rotation wired: message-count + time-period triggers drop + recreate
+      outbound (roomKeysShared reset -> new key re-shared)
+- [x] Forward secrecy automatic: shareRoomKey only shares the current outbound
+- [x] m.room.encryption state event parsed per room (sync loop)
+- [x] Rotation test (rotation_period_msgs=1)
 
 ## Phase 6 — Cross-signing (3-4 sessions)
 Depends on Phase 1 (ed25519 verify).

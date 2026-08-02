@@ -153,6 +153,11 @@
 [ ] DM: always creates new room, doesn't check m.direct for existing
 [ ] Chat logging duplication (DEBT-002): RoomHandler + ToolbarHandler both have chatLogging_
 [ ] Desktop notifications — basic implementation, blue square icon
+[ ] Notification loop: only ONE room notified per sync (`break` at sync_response_handler.cpp:87) —
+    per sync cycle exactly one popup (first unread room), so N unread rooms ≠ N popups in one
+    batch; multiple rooms only appear across successive syncs (user observed 2 rooms = 2 syncs).
+    Also no dedup — a room that stays unread-and-first re-notifies every sync. @mention body text
+    IS implemented (:83-84). Compare with other clients (per-room, mention-only, grouping).
 [ ] Error visibility: errors show in status bar line where sync stats normally appear, no dialog/log panel
 [ ] test_gui_phase4 duplicates RoomListModel (test code only, not blocking)
 [ ] RoomListDelegate::paint const_cast (DEBT-012, works but ugly)

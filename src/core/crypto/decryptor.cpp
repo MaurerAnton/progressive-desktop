@@ -1209,7 +1209,9 @@ bool Decryptor::handleRoomKeyRequest(const std::string& contentJson,
     auto sid = body.value()["session_id"].get_string();
     auto skey = body.value()["sender_key"].get_string();
     auto reqId = body.value()["request_id"].get_string();
-    auto reqDev = body.value()["requesting_device_id"].get_string();
+    auto reqDev = val["requesting_device_id"].get_string();
+    if (reqDev.error() != simdjson::SUCCESS)
+        reqDev = body.value()["requesting_device_id"].get_string();
     if (rid.error() != simdjson::SUCCESS || sid.error() != simdjson::SUCCESS ||
         skey.error() != simdjson::SUCCESS || reqId.error() != simdjson::SUCCESS ||
         reqDev.error() != simdjson::SUCCESS)

@@ -367,13 +367,15 @@ void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
                 simdjson::dom::parser p;
                 auto d = p.parse(contentStr);
                 if (d.error() == simdjson::SUCCESS) {
-                    auto b = d.value()["body"].get_object();
-                    if (b.error() == simdjson::SUCCESS) {
-                        auto rd = b.value()["requesting_device_id"].get_string();
-                        if (rd.error() == simdjson::SUCCESS) {
-                            requesterVerified = store_->isDeviceVerified(
-                                senderStr, std::string(rd.value()));
-                        }
+                    auto rd = d.value()["requesting_device_id"].get_string();
+                    if (rd.error() != simdjson::SUCCESS) {
+                        auto b = d.value()["body"].get_object();
+                        if (b.error() == simdjson::SUCCESS)
+                            rd = b.value()["requesting_device_id"].get_string();
+                    }
+                    if (rd.error() == simdjson::SUCCESS) {
+                        requesterVerified = store_->isDeviceVerified(
+                            senderStr, std::string(rd.value()));
                     }
                 }
             }

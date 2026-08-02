@@ -111,6 +111,91 @@ static std::vector<std::string> joinedMembers(MatrixClient& client, const std::s
 
 // Dedicated fresh user uploads exactly 1 OTK + fallback; Bob claims twice —
 // 1st returns the OTK, 2nd returns THE fallback (verified by value match).
+
+// Key-request loop: alice rotates (new session NOT shared) -> bob fails to
+// decrypt msg2 (pending + requests key) -> alice's sync handles the request +
+// forwards m.forwarded_room_key -> bob imports + processPending re-decrypts.
+static bool test_key_request_loop(const std::string& hs,
+                                   TestUser& alice, TestUser& bob,
+                                   const std::string& roomId,
+                                   const std::string& aliceSince0,
+                                   std::string bobSince) {
+    // 1. Alice: rotate to a fresh outbound session (do NOT share it with bob).
+    alice.decryptor.setRoomEncryptionConfig(roomId,
+        "{\"algorithm\":\"m.megolm.v1.aes-sha2\",\"rotation_period_msgs\":1}");
+    alice.decryptor.getOrCreateOutboundSession(roomId);
+    std::string body2 = "hello-rot2-" + std::to_string(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count());
+    std::string inner2 = "{\"type\":\"m.room.message\",\"content\":{\"msgtype\":\"m.text\",\"body\":\""
+                         + body2 + "\"},\"room_id\":\"" + roomId + "\"}";
+    std::string enc2 = alice.decryptor.encryptMessage(roomId, alice.deviceId, inner2);
+    CHECK(!enc2.empty(), "kr: alice encrypted with rotated session");
+    std::string txnId2 = "synapse-kr-" + std::to_string(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count());
+    auto send2 = alice.client.sendEncryptedEvent(roomId, enc2, txnId2);
+    CHECK(send2.ok, "kr: alice sent rotated message");
+
+    // 2. Bob: sync -> msg2 fails to decrypt (no session2) -> pending + request.
+    bool requested = false;
+    for (int round = 0; round < 8 && !requested; ++round) {
+        auto resp = bob.client.syncFast(bobSince, 3000, false);
+        if (!resp.ok) { std::this_thread::sleep_for(std::chrono::milliseconds(500)); continue; }
+        bobSince = std::string(resp.data.nextBatch);
+        for (const auto& [rid, room] : resp.data.joinedRooms) {
+            if (rid != roomId) continue;
+            for (const auto& evt : room.timeline.events) {
+                if (!evt.isEncrypted()) continue;
+                auto dec = bob.decryptor.decryptMegolmEvent(
+                    roomId, std::string(evt.senderId), std::string(evt.contentJson),
+                    std::string(evt.eventId), evt.originServerTs);
+                if (dec.error.find("no megolm session") != std::string::npos) requested = true;
+            }
+        }
+        if (!requested) std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+    CHECK(requested, "kr: bob failed to decrypt + requested the key");
+
+    // 3. Alice: sync -> m.room_key_request -> forward the key.
+    std::string aliceSince = aliceSince0;
+    bool forwarded = false;
+    for (int round = 0; round < 8 && !forwarded; ++round) {
+        auto resp = alice.client.syncFast(aliceSince, 3000, false);
+        if (!resp.ok) { std::this_thread::sleep_for(std::chrono::milliseconds(500)); continue; }
+        aliceSince = std::string(resp.data.nextBatch);
+        for (const auto& evt : resp.data.toDeviceEventList) {
+            if (evt.type == "m.room_key_request") {
+                bool ok = alice.decryptor.handleRoomKeyRequest(
+                    std::string(evt.contentJson), std::string(evt.senderId), false);
+                if (ok) forwarded = true;
+            }
+        }
+        if (!forwarded) std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+    CHECK(forwarded, "kr: alice forwarded the key");
+
+    // 4. Bob: sync -> m.forwarded_room_key -> import + processPending -> decrypt.
+    bool redecrypted = false;
+    for (int round = 0; round < 8 && !redecrypted; ++round) {
+        auto resp = bob.client.syncFast(bobSince, 3000, false);
+        if (!resp.ok) { std::this_thread::sleep_for(std::chrono::milliseconds(500)); continue; }
+        bobSince = std::string(resp.data.nextBatch);
+        for (const auto& evt : resp.data.toDeviceEventList) {
+            if (evt.type == "m.forwarded_room_key") {
+                bob.decryptor.handleForwardedRoomKey(std::string(evt.contentJson));
+            }
+        }
+        for (const auto& d : bob.decryptor.takeDecryptedEvents()) {
+            if (d.plaintext.find(body2) != std::string::npos) redecrypted = true;
+        }
+        if (!redecrypted) std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+    CHECK(redecrypted, "kr: bob re-decrypted the rotated message");
+    return true;
+}
+
+
 static bool test_fallback_claim(const std::string& hs, TestUser& bob) {
     // Fresh dedicated user — no prior OTK pool (Synapse ADDS OTKs on upload,
     // so a fresh account is required to make the pool deterministic: exactly 1 OTK).
@@ -317,6 +402,11 @@ int main() {
         CHECK(plaintext.find(body) != std::string::npos,
               "decrypted plaintext contains the message body");
     }
+
+    // Key-request loop (rotation -> request -> forward -> re-decrypt).
+    std::cout << "\n--- key request loop test ---\n";
+    if (!test_key_request_loop(hs, alice, bob, roomId, since0, since)) failures++;
+    std::cout << "--- key request loop done ---\n";
 
     std::cout << "\n";
     std::cout << "\n--- fallback claim test ---\n";

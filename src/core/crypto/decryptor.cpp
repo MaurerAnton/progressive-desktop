@@ -4,6 +4,7 @@
 #include "olm_account.hpp"
 #include "random.hpp"
 #include "sig_verify.hpp"
+#include "cross_sign.hpp"
 
 #include <progressive/olm.hpp>
 #include <olm/olm.h>
@@ -249,7 +250,9 @@ std::string Decryptor::buildKeysUploadBody(const std::string& userId,
                                                const std::string& deviceId,
                                                int oneTimeKeyCount,
                                                bool includeDeviceKeys,
-                                               bool includeFallbackKey) {
+                                               bool includeFallbackKey,
+                                               const std::string& sskPrivB64,
+                                               const std::string& sskPubB64) {
     // 1. Generate one-time keys
     std::string oneTimeKeysJson = account_->generateOneTimeKeys(oneTimeKeyCount);
 
@@ -274,8 +277,15 @@ std::string Decryptor::buildKeysUploadBody(const std::string& userId,
     // Insert signatures into device_keys before the closing }
     std::string deviceKeysSigned = deviceKeysCanonical;
     deviceKeysSigned.pop_back();  // remove trailing }
-    deviceKeysSigned += ",\"signatures\":{\""
-        + userId + "\":{\"ed25519:" + deviceId + "\":\"" + signature + "\"}}}";
+    std::string signatures = "{\"ed25519:" + deviceId + "\":\"" + signature + "\"";
+    if (!sskPrivB64.empty() && !sskPubB64.empty()) {
+        // Cross-sign the device with our SSK (signatures[userId]["ed25519:<sskPub>"]).
+        std::string sskSig = signEd25519(sskPrivB64, deviceKeysCanonical);
+        if (!sskSig.empty())
+            signatures += ",\"ed25519:" + sskPubB64 + "\":\"" + sskSig + "\"";
+    }
+    signatures += "}";
+    deviceKeysSigned += ",\"signatures\":{\"" + userId + "\":" + signatures + "}}";
 
     // 4. Parse the one-time keys JSON and sign each one.
     // The oneTimeKeysJson from progressive::OlmAccount looks like:

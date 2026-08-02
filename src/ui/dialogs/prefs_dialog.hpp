@@ -3,7 +3,9 @@
 #include <QDialog>
 #include <QSpinBox>
 #include <QCheckBox>
+#include <QLabel>
 #include <QSettings>
+#include <functional>
 #include <memory>
 
 class QVBoxLayout;
@@ -22,6 +24,8 @@ public:
     void setClient(std::shared_ptr<MatrixClient> c) { client_ = std::move(c); }
     void setVerificationHandler(VerificationHandler* vh) { verifyHandler_ = vh; }
     void setDecryptor(Decryptor* d) { decryptor_ = d; }
+    using SetupCrossSigningFn = std::function<bool()>;
+    void setSetupCrossSigningFn(SetupCrossSigningFn fn) { setupCrossSigningFn_ = std::move(fn); }
 
     static int imageCacheSize() {
         QSettings s;
@@ -60,11 +64,13 @@ private:
     std::shared_ptr<MatrixClient> client_;
     VerificationHandler* verifyHandler_ = nullptr;
     Decryptor* decryptor_ = nullptr;
+    SetupCrossSigningFn setupCrossSigningFn_;
     QSpinBox* cacheSpin_;
     QSpinBox* syncTimeoutSpin_ = nullptr;
     QSpinBox* historySpin_ = nullptr;
     QCheckBox* invisibleCheck_ = nullptr;
     QCheckBox* verifiedOnlyCheck_ = nullptr;
+    QLabel* xsStatusLabel_ = nullptr;
 };
 
 } // namespace progressive::desktop

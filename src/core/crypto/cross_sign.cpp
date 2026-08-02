@@ -84,6 +84,12 @@ bool verifyEd25519(const std::string& pubKeyB64, const std::string& message,
                                        message.size(), pub.data()) == 0;
 }
 
+std::string crossSigningPubFromPriv(const std::string& privKeyB64) {
+    auto priv = b64Decode(privKeyB64);
+    if (priv.size() != crypto_sign_SECRETKEYBYTES) return {};
+    return b64Encode(priv.data() + crypto_sign_SEEDBYTES, crypto_sign_PUBLICKEYBYTES);
+}
+
 std::string crossSigningKeysCanonical(const std::string& pubKeyB64) {
     return "{\"ed25519:" + pubKeyB64 + "\":\"" + pubKeyB64 + "\"}";
 }

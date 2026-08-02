@@ -436,7 +436,23 @@ void SyncEngine::uploadDeviceKeys(bool force) {
     LOG(LogChannel::E2EE, "uploadDeviceKeys: discarded old OTKs before generating fresh");
 
     LOG(LogChannel::E2EE, "uploadDeviceKeys: uploading for %s/%s", userId.c_str(), deviceId.c_str());
-    std::string body = decryptor_.buildKeysUploadBody(userId, deviceId, needed, needDeviceKeys, !decryptor_.accountShared());
+    // Cross-sign our device with the SSK if cross-signing is set up.
+    std::string sskPriv, sskPub;
+    if (store_) {
+        auto xs = store_->loadCrossSigningKeys(userId);
+        if (xs.has_value()) {
+            simdjson::dom::parser p;
+            auto d = p.parse(*xs);
+            if (d.error() == simdjson::SUCCESS) {
+                auto sp = d.value()["self"]["priv"].get_string();
+                auto spb = d.value()["self"]["pub"].get_string();
+                if (sp.error() == simdjson::SUCCESS) sskPriv = std::string(sp.value());
+                if (spb.error() == simdjson::SUCCESS) sskPub = std::string(spb.value());
+            }
+        }
+    }
+    std::string body = decryptor_.buildKeysUploadBody(userId, deviceId, needed,
+        needDeviceKeys, !decryptor_.accountShared(), sskPriv, sskPub);
     LOG(LogChannel::E2EE, "uploadDeviceKeys: our curve25519=%s ed25519=%s",
         decryptor_.curve25519Key().c_str(),
         decryptor_.ed25519Key().c_str());

@@ -218,6 +218,9 @@ void ToolbarHandler::onSettings() {
         dlg.setClient(client_);
         dlg.setVerificationHandler(verifyHandler_);
         if (sync_) dlg.setDecryptor(sync_->decryptor());
+        dlg.setSetupCrossSigningFn([this]() {
+            return sync_ ? sync_->setupCrossSigning() : false;
+        });
         connect(&dlg, &PrefsDialog::settingsChanged, this, &ToolbarHandler::prefsChanged);
         dlg.exec();
     } else if (selected == shortcutsAction) {

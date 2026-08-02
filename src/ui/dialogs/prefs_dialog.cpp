@@ -70,6 +70,27 @@ PrefsDialog::PrefsDialog(QWidget* parent) : QDialog(parent) {
         "Default off (share with all room members).");
     form->addRow("Key sharing:", verifiedOnlyCheck_);
 
+    auto* securityGroup = new QGroupBox("Security", this);
+    auto* securityLayout = new QVBoxLayout(securityGroup);
+    xsStatusLabel_ = new QLabel("Cross-signing: not set up", this);
+    auto* xsBtn = new QPushButton("Set up secure messaging…", this);
+    xsBtn->setToolTip("Generate cross-signing keys (MSK/USK/SSK) and upload them. "
+                      "Other devices can then verify this one.");
+    securityLayout->addWidget(xsStatusLabel_);
+    securityLayout->addWidget(xsBtn);
+    root->addWidget(securityGroup);
+
+    connect(xsBtn, &QPushButton::clicked, this, [this]() {
+        if (setupCrossSigningFn_ && setupCrossSigningFn_()) {
+            xsStatusLabel_->setText("Cross-signing: configured");
+            QMessageBox::information(this, "Security",
+                "Cross-signing keys generated and uploaded.");
+        } else {
+            QMessageBox::warning(this, "Security",
+                "Could not set up cross-signing (not logged in, or upload failed).");
+        }
+    });
+
     auto* backupGroup = new QGroupBox("Key backup", this);
     auto* backupLayout = new QVBoxLayout(backupGroup);
     auto* exportBtn = new QPushButton("Export room keys to file…", this);

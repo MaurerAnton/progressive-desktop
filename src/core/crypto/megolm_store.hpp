@@ -44,6 +44,12 @@ public:
                          const std::string& sessionId,
                          const std::string& ciphertext);
 
+    // Export the session key (v1 export format) for key forwarding/backup.
+    // Returns empty if no session. Uses olm_export_inbound_group_session.
+    std::string exportSessionKey(const std::string& roomId,
+                                 const std::string& senderKey,
+                                 const std::string& sessionId);
+
     // Check if we have a session for this (room, sender, sessionId).
     bool hasSession(const std::string& roomId,
                      const std::string& senderKey,

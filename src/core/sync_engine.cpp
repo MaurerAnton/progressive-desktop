@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <ctime>
 #include "core/debug_log.hpp"
+#include <simdjson.h>
 
 namespace progressive::desktop {
 
@@ -343,6 +344,26 @@ void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
                 std::cerr << "[e2ee] Olm 1:1 decryption failed from "
                           << evt.senderId << "\n";
             }
+        } else if (evt.type == "m.room_key_request") {
+            // Another device asks us to re-share a room key.
+            std::string contentStr(evt.contentJson);
+            std::string senderStr(evt.senderId);
+            bool requesterVerified = false;
+            if (store_) {
+                simdjson::dom::parser p;
+                auto d = p.parse(contentStr);
+                if (d.error() == simdjson::SUCCESS) {
+                    auto b = d.value()["body"].get_object();
+                    if (b.error() == simdjson::SUCCESS) {
+                        auto rd = b.value()["requesting_device_id"].get_string();
+                        if (rd.error() == simdjson::SUCCESS) {
+                            requesterVerified = store_->isDeviceVerified(
+                                senderStr, std::string(rd.value()));
+                        }
+                    }
+                }
+            }
+            decryptor_.handleRoomKeyRequest(contentStr, senderStr, requesterVerified);
         } else if (evt.type.find("m.key.verification.") == 0) {
             LOG(LogChannel::E2EE, "processToDevice: verification event type=%s from=%s",
                 std::string(evt.type).c_str(), std::string(evt.senderId).c_str());
@@ -350,9 +371,15 @@ void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
             std::string senderStr(evt.senderId);
             std::string userId = client_ ? client_->account().userId : "";
             std::string deviceId = client_ ? client_->account().deviceId : "";
-            verificationManager_.handleEvent(
+            auto* vtxn = verificationManager_.handleEvent(
                 std::string(evt.type), senderStr, contentStr,
                 userId, deviceId, decryptor_.ed25519Key(), decryptor_.curve25519Key());
+            // SAS completed -> persist the other device as verified (key-share policy).
+            if (vtxn && vtxn->state == VerificationState::Done && store_) {
+                store_->saveVerifiedDevice(vtxn->otherUserId, vtxn->otherDeviceId);
+                LOG(LogChannel::E2EE, "processToDevice: recorded verified device %s/%s",
+                    vtxn->otherUserId.c_str(), vtxn->otherDeviceId.c_str());
+            }
         }
     }
 }

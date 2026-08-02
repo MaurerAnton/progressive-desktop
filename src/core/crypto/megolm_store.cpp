@@ -48,6 +48,14 @@ std::string MegolmStore::decrypt(const std::string& roomId,
     return progressive::megolmDecrypt(*sess, ciphertext);
 }
 
+std::string MegolmStore::exportSessionKey(const std::string& roomId,
+    const std::string& senderKey, const std::string& sessionId) {
+    std::lock_guard<std::mutex> lk(mtx_);
+    auto* sess = impl_->mgr.findSession(roomId, senderKey, sessionId);
+    if (!sess) return {};
+    return progressive::exportMegolmSession(*sess);
+}
+
 bool MegolmStore::hasSession(const std::string& roomId,
                                 const std::string& senderKey,
                                 const std::string& sessionId) {

@@ -70,7 +70,12 @@ bool SessionStore::createSchema() {
         ");"
         "CREATE TABLE IF NOT EXISTS hidden_rooms ("
         "  room_id TEXT PRIMARY KEY"
-        ") WITHOUT ROWID;";
+        ") WITHOUT ROWID;"
+        "CREATE TABLE IF NOT EXISTS verified_devices ("
+        "  user_id TEXT NOT NULL,"
+        "  device_id TEXT NOT NULL,"
+        "  PRIMARY KEY(user_id, device_id)"
+        ");";
     char* err = nullptr;
     int rc = sqlite3_exec(db_, sql, nullptr, nullptr, &err);
     if (rc != SQLITE_OK) {
@@ -367,6 +372,33 @@ std::optional<bool> SessionStore::loadE2eeFlag(const std::string& key) {
         r = (std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0))) == "1");
     sqlite3_finalize(stmt);
     return r;
+}
+
+bool SessionStore::saveVerifiedDevice(const std::string& userId,
+    const std::string& deviceId) {
+    if (!db_) return false;
+    const char* sql = "INSERT INTO verified_devices(user_id, device_id) "
+                      "VALUES(?,?) ON CONFLICT DO NOTHING;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, userId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, deviceId.c_str(), -1, SQLITE_TRANSIENT);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
+bool SessionStore::isDeviceVerified(const std::string& userId,
+    const std::string& deviceId) {
+    if (!db_) return false;
+    const char* sql = "SELECT 1 FROM verified_devices WHERE user_id=? AND device_id=? LIMIT 1;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, userId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, deviceId.c_str(), -1, SQLITE_TRANSIENT);
+    bool found = sqlite3_step(stmt) == SQLITE_ROW;
+    sqlite3_finalize(stmt);
+    return found;
 }
 
 bool SessionStore::saveHiddenRoom(const std::string& roomId) {

@@ -181,6 +181,15 @@ public:
 
     // Request re-sharing of a megolm room key (m.room_key_request to-device).
     // Throttled: one request per (room, session, senderKey) per run.
+    // Handle an incoming m.room_key_request (another device asks us to
+    // re-share a megolm room key). Sends m.forwarded_room_key on success.
+    // requesterVerified: (userId, deviceId) SAS-verified. verifiedOnly: policy flag.
+    bool handleRoomKeyRequest(const std::string& contentJson,
+                              const std::string& senderId,
+                              bool requesterVerified);
+    void setShareKeysVerifiedOnly(bool v) { shareKeysVerifiedOnly_ = v; }
+    bool shareKeysVerifiedOnly() const { return shareKeysVerifiedOnly_; }
+
     void requestRoomKey(const std::string& roomId, const std::string& senderId,
                         const std::string& senderKey, const std::string& sessionId);
 
@@ -203,6 +212,8 @@ private:
     // Credentials for to-device HTTP calls (set once at E2EE init).
     std::string ctxUserId_, ctxDeviceId_, ctxHomeserver_, ctxToken_;
     std::unordered_set<std::string> requestedKeys_;
+    std::unordered_set<std::string> recentKeyRequests_;  // dedup by request_id (capped)
+    bool shareKeysVerifiedOnly_ = false;  // policy: only share with SAS-verified devices
     std::unordered_set<std::string> forcedOlm_;  // throttle: one m.dummy per senderKey per run
     std::mutex requestMtx_;
     // Track which rooms have had their key shared for current outbound session

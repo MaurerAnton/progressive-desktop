@@ -59,6 +59,13 @@ PrefsDialog::PrefsDialog(QWidget* parent) : QDialog(parent) {
     invisibleCheck_->setToolTip("Don't send read markers. Others won't see when you've read their messages. Default off.");
     form->addRow("Invisible mode:", invisibleCheck_);
 
+    verifiedOnlyCheck_ = new QCheckBox("Share room keys only with verified devices", this);
+    verifiedOnlyCheck_->setChecked(shareKeysVerifiedOnly());
+    verifiedOnlyCheck_->setToolTip(
+        "When enabled, only SAS-verified devices can request room keys from you. "
+        "Default off (share with all room members).");
+    form->addRow("Key sharing:", verifiedOnlyCheck_);
+
     root->addLayout(form);
 
     auto* devicesGroup = new QGroupBox("Your devices", this);
@@ -152,6 +159,7 @@ void PrefsDialog::onSave() {
     s.setValue("sync/pollTimeoutMs", syncTimeoutSpin_->value());
     s.setValue("sync/historyLoadLimit", historySpin_->value());
     s.setValue("privacy/invisibleMode", invisibleCheck_->isChecked());
+    s.setValue("e2ee/shareKeysVerifiedOnly", verifiedOnlyCheck_->isChecked());
     accept();
     emit settingsChanged();
 }

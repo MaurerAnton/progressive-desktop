@@ -71,6 +71,10 @@ public:
     bool saveE2eeFlag(const std::string& key, bool value);
     std::optional<bool> loadE2eeFlag(const std::string& key);
 
+    // ---- Verified devices (SAS-verified for key-sharing policy) ----
+    bool saveVerifiedDevice(const std::string& userId, const std::string& deviceId);
+    bool isDeviceVerified(const std::string& userId, const std::string& deviceId);
+
     // ---- Hidden rooms ----
     bool saveHiddenRoom(const std::string& roomId);
     bool removeHiddenRoom(const std::string& roomId);

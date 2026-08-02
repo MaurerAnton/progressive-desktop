@@ -76,6 +76,7 @@ void MainWindow::setClient(std::shared_ptr<MatrixClient> client) {
         return std::string(dataHome) + "/progressive-desktop/sessions_backup/";
     });
     client_->setInvisibleMode(PrefsDialog::invisibleMode());
+    sync_.decryptor()->setShareKeysVerifiedOnly(PrefsDialog::shareKeysVerifiedOnly());
     if (imageLoader_) imageLoader_->setClient(client_);
     if (chatView_) chatView_->setClient(client_);
     if (roomStore_) roomStore_->setClient(client_);
@@ -188,6 +189,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(toolbarHandler_, &ToolbarHandler::prefsChanged, this, [this]() {
         sync_.setPollTimeout(PrefsDialog::pollTimeoutMs());
         client_->setInvisibleMode(PrefsDialog::invisibleMode());
+        sync_.decryptor()->setShareKeysVerifiedOnly(PrefsDialog::shareKeysVerifiedOnly());
     });
     connect(chatLogBtn_, &QPushButton::clicked, toolbarHandler_, &ToolbarHandler::onToggleChatLog);
     connect(threadBtn_, &QPushButton::clicked, toolbarHandler_, &ToolbarHandler::toggleThreadPanel);

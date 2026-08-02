@@ -36,6 +36,11 @@ public:
         return s.value("sync/historyLoadLimit", 50).toInt();
     }
 
+    static bool shareKeysVerifiedOnly() {
+        QSettings s;
+        return s.value("e2ee/shareKeysVerifiedOnly", false).toBool();
+    }
+
     static bool invisibleMode() {
         QSettings s;
         return s.value("privacy/invisibleMode", false).toBool();
@@ -56,6 +61,7 @@ private:
     QSpinBox* syncTimeoutSpin_ = nullptr;
     QSpinBox* historySpin_ = nullptr;
     QCheckBox* invisibleCheck_ = nullptr;
+    QCheckBox* verifiedOnlyCheck_ = nullptr;
 };
 
 } // namespace progressive::desktop

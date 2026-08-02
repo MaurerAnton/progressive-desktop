@@ -1162,6 +1162,83 @@ void Decryptor::requestRoomKey(const std::string& roomId, const std::string& sen
                  resp.statusCode, resp.errorMessage.c_str());
 }
 
+
+bool Decryptor::handleRoomKeyRequest(const std::string& contentJson,
+    const std::string& senderId, bool requesterVerified) {
+    if (ctxHomeserver_.empty() || ctxToken_.empty()) return false;
+
+    simdjson::dom::parser p;
+    auto doc = p.parse(contentJson);
+    if (doc.error() != simdjson::SUCCESS) return false;
+    auto val = doc.value();
+
+    auto action = val["action"].get_string();
+    if (action.error() != simdjson::SUCCESS || std::string(action.value()) != "request")
+        return false;
+
+    auto body = val["body"].get_object();
+    if (body.error() != simdjson::SUCCESS) return false;
+
+    auto alg = body.value()["algorithm"].get_string();
+    if (alg.error() != simdjson::SUCCESS || std::string(alg.value()) != "m.megolm.v1.aes-sha2")
+        return false;
+    auto rid = body.value()["room_id"].get_string();
+    auto sid = body.value()["session_id"].get_string();
+    auto skey = body.value()["sender_key"].get_string();
+    auto reqId = body.value()["request_id"].get_string();
+    auto reqDev = body.value()["requesting_device_id"].get_string();
+    if (rid.error() != simdjson::SUCCESS || sid.error() != simdjson::SUCCESS ||
+        skey.error() != simdjson::SUCCESS || reqId.error() != simdjson::SUCCESS ||
+        reqDev.error() != simdjson::SUCCESS)
+        return false;
+
+    std::string roomId(rid.value()), sessionId(sid.value());
+    std::string senderKey(skey.value()), requestId(reqId.value());
+    std::string requestingDeviceId(reqDev.value());
+
+    // Dedup by request_id (re-share once per request).
+    {
+        std::lock_guard<std::mutex> lk(requestMtx_);
+        if (recentKeyRequests_.count(requestId)) return false;
+        if (recentKeyRequests_.size() >= 200) recentKeyRequests_.clear();
+        recentKeyRequests_.insert(requestId);
+    }
+
+    // Policy: verified-only mode requires the requesting device to be SAS-verified.
+    if (shareKeysVerifiedOnly_ && !requesterVerified) return false;
+    // We must actually hold the requested session.
+    if (!megolm_->hasSession(roomId, senderKey, sessionId)) return false;
+
+    // Export the session key (v1 export format) and build m.forwarded_room_key.
+    std::string sessionKey = megolm_->exportSessionKey(roomId, senderKey, sessionId);
+    if (sessionKey.empty()) return false;
+
+    std::ostringstream content;
+    content << "{\"algorithm\":\"m.megolm.v1.aes-sha2\","
+            << "\"room_id\":\"" << roomId << "\","
+            << "\"session_id\":\"" << sessionId << "\","
+            << "\"session_key\":\"" << sessionKey << "\","
+            << "\"sender_key\":\"" << senderKey << "\","
+            << "\"forwarding_curve25519_key_chain\":[],"
+            << "\"org.matrix.msc3061.shared_history\":true}";
+
+    std::ostringstream sendBody;
+    sendBody << "{\"messages\":{\"" << senderId << "\":{\""
+             << requestingDeviceId << "\":" << content.str() << "}}}";
+
+    auto hdrs = makeAuthHeaders(ctxToken_);
+    std::string txnId = "fwk-" + std::to_string(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count());
+    std::string url = ctxHomeserver_ + "/_matrix/client/v3/sendToDevice/m.forwarded_room_key/" + txnId;
+    auto resp = httpPut(url, sendBody.str(), hdrs, 15000);
+    LOG(LogChannel::E2EE, "handleRoomKeyRequest: forwarded key room=%.40s sid=%.20s to=%s/%s ok=%d status=%d",
+        roomId.c_str(), sessionId.c_str(), senderId.c_str(),
+        requestingDeviceId.c_str(), resp.success ? 1 : 0, resp.statusCode);
+    return resp.success;
+}
+
+
 void Decryptor::forceNewOlmSession(const std::string& senderId, const std::string& senderKey) {
     if (ctxHomeserver_.empty() || ctxToken_.empty()) return;
 

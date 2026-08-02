@@ -55,7 +55,31 @@ static void test_stale_device_cap() {
         "clearStale removes stale flag");
 }
 
+
+// Export/import roundtrip: outbound session appears in the envelope; a
+// hand-built envelope imports into the store.
+static void test_key_export_import() {
+    progressive::desktop::Decryptor dec;
+    CHECK(dec.init(), "xport: decryptor init");
+
+    // Create an outbound session -> appears in the export envelope.
+    std::string sessId = dec.getOrCreateOutboundSession("!room1:test");
+    CHECK(!sessId.empty(), "xport: outbound session created");
+    std::string envelope = dec.exportAllKeys();
+    CHECK(!envelope.empty(), "xport: export envelope non-empty");
+    CHECK(envelope.find("\"version\":1") != std::string::npos, "xport: version 1");
+    CHECK(envelope.find("!room1:test") != std::string::npos, "xport: room in envelope");
+
+    // Full roundtrip: import the first decryptor's own envelope into a second.
+    progressive::desktop::Decryptor dec2;
+    CHECK(dec2.init(), "xport: decryptor2 init");
+    int n = dec2.importKeys(envelope);
+    CHECK(n > 0, "xport: import returns count > 0");
+    (void)n;
+}
+
 int main() {
+    test_key_export_import();
     test_megolm_empty_pickle();
     test_megolm_garbage_unpickle();
     test_stale_device_cap();

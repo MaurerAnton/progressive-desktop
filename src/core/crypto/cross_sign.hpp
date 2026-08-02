@@ -21,10 +21,11 @@ std::string signEd25519(const std::string& privKeyB64, const std::string& messag
 bool verifyEd25519(const std::string& pubKeyB64, const std::string& message,
                    const std::string& sigB64);
 
-// Build the m.cross_signing.{master,self_signing,user_signing} account_data
-// content JSON. signingKeyB64/privKeyB64: the key that signs this content
-// (master for self/user_signing; empty for master itself).
-// userId: our user id (used in the signatures map).
+// Build a CrossSigningKey object (spec /keys/device_signing/upload):
+// {"keys":{"ed25519:<pub>":"<pub>"},"signatures":{...},"usage":[...],"user_id":"..."}.
+// type: "m.cross_signing.master|self_signing|user_signing" (drives usage).
+// signingPubB64/privKeyB64: the key that signs this content (master for
+// self/user_signing; empty for master itself). userId: our user id.
 std::string buildCrossSigningContent(const std::string& type,
                                      const std::string& pubKeyB64,
                                      const std::string& signingPubB64,

@@ -3,6 +3,7 @@
 #include "../handlers/verification_handler.hpp"
 #include "core/crypto/decryptor.hpp"
 #include <QFileDialog>
+#include <QInputDialog>
 #include <QMessageBox>
 #include <QTextStream>
 
@@ -85,10 +86,31 @@ PrefsDialog::PrefsDialog(QWidget* parent) : QDialog(parent) {
             xsStatusLabel_->setText("Cross-signing: configured");
             QMessageBox::information(this, "Security",
                 "Cross-signing keys generated and uploaded.");
-        } else {
-            QMessageBox::warning(this, "Security",
-                "Could not set up cross-signing (not logged in, or upload failed).");
+            return;
         }
+        // UIA challenge (password required by the homeserver)?
+        std::string session = uiaSessionFn_ ? uiaSessionFn_() : "";
+        if (!session.empty() && setupCrossSigningWithPasswordFn_) {
+            bool ok = false;
+            QInputDialog dlg(this);
+            dlg.setWindowTitle("Confirm password");
+            dlg.setLabelText("The homeserver requires password confirmation:");
+            dlg.setTextEchoMode(QLineEdit::Password);
+            if (dlg.exec() == QDialog::Accepted && !dlg.textValue().isEmpty()) {
+                ok = setupCrossSigningWithPasswordFn_(dlg.textValue().toStdString());
+            }
+            if (ok) {
+                xsStatusLabel_->setText("Cross-signing: configured");
+                QMessageBox::information(this, "Security",
+                    "Cross-signing keys generated and uploaded.");
+            } else {
+                QMessageBox::warning(this, "Security",
+                    "Could not set up cross-signing (wrong password or upload failed).");
+            }
+            return;
+        }
+        QMessageBox::warning(this, "Security",
+            "Could not set up cross-signing (not logged in, or upload failed).");
     });
 
     auto* backupGroup = new QGroupBox("Key backup", this);

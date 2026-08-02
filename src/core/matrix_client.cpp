@@ -1033,6 +1033,18 @@ ApiResult<std::string> MatrixClient::getAccountData(const std::string& type) {
     return r;
 }
 
+ApiResult<std::string> MatrixClient::uploadDeviceSigningKeys(const std::string& body) {
+    ApiResult<std::string> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    auto resp = httpPost(account().homeserverUrl + "/_matrix/client/v3/keys/device_signing/upload",
+                         body, authHeaders(), 15000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) { r.ok = true; r.data = resp.body; }
+    else { r.data = resp.body;  // keep the body (UIA challenge) for the caller
+           r.error.message = resp.errorMessage.empty() ? "device_signing/upload failed" : resp.errorMessage; }
+    return r;
+}
+
 ApiResult<std::string> MatrixClient::queryKeys(const std::string& body) {
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }

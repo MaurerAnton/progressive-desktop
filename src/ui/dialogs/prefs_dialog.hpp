@@ -25,7 +25,11 @@ public:
     void setVerificationHandler(VerificationHandler* vh) { verifyHandler_ = vh; }
     void setDecryptor(Decryptor* d) { decryptor_ = d; }
     using SetupCrossSigningFn = std::function<bool()>;
+    using SetupCrossSigningWithPasswordFn = std::function<bool(const std::string&)>;
+    using UiaSessionFn = std::function<std::string()>;
     void setSetupCrossSigningFn(SetupCrossSigningFn fn) { setupCrossSigningFn_ = std::move(fn); }
+    void setSetupCrossSigningWithPasswordFn(SetupCrossSigningWithPasswordFn fn) { setupCrossSigningWithPasswordFn_ = std::move(fn); }
+    void setUiaSessionFn(UiaSessionFn fn) { uiaSessionFn_ = std::move(fn); }
 
     static int imageCacheSize() {
         QSettings s;
@@ -65,6 +69,8 @@ private:
     VerificationHandler* verifyHandler_ = nullptr;
     Decryptor* decryptor_ = nullptr;
     SetupCrossSigningFn setupCrossSigningFn_;
+    SetupCrossSigningWithPasswordFn setupCrossSigningWithPasswordFn_;
+    UiaSessionFn uiaSessionFn_;
     QSpinBox* cacheSpin_;
     QSpinBox* syncTimeoutSpin_ = nullptr;
     QSpinBox* historySpin_ = nullptr;

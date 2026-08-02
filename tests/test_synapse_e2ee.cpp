@@ -125,6 +125,7 @@ static bool test_cross_signing_setup(const std::string& hs, TestUser& alice) {
     auto keys = progressive::desktop::generateCrossSigningKeys();
     CHECK(!keys.masterPub.empty(), "xs-setup: keys generated");
 
+    // Publish via POST /keys/device_signing/upload (the spec mechanism).
     auto master = progressive::desktop::buildCrossSigningContent(
         "m.cross_signing.master", keys.masterPub, "", "", alice.userId);
     auto self = progressive::desktop::buildCrossSigningContent(
@@ -133,19 +134,11 @@ static bool test_cross_signing_setup(const std::string& hs, TestUser& alice) {
     auto user = progressive::desktop::buildCrossSigningContent(
         "m.cross_signing.user_signing", keys.userPub,
         keys.masterPub, keys.masterPriv, alice.userId);
-    CHECK(alice.client.setAccountData("m.cross_signing.master", master).ok,
-          "xs-setup: master uploaded");
-    CHECK(alice.client.setAccountData("m.cross_signing.self_signing", self).ok,
-          "xs-setup: self uploaded");
-    CHECK(alice.client.setAccountData("m.cross_signing.user_signing", user).ok,
-          "xs-setup: user uploaded");
-
-    std::string upload = "{\"master_key\":{\"ed25519:" + keys.masterPub
-        + "\":\"" + keys.masterPub + "\"},\"self_signing\":{\"ed25519:"
-        + keys.selfPub + "\":\"" + keys.selfPub + "\"},\"user_signing\":{\"ed25519:"
-        + keys.userPub + "\":\"" + keys.userPub + "\"}}";
-    CHECK(alice.client.setAccountData("m.signing.key.upload", upload).ok,
-          "xs-setup: m.signing.key.upload published");
+    std::string upBody = "{\"master_key\":" + master
+        + ",\"self_signing_key\":" + self
+        + ",\"user_signing_key\":" + user + "}";
+    auto upResp = alice.client.uploadDeviceSigningKeys(upBody);
+    CHECK(upResp.ok, "xs-setup: device_signing/upload ok");
 
     // Device_keys-only re-upload with the SSK signature (omitOneTimeKeys=true).
     std::string body = alice.decryptor.buildKeysUploadBody(
@@ -154,11 +147,14 @@ static bool test_cross_signing_setup(const std::string& hs, TestUser& alice) {
     auto up = alice.client.uploadKeys(body);
     CHECK(up.ok, "xs-setup: device_keys re-uploaded with SSK sig");
 
-    // GET the account data.
-    auto got = alice.client.getAccountData("m.cross_signing.self_signing");
-    CHECK(got.ok, "xs-setup: GET self_signing");
-    CHECK(got.data.find(keys.selfPub) != std::string::npos,
-          "xs-setup: self pub present in account data");
+    // Verify via /keys/query master_keys + self_signing_keys (the spec fetch path).
+    auto qm = alice.client.queryKeys("{\"device_keys\":{\"" + alice.userId + "\":[]}}");
+    CHECK(qm.ok, "xs-setup: keys/query for cross-signing");
+    bool masterPublished = qm.data.find("\"master_keys\"") != std::string::npos
+        && qm.data.find(keys.masterPub) != std::string::npos;
+    bool selfPublished = qm.data.find(keys.selfPub) != std::string::npos;
+    CHECK(masterPublished, "xs-setup: master key published via /keys/query");
+    CHECK(selfPublished, "xs-setup: self-signing key published via /keys/query");
 
     // Query device_keys and verify the SSK signature over the canonical form.
     auto q = alice.client.queryKeys("{\"device_keys\":{\"" + alice.userId + "\":[]}}");

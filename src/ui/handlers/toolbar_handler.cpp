@@ -221,6 +221,12 @@ void ToolbarHandler::onSettings() {
         dlg.setSetupCrossSigningFn([this]() {
             return sync_ ? sync_->setupCrossSigning() : false;
         });
+        dlg.setSetupCrossSigningWithPasswordFn([this](const std::string& pw) {
+            return sync_ ? sync_->setupCrossSigningWithPassword(pw) : false;
+        });
+        dlg.setUiaSessionFn([this]() {
+            return sync_ ? sync_->uiaSession() : std::string();
+        });
         connect(&dlg, &PrefsDialog::settingsChanged, this, &ToolbarHandler::prefsChanged);
         dlg.exec();
     } else if (selected == shortcutsAction) {

@@ -87,9 +87,13 @@ public:
     // loop when the server reports no unused fallback key of our type.
     void uploadFallbackKey();
 
-    // Generate MSK/USK/SSK, upload the three m.cross_signing.* account_data
-    // types, and persist the private keys. No-op if already set up.
+    // Generate MSK/USK/SSK, publish via POST /keys/device_signing/upload
+    // (spec), re-upload device_keys with the SSK signature, and persist the
+    // private keys. No-op if already set up. On a UIA (401) challenge, stores
+    // the session in uiaSession_ and returns false — retry with the password.
     bool setupCrossSigning();
+    bool setupCrossSigningWithPassword(const std::string& password);
+    std::string uiaSession() const { return uiaSession_; }
 
     const SyncEngineStats& stats() const { return stats_; }
 
@@ -137,6 +141,7 @@ private:
     std::map<std::string, std::chrono::steady_clock::time_point> lastFallbackUploadAt_;
     std::map<std::string, std::chrono::steady_clock::time_point> lastFallbackPublishedAt_;
     std::map<std::string, int> fallbackBackoffSecs_;
+    std::string uiaSession_;
     static constexpr std::chrono::seconds kFallbackForgetDelay{300};
 };
 

@@ -305,6 +305,11 @@ public:
     // Returns the content JSON. Not ok if absent (404).
     ApiResult<std::string> getAccountData(const std::string& type);
 
+    // POST /_matrix/client/v3/keys/device_signing/upload
+    // Publishes cross-signing keys. Body: CrossSigningKey objects (+ optional
+    // UIA "auth"). Returns raw body (a 401 UIA challenge on r.data when needed).
+    ApiResult<std::string> uploadDeviceSigningKeys(const std::string& body);
+
     // POST /_matrix/client/v3/keys/query
     // Query device keys for a list of users. Body:
     //   {"device_keys":{"@user:server":[]}}

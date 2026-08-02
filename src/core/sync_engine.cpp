@@ -503,43 +503,73 @@ void SyncEngine::uploadDeviceKeys(bool force) {
     }
 }
 
+// Build the /keys/device_signing/upload body for a key set.
+static std::string buildDeviceSigningUploadBody(const progressive::desktop::CrossSigningKeys& keys,
+    const std::string& userId, const std::string& authJson) {
+    auto master = progressive::desktop::buildCrossSigningContent("m.cross_signing.master",
+        keys.masterPub, "", "", userId);
+    auto self = progressive::desktop::buildCrossSigningContent("m.cross_signing.self_signing",
+        keys.selfPub, keys.masterPub, keys.masterPriv, userId);
+    auto user = progressive::desktop::buildCrossSigningContent("m.cross_signing.user_signing",
+        keys.userPub, keys.masterPub, keys.masterPriv, userId);
+    std::string out = "{";
+    if (!authJson.empty()) out += "\"auth\":" + authJson + ",";
+    out += "\"master_key\":" + master
+        + ",\"self_signing_key\":" + self
+        + ",\"user_signing_key\":" + user + "}";
+    return out;
+}
+
 bool SyncEngine::setupCrossSigning() {
     if (!client_ || !client_->isLoggedIn()) return false;
     std::string userId = client_->account().userId;
     if (store_ && store_->loadCrossSigningKeys(userId).has_value()) return true;
 
-    // Guard: refuse to overwrite cross-signing that another device set up —
-    // regenerating would invalidate its SSK signatures.
-    auto existing = client_->getAccountData("m.cross_signing.master");
-    if (existing.ok && !existing.data.empty()) {
-        LOG(LogChannel::E2EE, "setupCrossSigning: cross-signing already exists for %s — refusing to overwrite",
-            userId.c_str());
-        return false;
+    // Guard: refuse to overwrite cross-signing another device set up —
+    // regenerating would invalidate its SSK signatures. Fetch via /keys/query
+    // (the spec's publication mechanism), master_keys field.
+    {
+        std::string q = "{\"device_keys\":{\"" + userId + "\":[]}}";
+        auto resp = client_->queryKeys(q);
+        if (resp.ok && resp.data.find("\"master_keys\"") != std::string::npos &&
+            resp.data.find("\"" + userId + "\"") != std::string::npos) {
+            // A master_keys entry for us exists — cross-signing already set up.
+            simdjson::dom::parser p;
+            auto doc = p.parse(resp.data);
+            if (doc.error() == simdjson::SUCCESS) {
+                auto mk = doc.value()["master_keys"][userId];
+                if (mk.error() == simdjson::SUCCESS) {
+                    LOG(LogChannel::E2EE, "setupCrossSigning: cross-signing already exists for %s — refusing to overwrite",
+                        userId.c_str());
+                    return false;
+                }
+            }
+        }
     }
 
     auto keys = generateCrossSigningKeys();
     if (keys.masterPub.empty()) return false;
 
-    auto masterContent = buildCrossSigningContent("m.cross_signing.master",
-        keys.masterPub, "", "", userId);
-    auto selfContent = buildCrossSigningContent("m.cross_signing.self_signing",
-        keys.selfPub, keys.masterPub, keys.masterPriv, userId);
-    auto userContent = buildCrossSigningContent("m.cross_signing.user_signing",
-        keys.userPub, keys.masterPub, keys.masterPriv, userId);
-
-    if (!client_->setAccountData("m.cross_signing.master", masterContent).ok) return false;
-    if (!client_->setAccountData("m.cross_signing.self_signing", selfContent).ok) return false;
-    if (!client_->setAccountData("m.cross_signing.user_signing", userContent).ok) return false;
-
-    // Publish public keys via the shared m.signing.key.upload event (MSC3967)
-    // so OTHER users can resolve our cross-signing keys for trust computation.
-    std::string signingUpload = "{\"master_key\":{\"ed25519:" + keys.masterPub
-        + "\":\"" + keys.masterPub + "\"},"
-        "\"self_signing\":{\"ed25519:" + keys.selfPub
-        + "\":\"" + keys.selfPub + "\"},"
-        "\"user_signing\":{\"ed25519:" + keys.userPub
-        + "\":\"" + keys.userPub + "\"}}";
-    if (!client_->setAccountData("m.signing.key.upload", signingUpload).ok) return false;
+    // Publish via POST /keys/device_signing/upload (spec). May demand UIA (401).
+    std::string body = buildDeviceSigningUploadBody(keys, userId, "");
+    auto up = client_->uploadDeviceSigningKeys(body);
+    if (!up.ok) {
+        if (up.httpStatus == 401 && up.data.find("\"session\"") != std::string::npos) {
+            // UIA challenge — stash the session, the UI will prompt for the password.
+            simdjson::dom::parser p;
+            auto doc = p.parse(up.data);
+            if (doc.error() == simdjson::SUCCESS) {
+                auto sess = doc.value()["session"].get_string();
+                if (sess.error() == simdjson::SUCCESS) uiaSession_ = std::string(sess.value());
+            }
+            LOG(LogChannel::E2EE, "setupCrossSigning: UIA required for %s — awaiting password",
+                userId.c_str());
+            return false;
+        }
+        LOG(LogChannel::E2EE, "setupCrossSigning: device_signing/upload FAILED for %s status=%d",
+            userId.c_str(), up.httpStatus);
+        return false;
+    }
 
     std::string json = "{\"master\":{\"pub\":\"" + keys.masterPub
         + "\",\"priv\":\"" + keys.masterPriv
@@ -549,19 +579,68 @@ bool SyncEngine::setupCrossSigning() {
         + "\",\"priv\":\"" + keys.selfPriv + "\"}}";
     if (store_) store_->saveCrossSigningKeys(userId, json);
 
-    // Re-upload device_keys with the SSK signature so the server/other
-    // clients see this device as cross-signed. Device_keys-only body (the
-    // one_time_keys section is omitted — re-uploading it would wipe the pool).
-    std::string body = decryptor_.buildKeysUploadBody(userId,
+    // Re-upload device_keys with the SSK signature (after the SSK is published
+    // via the endpoint). Device_keys-only body — no OTK wipe.
+    std::string dkBody = decryptor_.buildKeysUploadBody(userId,
         client_->account().deviceId, 0, true, false, keys.selfPriv, keys.selfPub,
         /*omitOneTimeKeys=*/true);
-    if (!body.empty()) {
-        auto up = client_->uploadKeys(body);
+    if (!dkBody.empty()) {
+        auto dkUp = client_->uploadKeys(dkBody);
         LOG(LogChannel::E2EE, "setupCrossSigning: device re-upload ok=%d status=%d",
-            up.ok ? 1 : 0, up.httpStatus);
+            dkUp.ok ? 1 : 0, dkUp.httpStatus);
     }
 
     LOG(LogChannel::E2EE, "setupCrossSigning: keys generated + uploaded for %s",
+        userId.c_str());
+    return true;
+}
+
+bool SyncEngine::setupCrossSigningWithPassword(const std::string& password) {
+    if (!client_ || !client_->isLoggedIn() || uiaSession_.empty()) return false;
+    std::string userId = client_->account().userId;
+    auto stored = store_ ? store_->loadCrossSigningKeys(userId) : std::nullopt;
+    if (!stored.has_value()) return false;  // no pending keys — run setup first
+
+    // Re-derive the keys from the stored JSON.
+    CrossSigningKeys keys;
+    {
+        simdjson::dom::parser p;
+        auto d = p.parse(*stored);
+        if (d.error() != simdjson::SUCCESS) return false;
+        auto g = [&](const char* which, std::string& pub, std::string& priv) {
+            auto pp = d.value()[which]["pub"].get_string();
+            auto pr = d.value()[which]["priv"].get_string();
+            if (pp.error() == simdjson::SUCCESS) pub = std::string(pp.value());
+            if (pr.error() == simdjson::SUCCESS) priv = std::string(pr.value());
+        };
+        g("master", keys.masterPub, keys.masterPriv);
+        g("user", keys.userPub, keys.userPriv);
+        g("self", keys.selfPub, keys.selfPriv);
+    }
+    if (keys.masterPub.empty()) return false;
+
+    std::string authJson = "{\"type\":\"m.login.password\",\"identifier\":{"
+        "\"type\":\"m.id.user\",\"user\":\"" + userId + "\"},"
+        "\"password\":\"" + password + "\",\"session\":\"" + uiaSession_ + "\"}";
+    std::string body = buildDeviceSigningUploadBody(keys, userId, authJson);
+    auto up = client_->uploadDeviceSigningKeys(body);
+    uiaSession_.clear();
+    if (!up.ok) {
+        LOG(LogChannel::E2EE, "setupCrossSigningWithPassword: upload FAILED status=%d",
+            up.httpStatus);
+        return false;
+    }
+
+    // Device_keys re-upload with the SSK signature.
+    std::string dkBody = decryptor_.buildKeysUploadBody(userId,
+        client_->account().deviceId, 0, true, false, keys.selfPriv, keys.selfPub,
+        /*omitOneTimeKeys=*/true);
+    if (!dkBody.empty()) {
+        auto dkUp = client_->uploadKeys(dkBody);
+        LOG(LogChannel::E2EE, "setupCrossSigningWithPassword: device re-upload ok=%d",
+            dkUp.ok ? 1 : 0);
+    }
+    LOG(LogChannel::E2EE, "setupCrossSigningWithPassword: cross-signing published for %s",
         userId.c_str());
     return true;
 }

@@ -97,6 +97,11 @@ std::string buildCrossSigningContent(const std::string& type,
     std::string sig;
     if (!signingPrivB64.empty())
         sig = signEd25519(signingPrivB64, keysJson);
+    std::string usage;
+    if (type.find("self_signing") != std::string::npos) usage = "self_signing";
+    else if (type.find("user_signing") != std::string::npos) usage = "user_signing";
+    else usage = "master";
+
     std::string out = "{\"keys\":" + keysJson;
     if (!sig.empty()) {
         out += ",\"signatures\":{\"" + userId
@@ -104,7 +109,7 @@ std::string buildCrossSigningContent(const std::string& type,
     } else {
         out += ",\"signatures\":{}";
     }
-    out += "}";
+    out += ",\"usage\":[\"" + usage + "\"],\"user_id\":\"" + userId + "\"}";
     return out;
 }
 

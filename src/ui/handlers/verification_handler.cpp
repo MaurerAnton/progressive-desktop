@@ -90,6 +90,7 @@ void VerificationHandler::onTransactionStateChanged(VerificationTransaction* txn
             hideBanner();
             LOG(LogChannel::E2EE, "verifyHandler: txn %s DONE",
                 txn->transactionId.c_str());
+            resumeStalledDialog();
             break;
         case VerificationState::Cancelled:
             closeDialog();
@@ -97,6 +98,7 @@ void VerificationHandler::onTransactionStateChanged(VerificationTransaction* txn
             LOG(LogChannel::E2EE, "verifyHandler: txn %s CANCELLED code=%s",
                 txn->transactionId.c_str(),
                 cancelCodeToString(txn->cancelCode.value_or(CancelCode::Other)).c_str());
+            resumeStalledDialog();
             break;
         default:
             break;
@@ -140,6 +142,18 @@ void VerificationHandler::showEmojiDialog(VerificationTransaction* txn) {
         closeDialog();
     });
     dialog_->show();
+}
+
+// If a concurrent verification is waiting at KeyReceived (its dialog was
+// skipped by the one-dialog guard), surface it now that this dialog is closed.
+void VerificationHandler::resumeStalledDialog() {
+    if (!vm_ || dialog_) return;
+    for (auto* t : vm_->activeTransactions()) {
+        if (t->state == VerificationState::KeyReceived) {
+            showEmojiDialog(t);
+            break;
+        }
+    }
 }
 
 void VerificationHandler::closeDialog() {

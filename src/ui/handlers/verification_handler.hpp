@@ -39,6 +39,7 @@ private:
     void hideBanner();
     void showEmojiDialog(VerificationTransaction* txn);
     void closeDialog();
+    void resumeStalledDialog();
 
     std::shared_ptr<MatrixClient> client_;
     VerificationManager* vm_ = nullptr;

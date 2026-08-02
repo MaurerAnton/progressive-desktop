@@ -344,6 +344,8 @@ void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
                 std::cerr << "[e2ee] Olm 1:1 decryption failed from "
                           << evt.senderId << "\n";
             }
+        } else if (evt.type == "m.forwarded_room_key") {
+            decryptor_.handleForwardedRoomKey(std::string(evt.contentJson));
         } else if (evt.type == "m.room_key_request") {
             // Another device asks us to re-share a room key.
             std::string contentStr(evt.contentJson);

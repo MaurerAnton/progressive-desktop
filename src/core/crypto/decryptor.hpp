@@ -184,6 +184,9 @@ public:
     // Handle an incoming m.room_key_request (another device asks us to
     // re-share a megolm room key). Sends m.forwarded_room_key on success.
     // requesterVerified: (userId, deviceId) SAS-verified. verifiedOnly: policy flag.
+    // Import an m.forwarded_room_key (v1 export format) into the megolm store.
+    bool handleForwardedRoomKey(const std::string& contentJson);
+
     bool handleRoomKeyRequest(const std::string& contentJson,
                               const std::string& senderId,
                               bool requesterVerified);

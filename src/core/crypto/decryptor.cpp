@@ -1239,6 +1239,40 @@ bool Decryptor::handleRoomKeyRequest(const std::string& contentJson,
 }
 
 
+
+// Handle an incoming m.forwarded_room_key — import the v1 export-format
+// session key so we can decrypt messages the other device forwarded.
+bool Decryptor::handleForwardedRoomKey(const std::string& contentJson) {
+    simdjson::dom::parser p;
+    auto doc = p.parse(contentJson);
+    if (doc.error() != simdjson::SUCCESS) return false;
+    auto val = doc.value();
+
+    auto alg = val["algorithm"].get_string();
+    if (alg.error() != simdjson::SUCCESS || std::string(alg.value()) != "m.megolm.v1.aes-sha2")
+        return false;
+    auto rid = val["room_id"].get_string();
+    auto skey = val["sender_key"].get_string();
+    auto sessKey = val["session_key"].get_string();
+    if (rid.error() != simdjson::SUCCESS || skey.error() != simdjson::SUCCESS ||
+        sessKey.error() != simdjson::SUCCESS)
+        return false;
+
+    std::string roomId(rid.value());
+    std::string senderKey(skey.value());
+    std::string sessionKeyExport(sessKey.value());
+
+    if (!megolm_->addImportedSession(roomId, senderKey, sessionKeyExport)) {
+        LOG(LogChannel::E2EE, "handleForwardedRoomKey: import FAILED room=%.40s sender=%.20s",
+            roomId.c_str(), senderKey.c_str());
+        return false;
+    }
+    LOG(LogChannel::E2EE, "handleForwardedRoomKey: imported room=%.40s sender=%.20s",
+        roomId.c_str(), senderKey.c_str());
+    return true;
+}
+
+
 void Decryptor::forceNewOlmSession(const std::string& senderId, const std::string& senderKey) {
     if (ctxHomeserver_.empty() || ctxToken_.empty()) return;
 

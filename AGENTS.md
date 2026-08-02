@@ -72,6 +72,11 @@ If build or tests fail → revert. Never push broken code.
 
 ---
 
+## Dependencies
+- libsodium (system package) — ed25519 keypair generation + curve25519/AEAD for
+  cross-signing (Phase 6) and key backup (Phase 7). Arch/PineTab: `pacman -S libsodium`.
+  CI installs `libsodium-dev`. Linked to progressive_core via PkgConfig::SODIUM.
+
 ## Build & Test
 
 ```bash

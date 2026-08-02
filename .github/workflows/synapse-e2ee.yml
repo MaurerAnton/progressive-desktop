@@ -20,7 +20,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y qt6-base-dev libqt6widgets6 qt6-base-dev-tools \
-          cmake ninja-build ccache libcurl4-openssl-dev libsqlite3-dev
+          cmake ninja-build ccache libcurl4-openssl-dev libsqlite3-dev libsodium-dev
 
     - name: Generate Synapse config
       run: |

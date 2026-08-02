@@ -45,6 +45,20 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/progressive_native.cmake)
 
 # --- Desktop core (shared between app + tests) ---
 find_package(SQLite3 REQUIRED)
+# libsodium: ed25519 keypair generation + curve25519/AEAD for cross-signing
+# and key backup (Phases 6-7). PineTab/Arch: pacman -S libsodium. CI: apt install libsodium-dev.
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(SODIUM QUIET IMPORTED_TARGET libsodium)
+endif()
+if(NOT TARGET PkgConfig::SODIUM)
+    find_library(SODIUM_LIBRARY sodium REQUIRED)
+    find_path(SODIUM_INCLUDE_DIR sodium.h REQUIRED)
+    add_library(PkgConfig::SODIUM UNKNOWN IMPORTED)
+    set_target_properties(PkgConfig::SODIUM PROPERTIES
+        IMPORTED_LOCATION "${SODIUM_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${SODIUM_INCLUDE_DIR}")
+endif()
 add_library(progressive_core STATIC
     src/core/http_client.cpp
     src/core/json_utils.cpp
@@ -74,6 +88,7 @@ target_link_libraries(progressive_core PUBLIC
     CURL::libcurl
     SQLite::SQLite3
     simdjson::simdjson
+    PkgConfig::SODIUM
 )
 
 # --- UI widget layer (no deps on other UI libs) ---

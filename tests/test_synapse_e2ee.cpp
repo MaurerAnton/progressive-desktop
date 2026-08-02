@@ -160,6 +160,9 @@ static bool test_cross_signing_setup(const std::string& hs, TestUser& alice) {
             upResp = alice.client.uploadDeviceSigningKeys(upBody2);
         }
     }
+    std::cerr << "DEBUG xs-upload: status=" << upResp.httpStatus
+              << " ok=" << upResp.ok
+              << " body=" << upResp.data.substr(0, 300) << "\n";
     CHECK(upResp.ok, "xs-setup: device_signing/upload ok (with UIA retry)");
 
     // Device_keys-only re-upload with the SSK signature (omitOneTimeKeys=true).

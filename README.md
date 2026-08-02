@@ -14,10 +14,16 @@ A Matrix client in the making. Built with Qt6 QWidgets, libolm, and a shared `pr
 
 ## Status
 
-**⚠️ NOT USABLE. Under active refactoring. Do not use for daily communication.**
+**⚠️ NOT USABLE for daily use. Under active development. Do not rely on it.**
 
-Current phase: E2EE hardening — Phase 1 (signature verification) and Phase 2 (SAS device
-verification) complete, verified against a live Synapse server in CI.
+E2EE works for a basic 2-user, 1-device flow (verified in CI against a live Synapse).
+Multi-account and multi-device E2EE are NOT yet verified. Several critical bugs remain
+(thread replies, image rendering).
+
+Current phase: bug fixing toward v0.5 (see `memory/PROGRESS.md` for the live tracker).
+
+CI test coverage today: **2 users × 1 device each.** Untested: multiple accounts in one
+client, multiple devices per account, 3+ member rooms.
 
 What works:
 - Login/logout with homeserver discovery + password login
@@ -34,8 +40,8 @@ What works:
 - Multi-account (switch between saved accounts)
 - Account switcher dropdown in toolbar
 - E2EE: outbound encryption (Megolm) + inbound decryption (Olm/Megolm recovery chain)
-- E2EE: cross-account key sharing — verified against a live Synapse server in CI
-  (`test_synapse_e2ee.cpp`), covering rooms with 3+ members
+- E2EE: cross-account key sharing (2 users, 1 device each) — verified in CI against a
+  live Synapse server (`test_synapse_e2ee.cpp`). Multi-account / multi-device NOT yet tested.
 - E2EE: SAS device verification (m.sas.v1) — 7-emoji match dialog, device verification
 - Ctrl+K room switcher, date dividers, keyboard navigation
 
@@ -46,13 +52,32 @@ Not yet implemented:
 
 ## Build
 
-### Requirements (PineTab 2 / DanctNIX)
+### Requirements (PineTab 2 / DanctNIX, Arch)
 
 ```bash
-sudo pacman -S base-devel cmake ninja ccache git \
+sudo pacman -S base-devel cmake ninja ccache mold git \
     qt6-base qt6-tools qt6-declarative qt6-multimedia \
-    qt6-svg qt6-wayland curl openssl
+    qt6-svg qt6-wayland curl openssl libsodium python
 ```
+
+> **mold** is required — the `pinetab2` preset links with `-fuse-ld=mold` (fast linker).
+> **libsodium** is required — ed25519/cross-signing crypto (Phases 6-7).
+> **python** is required — `cmake/progressive_native.cmake` runs `audit_modules.py` at
+> configure time to classify submodule sources.
+
+### Requirements (Linux desktop, Debian/Ubuntu)
+
+```bash
+sudo apt-get install -y qt6-base-dev libqt6widgets6 qt6-base-dev-tools \
+  cmake ninja-build ccache mold libcurl4-openssl-dev libsqlite3-dev libsodium-dev \
+  libolm-dev python3 git
+```
+
+### Dependencies fetched automatically (network needed at configure time)
+
+- **libolm** (E2EE) — `FetchContent` from gitlab.matrix.org (`progressive_native.cmake:108`)
+- **simdjson** (fast JSON) — `FetchContent` (`progressive_native.cmake:120`)
+- **SQLite3 amalgamation** — downloaded from sqlite.org into the build dir (`progressive_native.cmake:137`)
 
 ### Configure + build
 
@@ -62,6 +87,13 @@ cd progressive-desktop
 ./scripts/build-pt2.sh         # or: cmake --preset pinetab2 && cmake --build build -j4
 ./build/progressive-desktop
 ```
+
+> **Submodules are required.** `third_party/progressive-android-experiments` holds the
+> shared `progressive_native` core. If you cloned without `--recurse-submodules`:
+>
+> ```bash
+> git submodule update --init --recursive
+> ```
 
 ### Other presets
 

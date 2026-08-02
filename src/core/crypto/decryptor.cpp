@@ -1285,11 +1285,15 @@ bool Decryptor::handleForwardedRoomKey(const std::string& contentJson) {
     std::string senderKey(skey.value());
     std::string sessionKeyExport(sessKey.value());
 
-    if (!megolm_->addImportedSession(roomId, senderKey, sessionKeyExport)) {
+    std::string realId = megolm_->addImportedSession(roomId, senderKey, sessionKeyExport);
+    if (realId.empty()) {
         LOG(LogChannel::E2EE, "handleForwardedRoomKey: import FAILED room=%.40s sender=%.20s",
             roomId.c_str(), senderKey.c_str());
         return false;
     }
+    // Replay any events that were pending on this session (they triggered the
+    // key request this forwarded key is answering).
+    processPending(roomId, senderKey, realId);
     LOG(LogChannel::E2EE, "handleForwardedRoomKey: imported room=%.40s sender=%.20s",
         roomId.c_str(), senderKey.c_str());
     return true;
@@ -1298,48 +1302,13 @@ bool Decryptor::handleForwardedRoomKey(const std::string& contentJson) {
 
 
 // Export all megolm keys (inbound + outbound) as a MegolmSessionData envelope.
+// Export all megolm keys (inbound + self-echo) as a MegolmSessionData
+// envelope. The outbound sessions are intentionally NOT exported: the initial
+// outbound key cannot decrypt past the ratchet and cannot resume sending —
+// the self-echo inbound session (added at outbound creation) covers every
+// sender-room with a usable export at the correct firstKnownIndex.
 std::string Decryptor::exportAllKeys() {
-    std::string inbound = megolm_->exportAllJson();
-
-    // Build the outbound rooms fragment: "roomId":{"sessions":[...]}
-    std::string outboundRooms;
-    {
-        std::lock_guard<std::mutex> lk(outboundMtx_);
-        bool firstRoom = true;
-        for (auto& [roomId, s] : outboundSessions_) {
-            if (!firstRoom) outboundRooms += ",";
-            firstRoom = false;
-            outboundRooms += "\"" + roomId + "\":{\"sessions\":[{"
-                "\"algorithm\":\"m.megolm.v1.aes-sha2\","
-                "\"room_id\":\"" + roomId + "\","
-                "\"session_id\":\"" + s.sessionId + "\","
-                "\"session_key\":\"" + s.sessionKey + "\","
-                "\"sender_key\":\"" + curve25519Key() + "\","
-                "\"sender_claimed_keys\":{\"ed25519\":\"" + ed25519Key() + "\"},"
-                "\"forwarding_curve25519_key_chain\":[]}]}";
-        }
-    }
-    if (outboundRooms.empty()) return inbound;
-
-    // Merge: re-serialize inbound rooms, then append outbound rooms.
-    simdjson::dom::parser p;
-    auto doc = p.parse(inbound);
-    if (doc.error() != simdjson::SUCCESS) return inbound;
-    auto rooms = doc.value()["rooms"].get_object();
-    if (rooms.error() != simdjson::SUCCESS) return inbound;
-
-    std::string merged = "{\"version\":1,\"rooms\":{";
-    bool first = true;
-    for (auto room : rooms.value()) {
-        if (!first) merged += ",";
-        first = false;
-        merged += "\"" + std::string(room.key) + "\":"
-                  + simdjson::to_string(room.value);
-    }
-    if (!first) merged += ",";
-    merged += outboundRooms;
-    merged += "}}";
-    return merged;
+    return megolm_->exportAllJson();
 }
 
 // Import a MegolmSessionData envelope (v1). Returns count imported.
@@ -1358,9 +1327,12 @@ int Decryptor::importKeys(const std::string& json) {
             auto skey = sess["sender_key"].get_string();
             auto key = sess["session_key"].get_string();
             if (skey.error() != simdjson::SUCCESS || key.error() != simdjson::SUCCESS) continue;
-            if (megolm_->addImportedSession(roomId, std::string(skey.value()),
-                                            std::string(key.value())))
+            std::string realId = megolm_->addImportedSession(
+                roomId, std::string(skey.value()), std::string(key.value()));
+            if (!realId.empty()) {
                 imported++;
+                processPending(roomId, std::string(skey.value()), realId);
+            }
         }
     }
     LOG(LogChannel::E2EE, "importKeys: imported %d sessions", imported);

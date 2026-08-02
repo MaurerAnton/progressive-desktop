@@ -48,9 +48,10 @@ public:
     // Returns empty if no session. Uses olm_export_inbound_group_session.
     // Import a v1 export-format session key (m.forwarded_room_key / backup).
     // Stores under the real session id read from the imported session.
-    bool addImportedSession(const std::string& roomId,
-                            const std::string& senderKey,
-                            const std::string& sessionKeyExportBase64);
+    // Returns the real session id, or empty on failure.
+    std::string addImportedSession(const std::string& roomId,
+                                   const std::string& senderKey,
+                                   const std::string& sessionKeyExportBase64);
 
     // Export ALL inbound sessions as a MegolmSessionData JSON envelope.
     std::string exportAllJson();

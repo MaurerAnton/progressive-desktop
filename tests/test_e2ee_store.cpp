@@ -62,19 +62,34 @@ static void test_key_export_import() {
     progressive::desktop::Decryptor dec;
     CHECK(dec.init(), "xport: decryptor init");
 
-    // Create an outbound session -> appears in the export envelope.
+    // Create an outbound session -> the self-echo inbound appears in the export.
     std::string sessId = dec.getOrCreateOutboundSession("!room1:test");
     CHECK(!sessId.empty(), "xport: outbound session created");
     std::string envelope = dec.exportAllKeys();
     CHECK(!envelope.empty(), "xport: export envelope non-empty");
     CHECK(envelope.find("\"version\":1") != std::string::npos, "xport: version 1");
     CHECK(envelope.find("!room1:test") != std::string::npos, "xport: room in envelope");
+    // No duplicate room keys (the outbound merge would have doubled this room).
+    size_t roomEntries = 0;
+    std::string needle = "\"!room1:test\":{\"sessions\"";
+    for (size_t p = envelope.find(needle); p != std::string::npos;
+         p = envelope.find(needle, p + 1)) roomEntries++;
+    CHECK(roomEntries == 1, "xport: exactly one rooms entry for the room (no duplicate)");
 
-    // Full roundtrip: import the first decryptor's own envelope into a second.
+    // Encrypt a real message with the outbound session.
+    std::string encContent = dec.encryptMessage("!room1:test", "DEV",
+        "{\"msg\":\"hello-xport\"}");
+    CHECK(!encContent.empty(), "xport: encrypted a message");
+
+    // Full roundtrip: import into a second decryptor and DECRYPT the message.
     progressive::desktop::Decryptor dec2;
     CHECK(dec2.init(), "xport: decryptor2 init");
     int n = dec2.importKeys(envelope);
     CHECK(n > 0, "xport: import returns count > 0");
+    auto dec2res = dec2.decryptMegolmEvent("!room1:test", "@alice:test",
+        encContent, "eid1", 0);
+    CHECK(dec2res.ok && dec2res.plaintext.find("hello-xport") != std::string::npos,
+          "xport: second decryptor decrypts the exported session's message");
     (void)n;
 }
 

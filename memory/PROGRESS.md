@@ -157,6 +157,13 @@
 [ ] test_gui_phase4 duplicates RoomListModel (test code only, not blocking)
 [ ] RoomListDelegate::paint const_cast (DEBT-012, works but ugly)
 [ ] Missing emoji font resource for PineTab without system emoji font (DEBT-016)
+[ ] Typing indicator doesn't refresh — receiving m.typing is parsed (fast_sync.cpp:114-130) and
+    stored on the upsert record (room_store.cpp:171), but RoomListModel::upsertRoom
+    (room_list_model.cpp:60) never copies typingUsers into the existing room and never emits
+    dataChanged for it → sidebar "X is typing..." likely only shows on room create, not live.
+    Also NO typing UI in the chat/timeline view at all (zero hits in src/ui/chat, src/ui/timeline).
+    Fix scope: upsertRoom copy+emit for typingUsers + optionally in-chat indicator.
+```
 ```
 
 ### Discussed Wishes (not yet prioritized)

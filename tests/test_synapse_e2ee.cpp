@@ -138,7 +138,29 @@ static bool test_cross_signing_setup(const std::string& hs, TestUser& alice) {
         + ",\"self_signing_key\":" + self
         + ",\"user_signing_key\":" + user + "}";
     auto upResp = alice.client.uploadDeviceSigningKeys(upBody);
-    CHECK(upResp.ok, "xs-setup: device_signing/upload ok");
+    if (!upResp.ok && upResp.httpStatus == 401) {
+        // UIA challenge — retry with password auth (as the app's setup flow does).
+        std::string session;
+        {
+            simdjson::dom::parser p;
+            auto doc = p.parse(upResp.data);
+            if (doc.error() == simdjson::SUCCESS) {
+                auto sess = doc.value()["session"].get_string();
+                if (sess.error() == simdjson::SUCCESS) session = std::string(sess.value());
+            }
+        }
+        if (!session.empty()) {
+            std::string auth = "{\"type\":\"m.login.password\",\"identifier\":{"
+                "\"type\":\"m.id.user\",\"user\":\"" + alice.userId + "\"},"
+                "\"password\":\"synapse_test_pass_42\",\"session\":\"" + session + "\"}";
+            std::string upBody2 = "{\"auth\":" + auth
+                + ",\"master_key\":" + master
+                + ",\"self_signing_key\":" + self
+                + ",\"user_signing_key\":" + user + "}";
+            upResp = alice.client.uploadDeviceSigningKeys(upBody2);
+        }
+    }
+    CHECK(upResp.ok, "xs-setup: device_signing/upload ok (with UIA retry)");
 
     // Device_keys-only re-upload with the SSK signature (omitOneTimeKeys=true).
     std::string body = alice.decryptor.buildKeysUploadBody(

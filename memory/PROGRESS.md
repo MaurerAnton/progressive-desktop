@@ -65,7 +65,7 @@
 - [x] E2EE Bug B — outbound, others can't decrypt our messages (FIXED Jul 27)
 - [x] FluffyChat compatibility — fixed (simdjson parser)
 - [ ] B17-B19 — invitation preview
-- [ ] B26 — context menu irrelevant options
+ - [x] B26 — context menu irrelevant options (fixed Jul 31: gating on preconditions — pin/unpin, reaction, edit, reply disabled when N/A; room_context_menu.cpp:269-284)
 - [ ] B27 — bubble corner merging
 - [ ] B29 — timeline layout instability
 - [ ] B31 — files/images not clickable

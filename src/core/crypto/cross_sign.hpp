@@ -31,9 +31,6 @@ std::string buildCrossSigningContent(const std::string& type,
                                      const std::string& signingPrivB64,
                                      const std::string& userId);
 
-// Derive the public key from a base64 libsodium secret key (last 32 bytes).
-std::string crossSigningPubFromPriv(const std::string& privKeyB64);
-
 // Canonical form of the "keys" object used as the signature message.
 std::string crossSigningKeysCanonical(const std::string& pubKeyB64);
 

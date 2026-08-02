@@ -76,7 +76,8 @@ public:
                                       bool includeDeviceKeys = true,
                                       bool includeFallbackKey = false,
                                       const std::string& sskPrivB64 = "",
-                                      const std::string& sskPubB64 = "");
+                                      const std::string& sskPubB64 = "",
+                                      bool omitOneTimeKeys = false);
 
     // Builds the signed "fallback_keys" section JSON from the unpublished
     // fallback key (empty if none). Does NOT generate — generation is the

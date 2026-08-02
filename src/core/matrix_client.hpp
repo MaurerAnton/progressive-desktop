@@ -301,6 +301,10 @@ public:
     ApiResult<bool> setAccountData(const std::string& type,
                                    const std::string& contentJson);
 
+    // GET /_matrix/client/v3/user/{userId}/account_data/{type}
+    // Returns the content JSON. Not ok if absent (404).
+    ApiResult<std::string> getAccountData(const std::string& type);
+
     // POST /_matrix/client/v3/keys/query
     // Query device keys for a list of users. Body:
     //   {"device_keys":{"@user:server":[]}}

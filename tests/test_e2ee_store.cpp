@@ -144,6 +144,20 @@ static void test_cross_signing() {
     std::string canonical = progressive::desktop::crossSigningKeysCanonical(keys.selfPub);
     CHECK(canonical.find("ed25519:" + keys.selfPub) != std::string::npos,
           "xs: canonical keys object");
+
+    // Extract the signature from the content and verify it with the master key —
+    // proves the account-data trust chain is real, not just present.
+    std::string contentSig;
+    std::string marker = "ed25519:" + keys.masterPub + "\":\"";
+    auto sigPos = content.find(marker);
+    if (sigPos != std::string::npos) {
+        sigPos += marker.size();
+        auto sigEnd = content.find('"', sigPos);
+        if (sigEnd != std::string::npos) contentSig = content.substr(sigPos, sigEnd - sigPos);
+    }
+    CHECK(!contentSig.empty(), "xs: extracted content signature");
+    CHECK(progressive::desktop::verifyEd25519(keys.masterPub, canonical, contentSig),
+          "xs: content signature verifies with the master key");
 }
 
 int main() {    test_cross_signing();

@@ -252,9 +252,12 @@ std::string Decryptor::buildKeysUploadBody(const std::string& userId,
                                                bool includeDeviceKeys,
                                                bool includeFallbackKey,
                                                const std::string& sskPrivB64,
-                                               const std::string& sskPubB64) {
-    // 1. Generate one-time keys
-    std::string oneTimeKeysJson = account_->generateOneTimeKeys(oneTimeKeyCount);
+                                               const std::string& sskPubB64,
+                                               bool omitOneTimeKeys) {
+    // 1. Generate one-time keys (skipped for device_keys-only re-uploads —
+    //    emitting an empty one_time_keys section would WIPE the server pool).
+    std::string oneTimeKeysJson;
+    if (!omitOneTimeKeys) oneTimeKeysJson = account_->generateOneTimeKeys(oneTimeKeyCount);
 
     // 2. Build device_keys object with sorted keys (canonical JSON).
     auto keys = account_->identityKeys();
@@ -345,19 +348,24 @@ std::string Decryptor::buildKeysUploadBody(const std::string& userId,
     otkSigned << "}";
 
     // 5. Assemble the full /keys/upload body
-    std::ostringstream body;
-    body << "{";
-    if (includeDeviceKeys) {
-        body << "\"device_keys\":" << deviceKeysSigned << ",";
-    }
+    // Assemble sections with proper comma joining (device_keys-only uploads
+    // must not leave a trailing comma).
+    std::vector<std::string> sections;
+    if (includeDeviceKeys) sections.push_back("\"device_keys\":" + deviceKeysSigned);
     if (includeFallbackKey) {
         std::string fallbackSection = buildFallbackKeysSection(userId, deviceId);
-        if (!fallbackSection.empty()) {
-            body << "\"fallback_keys\":" << fallbackSection << ",";
-        }
+        if (!fallbackSection.empty())
+            sections.push_back("\"fallback_keys\":" + fallbackSection);
     }
-    body << "\"one_time_keys\":" << otkSigned.str()
-         << "}";
+    if (!omitOneTimeKeys) sections.push_back("\"one_time_keys\":" + otkSigned.str());
+
+    std::ostringstream body;
+    body << "{";
+    for (size_t i = 0; i < sections.size(); ++i) {
+        if (i > 0) body << ",";
+        body << sections[i];
+    }
+    body << "}";
     return body.str();
 }
 

@@ -18,6 +18,7 @@
 #include "core/http_client.hpp"
 #include "core/matrix_client.hpp"
 #include "core/crypto/decryptor.hpp"
+#include "core/crypto/cross_sign.hpp"
 
 #include <iostream>
 #include <string>
@@ -115,6 +116,91 @@ static std::vector<std::string> joinedMembers(MatrixClient& client, const std::s
 // Key-request loop: alice rotates (new session NOT shared) -> bob fails to
 // decrypt msg2 (pending + requests key) -> alice's sync handles the request +
 // forwards m.forwarded_room_key -> bob imports + processPending re-decrypts.
+
+// Cross-signing setup end-to-end (mirrors SyncEngine::setupCrossSigning):
+// generate -> upload account_data + m.signing.key.upload -> device_keys-only
+// re-upload with SSK signature -> GET account_data + device_keys -> verify
+// the SSK signature over the canonical device_keys.
+static bool test_cross_signing_setup(const std::string& hs, TestUser& alice) {
+    auto keys = progressive::desktop::generateCrossSigningKeys();
+    CHECK(!keys.masterPub.empty(), "xs-setup: keys generated");
+
+    auto master = progressive::desktop::buildCrossSigningContent(
+        "m.cross_signing.master", keys.masterPub, "", "", alice.userId);
+    auto self = progressive::desktop::buildCrossSigningContent(
+        "m.cross_signing.self_signing", keys.selfPub,
+        keys.masterPub, keys.masterPriv, alice.userId);
+    auto user = progressive::desktop::buildCrossSigningContent(
+        "m.cross_signing.user_signing", keys.userPub,
+        keys.masterPub, keys.masterPriv, alice.userId);
+    CHECK(alice.client.setAccountData("m.cross_signing.master", master).ok,
+          "xs-setup: master uploaded");
+    CHECK(alice.client.setAccountData("m.cross_signing.self_signing", self).ok,
+          "xs-setup: self uploaded");
+    CHECK(alice.client.setAccountData("m.cross_signing.user_signing", user).ok,
+          "xs-setup: user uploaded");
+
+    std::string upload = "{\"master_key\":{\"ed25519:" + keys.masterPub
+        + "\":\"" + keys.masterPub + "\"},\"self_signing\":{\"ed25519:"
+        + keys.selfPub + "\":\"" + keys.selfPub + "\"},\"user_signing\":{\"ed25519:"
+        + keys.userPub + "\":\"" + keys.userPub + "\"}}";
+    CHECK(alice.client.setAccountData("m.signing.key.upload", upload).ok,
+          "xs-setup: m.signing.key.upload published");
+
+    // Device_keys-only re-upload with the SSK signature (omitOneTimeKeys=true).
+    std::string body = alice.decryptor.buildKeysUploadBody(
+        alice.userId, alice.deviceId, 0, true, false,
+        keys.selfPriv, keys.selfPub, true);
+    auto up = alice.client.uploadKeys(body);
+    CHECK(up.ok, "xs-setup: device_keys re-uploaded with SSK sig");
+
+    // GET the account data.
+    auto got = alice.client.getAccountData("m.cross_signing.self_signing");
+    CHECK(got.ok, "xs-setup: GET self_signing");
+    CHECK(got.data.find(keys.selfPub) != std::string::npos,
+          "xs-setup: self pub present in account data");
+
+    // Query device_keys and verify the SSK signature over the canonical form.
+    auto q = alice.client.queryKeys("{\"device_keys\":{\"" + alice.userId + "\":[]}}");
+    CHECK(q.ok, "xs-setup: device_keys query");
+    std::string sskSig;
+    {
+        simdjson::dom::parser p;
+        auto doc = p.parse(q.data);
+        if (doc.error() != simdjson::SUCCESS) return false;
+        auto dev = doc.value()["device_keys"][alice.userId][alice.deviceId];
+        auto sig = dev["signatures"][alice.userId]["ed25519:" + keys.selfPub].get_string();
+        if (sig.error() == simdjson::SUCCESS) sskSig = std::string(sig.value());
+    }
+    CHECK(!sskSig.empty(), "xs-setup: SSK signature present on device_keys");
+
+    // Reconstruct the canonical device_keys (same builder as buildKeysUploadBody)
+    // and verify the SSK signature with the self-signing public key.
+    std::string canonical;
+    {
+        simdjson::dom::parser p;
+        auto doc = p.parse(q.data);
+        if (doc.error() != simdjson::SUCCESS) return false;
+        auto dev = doc.value()["device_keys"][alice.userId][alice.deviceId];
+        auto did = dev["device_id"].get_string();
+        auto uid = dev["user_id"].get_string();
+        auto ck = dev["keys"]["curve25519:" + alice.deviceId].get_string();
+        auto ek = dev["keys"]["ed25519:" + alice.deviceId].get_string();
+        if (did.error() != simdjson::SUCCESS || uid.error() != simdjson::SUCCESS ||
+            ck.error() != simdjson::SUCCESS || ek.error() != simdjson::SUCCESS)
+            return false;
+        canonical = "{\"algorithms\":[\"m.olm.v1.curve25519-aes-sha2\",\"m.megolm.v1.aes-sha2\"],"
+            "\"device_id\":\"" + std::string(did.value()) + "\","
+            "\"keys\":{\"curve25519:" + std::string(did.value()) + "\":\"" + std::string(ck.value())
+            + "\",\"ed25519:" + std::string(did.value()) + "\":\"" + std::string(ek.value())
+            + "\"},\"user_id\":\"" + std::string(uid.value()) + "\"}";
+    }
+    CHECK(progressive::desktop::verifyEd25519(keys.selfPub, canonical, sskSig),
+          "xs-setup: SSK signature verifies over canonical device_keys");
+    return true;
+}
+
+
 static bool test_key_request_loop(const std::string& hs,
                                    TestUser& alice, TestUser& bob,
                                    const std::string& roomId,
@@ -407,6 +493,11 @@ int main() {
     std::cout << "\n--- key request loop test ---\n";
     if (!test_key_request_loop(hs, alice, bob, roomId, since0, since)) failures++;
     std::cout << "--- key request loop done ---\n";
+
+    // Cross-signing setup + SSK-signed device verification.
+    std::cout << "\n--- cross-signing setup test ---\n";
+    if (!test_cross_signing_setup(hs, alice)) failures++;
+    std::cout << "--- cross-signing setup done ---\n";
 
     std::cout << "\n";
     std::cout << "\n--- fallback claim test ---\n";

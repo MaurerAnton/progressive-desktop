@@ -421,6 +421,16 @@ bool SessionStore::saveVerifiedDevice(const std::string& userId,
     return rc == SQLITE_DONE;
 }
 
+bool SessionStore::clearVerifiedDevices() {
+    if (!db_) return false;
+    const char* sql = "DELETE FROM verified_devices;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
 bool SessionStore::isDeviceVerified(const std::string& userId,
     const std::string& deviceId) {
     if (!db_) return false;

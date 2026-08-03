@@ -426,7 +426,9 @@ std::string pickleOlmSessions(const std::string& key) {
 | OTK signature verification | ✅ Working | signed_curve25519 verified on /keys/claim |
 | Device key signature verification | ✅ Working | device_keys signatures verified on /keys/query |
 | Device verification (SAS) | ✅ Working | Phase 2 — m.sas.v1 state machine + crypto + dialog + two-manager protocol test green |
-| Cross-signing | ❌ | No device trust chain (Phase 6, depends on ed25519 verify ✅) |
+| Cross-signing | ✅ | Phase 6 COMPLETE — setup + publishing, SSK-signed device_keys, trust computation (computeDeviceTrust), SAS MSK exchange, cross-user cross-signing via /keys/signatures/upload, device shields UI, reset flow. All live-Synapse CI-verified |
+| m.forwarded_room_key | ✅ | Import + forward (Phase 4, CI-tested) |
+| m.room_key_request incoming | ✅ | Handle + verified-only policy (Phase 4 + live SAS policy test) |
 | SSSS key backup | ❌ | No history recovery (Phase 7) |
 | m.forwarded_room_key | ❌ | Don't handle forwarded keys (submodule has real code, ready to port) |
 | m.room_key_request incoming | ❌ | Don't re-share keys when asked (submodule has real code, ready to port) |

@@ -77,6 +77,9 @@ public:
 
     // ---- Verified devices (SAS-verified for key-sharing policy) ----
     bool saveVerifiedDevice(const std::string& userId, const std::string& deviceId);
+    // Drop all SAS-verified device records (used after a cross-signing reset —
+    // old verifications are meaningless against the new keys).
+    bool clearVerifiedDevices();
     bool isDeviceVerified(const std::string& userId, const std::string& deviceId);
 
     // ---- Hidden rooms ----

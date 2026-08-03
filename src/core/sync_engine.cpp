@@ -22,10 +22,11 @@ SyncEngine::~SyncEngine() {
 
 void SyncEngine::initVerificationManager() {
     if (!client_) return;
-    auto userId = client_->account().userId;
-    verificationManager_.setOurMasterKeyFn([this, userId]() {
-        if (!store_) return std::string();
-        auto xs = store_->loadCrossSigningKeys(userId);
+    // Read the account LIVE inside the fns (AGENTS.md: never cache mutable
+    // credentials — the user/device can change on account switch).
+    verificationManager_.setOurMasterKeyFn([this]() {
+        if (!store_ || !client_) return std::string();
+        auto xs = store_->loadCrossSigningKeys(client_->account().userId);
         if (!xs.has_value()) return std::string();
         simdjson::dom::parser p;
         auto d = p.parse(*xs);
@@ -52,8 +53,7 @@ void SyncEngine::initVerificationManager() {
         }
         return std::string();
     });
-    LOG(LogChannel::E2EE, "initVerificationManager: MSK exchange fns wired for %s",
-        userId.c_str());
+    LOG(LogChannel::E2EE, "initVerificationManager: MSK exchange fns wired");
 }
 
 void SyncEngine::start() {
@@ -437,9 +437,13 @@ void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
                                 std::string sigBody = "{\"" + vtxn->otherUserId
                                     + "\":{\"" + vtxn->theirMasterKey + "\":" + content + "}}";
                                 auto up = client_->uploadSignatures(sigBody);
+                                bool rejected = !up.ok ||
+                                    up.data.find("\"failures\"") != std::string::npos &&
+                                    up.data.find("\"failures\":{}") == std::string::npos;
                                 LOG(LogChannel::E2EE,
-                                    "processToDevice: cross-signed master key of %s ok=%d http=%d",
-                                    vtxn->otherUserId.c_str(), up.ok ? 1 : 0, up.httpStatus);
+                                    "processToDevice: cross-signed master key of %s ok=%d http=%d %s",
+                                    vtxn->otherUserId.c_str(), up.ok ? 1 : 0, up.httpStatus,
+                                    rejected ? "(signature rejected by the server — see the failures map)" : "");
                             }
                         }
                     }
@@ -654,8 +658,10 @@ bool SyncEngine::resetCrossSigning() {
     }
     if (rc < 0) return false;
     reuploadDeviceKeys(userId, keys);
-    LOG(LogChannel::E2EE, "resetCrossSigning: keys regenerated + uploaded for %s",
-        userId.c_str());
+    // Old SAS verifications are meaningless against the new keys.
+    if (store_) store_->clearVerifiedDevices();
+    LOG(LogChannel::E2EE, "resetCrossSigning: keys regenerated + uploaded for %s "
+        "(verified_devices cleared)", userId.c_str());
     return true;
 }
 

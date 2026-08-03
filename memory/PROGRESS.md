@@ -138,6 +138,18 @@
     Suspected: reaction sync re-delivers the reacted-to reply with an empty eventId, evading seenIds_ dedupe
     (timeline_model.cpp:247-248,270-277), so it's appended as a "new" reply → +1. NEEDS DIAGNOSTIC LOGs
     (per PLANNER #9): log eid + eventIdEmpty in appendBackBatch; confirm before fixing. Do NOT guess-fix.
+[ ] Reply from Element renders inconsistently — CONFIRMED root cause (Aug 3): reply metadata
+    (m.relates_to.m.in_reply_to) is only parsed in the HISTORY paths (room_data_loader.cpp:118-121,
+    140-144; room_handler.cpp:227-231) — NEVER in the LIVE-SYNC path fastEventToDisplayed
+    (room_store.cpp:318-397), so replies arriving via /sync render as plain messages with Element's
+    literal "> @user:server  original" fallback quote visible in the bubble (isReply=false).
+    History-loaded replies DO get the reply UI (colored bar + "sender: preview", timeline_painter.cpp:269-291,
+    kReplyPreviewMax=60) but still show the raw "> ..." fallback text too (nothing strips it), and if the
+    original scrolled out of the 200-event window it collapses to "↩ replied" (timeline_painter.cpp:285-290).
+    Same gap affects thread flags (extractThreadRootId never called in fastEventToDisplayed). Fix scope
+    (deferred): call extractReplyToId/extractThreadRootId in fastEventToDisplayed (and re-run on
+    applyDecryptedEvents late-decrypt), strip the "> <@user:...>" fallback from body when isReply.
+    Hold until AI coder's cross-signing lands (no-code-touching rule).
 [ ] Invite: reject fails with M_FORBIDDEN "duplicate auth_events for m.room.member" (need diagnostic LOGs)
 [ ] Image: images don't render in timeline or viewer — downloadMedia may fail silently (need diagnostic LOGs)
 [ ] File/audio download dead — CONFIRMED root cause (Aug 2): mxcUrl is only parsed for

@@ -130,8 +130,9 @@ DecryptionResult Decryptor::decryptMegolmEvent(const std::string& roomId,
 
     if (!megolm_->hasSession(roomId, senderKey, sessionId)) {
         r.error = "no megolm session — waiting for room_key";
-        LOG(LogChannel::E2EE, "decryptMegolmEvent: no session room=%.40s eid=%s — saving to pending",
-            roomId.c_str(), eventId.c_str());
+        LOG(LogChannel::E2EE, "decryptMegolmEvent: no session room=%.40s eid=%s sid=%.30s senderKey=%.30s devId=%s — saving to pending",
+            roomId.c_str(), eventId.c_str(), sessionId.c_str(), senderKey.c_str(),
+            senderDeviceId.c_str());
         PendingEncryptedEvent p;
         p.roomId = roomId;
         p.senderKey = senderKey;

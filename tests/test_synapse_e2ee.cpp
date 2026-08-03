@@ -236,7 +236,8 @@ static bool test_multiaccount_multidevice(const std::string& hs,
     if (!setupE2EE(carol, hs)) return false;
 
     // Alice's second device (login -> new device for the same user).
-    if (!loginUser(alice2, hs, "mm_alice", pass)) return false;
+    std::string aliceUname = alice.userId.substr(1, alice.userId.find(':') - 1);
+    if (!loginUser(alice2, hs, aliceUname, pass)) return false;
     if (!setupE2EE(alice2, hs)) return false;
     CHECK(alice2.userId == alice.userId, "mm: second device same user");
     CHECK(alice2.deviceId != alice.deviceId, "mm: distinct device IDs");

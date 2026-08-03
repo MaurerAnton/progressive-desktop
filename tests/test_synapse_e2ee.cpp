@@ -19,6 +19,8 @@
 #include "core/matrix_client.hpp"
 #include "core/crypto/decryptor.hpp"
 #include "core/crypto/cross_sign.hpp"
+#include "core/crypto/verification.hpp"
+#include "core/crypto/sas.hpp"
 
 #include <iostream>
 #include <string>
@@ -329,6 +331,189 @@ static bool test_multiaccount_multidevice(const std::string& hs,
     return true;
 }
 
+
+
+// --- Live SAS self-verification (A1 <-> A2 over the server) + verified-only policy ---
+// Two VerificationManagers wired to REAL HTTP: sends go via /sendToDevice, the other
+// side picks them up in its sync and dispatches m.key.verification.* to its manager.
+// After both reach Done, A1's verified-only key-share policy is exercised: A2's
+// room-key request is honored, bob's (unverified) is denied.
+
+static void sasSendToDevice(TestUser& u, const std::string& type,
+                            const std::string& txnId, const std::string& content,
+                            const std::string& user, const std::string& dev) {
+    std::string body = "{\"messages\":{\"" + user + "\":{\"" + dev + "\":" + content + "}}}";
+    u.client.sendToDevice(type, "sas" + txnId, body);
+}
+
+static progressive::desktop::VerificationManager::DeviceKeyResolverFn
+makeSasResolver(TestUser& u) {
+    return [&u](const std::string& user, const std::string& dev,
+                std::string& ed, std::string& curve) -> bool {
+        auto q = u.client.queryKeys("{\"device_keys\":{\"" + user + "\":[]}}");
+        if (!q.ok) return false;
+        simdjson::dom::parser p;
+        auto doc = p.parse(q.data);
+        if (doc.error() != simdjson::SUCCESS) return false;
+        auto keysObj = doc.value()["device_keys"][user][dev]["keys"].get_object();
+        if (keysObj.error() != simdjson::SUCCESS) return false;
+        for (auto k : keysObj.value()) {
+            auto v = k.value.get_string();
+            if (v.error() != simdjson::SUCCESS) continue;
+            std::string key(k.key);
+            if (key == "curve25519:" + dev) curve = std::string(v.value());
+            else if (key == "ed25519:" + dev) ed = std::string(v.value());
+        }
+        return !ed.empty() && !curve.empty();
+    };
+}
+
+// Sync + dispatch m.key.verification.* until the txn reaches the wanted state.
+static bool waitVState(TestUser& u, progressive::desktop::VerificationManager& mgr,
+                       std::string& since, const std::string& txnId,
+                       progressive::desktop::VerificationState want, int rounds = 20) {
+    for (int r = 0; r < rounds; ++r) {
+        auto resp = u.client.syncFast(since, 2000, false);
+        if (resp.ok) {
+            since = std::string(resp.data.nextBatch);
+            for (const auto& evt : resp.data.toDeviceEventList) {
+                if (evt.type.find("m.key.verification.") == 0) {
+                    mgr.handleEvent(std::string(evt.type), std::string(evt.senderId),
+                        std::string(evt.contentJson), u.userId, u.deviceId,
+                        u.decryptor.ed25519Key(), u.decryptor.curve25519Key());
+                }
+            }
+        }
+        auto* t = mgr.findTransaction(txnId);
+        if (t && t->state == want) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(400));
+    }
+    return false;
+}
+
+static bool test_sas_verified_policy(const std::string& hs, TestUser& alice, TestUser& bob) {
+    using namespace progressive::desktop;
+    std::string pass = "synapse_test_pass_42";
+
+    // Fresh login -> alice's new device (A3) + an encrypted room with A1 + A3.
+    TestUser alice2;
+    std::string aliceUname = alice.userId.substr(1, alice.userId.find(':') - 1);
+    if (!loginUser(alice2, hs, aliceUname, pass)) return false;
+    if (!setupE2EE(alice2, hs)) return false;
+    CHECK(alice2.deviceId != alice.deviceId, "sas: distinct device IDs");
+
+    auto roomRes = alice.client.createRoom("sas-room", "", false, {alice2.userId}, true);
+    CHECK(roomRes.ok, "sas: room created");
+    std::string roomId = roomRes.data;
+    CHECK(alice2.client.joinRoom(roomId).ok, "sas: alice device joined");
+
+    // A1 creates the outbound session + shares, then A1 sends a message so the
+    // room has a session to request.
+    alice.decryptor.getOrCreateOutboundSession(roomId);
+    auto members = joinedMembers(alice.client, roomId);
+    bool keyShared = alice.decryptor.shareRoomKey(roomId, members,
+        alice.userId, alice.deviceId, hs, alice.token);
+    if (keyShared) alice.decryptor.markRoomKeyShared(roomId);
+    CHECK(keyShared, "sas: room key shared");
+
+    // ---- Live SAS between A1 and A3 over the server ----
+    VerificationManager a1m, a2m;
+    a1m.setSendToDeviceFn([&](const std::string& type, const std::string& txnId,
+                              const std::string& content, const std::string& user,
+                              const std::string& dev) {
+        sasSendToDevice(alice, type, txnId, content, user, dev);
+    });
+    a2m.setSendToDeviceFn([&](const std::string& type, const std::string& txnId,
+                              const std::string& content, const std::string& user,
+                              const std::string& dev) {
+        sasSendToDevice(alice2, type, txnId, content, user, dev);
+    });
+    a1m.setDeviceKeyResolverFn(makeSasResolver(alice));
+    a2m.setDeviceKeyResolverFn(makeSasResolver(alice2));
+
+    auto* txnA = a1m.startVerification(alice2.userId, alice2.deviceId, alice.deviceId);
+    CHECK(txnA != nullptr, "sas: A1 startVerification");
+    std::string txnId = txnA->transactionId;
+    std::string sinceA1, sinceA2;
+
+    // A1 -> A3: .request (startVerification does not send).
+    sasSendToDevice(alice, "m.key.verification.request", txnId,
+                    a1m.buildRequestContent(alice.deviceId, txnId),
+                    alice2.userId, alice2.deviceId);
+    CHECK(waitVState(alice2, a2m, sinceA2, txnId, VerificationState::RequestReceived),
+          "sas: A3 received request");
+
+    // A3 accepts: .ready then .start (replicate acceptIncoming).
+    auto* txnB = a2m.findTransaction(txnId);
+    sasSendToDevice(alice2, "m.key.verification.ready", txnId,
+                    a2m.buildReadyContent(alice2.deviceId, txnId),
+                    alice.userId, alice.deviceId);
+    CHECK(waitVState(alice, a1m, sinceA1, txnId, VerificationState::Ready),
+          "sas: A1 Ready");
+    std::string startContent = a2m.buildStartContent(alice2.deviceId, txnId);
+    txnB->startContentJson = startContent;
+    txnB->sas = sasCreate();
+    sasSendToDevice(alice2, "m.key.verification.start", txnId, startContent,
+                    alice.userId, alice.deviceId);
+    CHECK(waitVState(alice, a1m, sinceA1, txnId, VerificationState::KeySent),
+          "sas: A1 Started + auto accept/key");
+    // A3 receives A1's .accept + .key.
+    CHECK(waitVState(alice2, a2m, sinceA2, txnId, VerificationState::KeyReceived),
+          "sas: A3 Accepted + KeyReceived");
+    // A3 sends its .key -> A1 KeyReceived.
+    sasSendToDevice(alice2, "m.key.verification.key", txnId,
+                    a2m.buildKeyContent(alice2.deviceId, txnId, txnB->sas.ourPubkey),
+                    alice.userId, alice.deviceId);
+    CHECK(waitVState(alice, a1m, sinceA1, txnId, VerificationState::KeyReceived),
+          "sas: A1 KeyReceived");
+
+    // Emojis must match.
+    auto emA = a1m.computeEmojis(*txnA);
+    auto emB = a2m.computeEmojis(*txnB);
+    bool emMatch = !emA.empty() && emA.size() == emB.size();
+    for (size_t i = 0; emMatch && i < emA.size(); i++)
+        if (emA[i].emoji != emB[i].emoji) emMatch = false;
+    CHECK(emMatch, "sas: emojis identical");
+
+    // MAC phase: A1 confirms first, then A3 (replicate confirmMatch).
+    txnA->state = VerificationState::MacSent;
+    sasSendToDevice(alice, "m.key.verification.mac", txnId,
+                    a1m.buildMacContent(*txnA, txnA->sas),
+                    alice2.userId, alice2.deviceId);
+    CHECK(waitVState(alice2, a2m, sinceA2, txnId, VerificationState::MacReceived),
+          "sas: A3 MacReceived after A1 mac");
+    txnB->state = VerificationState::MacSent;
+    sasSendToDevice(alice2, "m.key.verification.mac", txnId,
+                    a2m.buildMacContent(*txnB, txnB->sas),
+                    alice.userId, alice.deviceId);
+    CHECK(waitVState(alice, a1m, sinceA1, txnId, VerificationState::Done),
+          "sas: A1 Done (mac verified)");
+    CHECK(waitVState(alice2, a2m, sinceA2, txnId, VerificationState::Done),
+          "sas: A3 Done via .done");
+
+    // ---- Verified-only policy on A1 ----
+    alice.decryptor.setShareKeysVerifiedOnly(true);
+    alice.decryptor.setVerifiedDeviceChecker([&](const std::string& user,
+                                                 const std::string& dev) {
+        return user == alice2.userId && dev == alice2.deviceId;
+    });
+    std::string sid = alice.decryptor.getOutboundSessionId(roomId);
+    std::string sk = alice.decryptor.curve25519Key();
+    auto buildReq = [&](const std::string& rid, const std::string& dev) {
+        return "{\"action\":\"request\",\"body\":{\"algorithm\":\"m.megolm.v1.aes-sha2\","
+            "\"room_id\":\"" + roomId + "\",\"session_id\":\"" + sid + "\","
+            "\"sender_key\":\"" + sk + "\"},"
+            "\"request_id\":\"" + rid + "\",\"requesting_device_id\":\"" + dev + "\"}";
+    };
+    CHECK(alice.decryptor.handleRoomKeyRequest(buildReq("reqA3", alice2.deviceId), alice2.userId),
+          "sas: verified device request honored");
+    CHECK(!alice.decryptor.handleRoomKeyRequest(buildReq("reqBob", bob.deviceId), bob.userId),
+          "sas: unverified device request denied");
+    alice.decryptor.setShareKeysVerifiedOnly(false);
+    CHECK(alice.decryptor.handleRoomKeyRequest(buildReq("reqBob2", bob.deviceId), bob.userId),
+          "sas: policy off -> unverified request honored");
+    return true;
+}
 
 // Cross-signing setup end-to-end (mirrors SyncEngine::setupCrossSigning):
 // generate -> upload account_data + m.signing.key.upload -> device_keys-only
@@ -734,6 +919,11 @@ int main() {
     std::cout << "\n--- multiaccount multidevice test ---\n";
     if (!test_multiaccount_multidevice(hs, alice, bob)) failures++;
     std::cout << "--- multiaccount multidevice done ---\n";
+
+    // Live SAS self-verification (A1 <-> A3 over the server) + verified-only policy.
+    std::cout << "\n--- sas verified-policy test ---\n";
+    if (!test_sas_verified_policy(hs, alice, bob)) failures++;
+    std::cout << "--- sas verified-policy done ---\n";
 
     std::cout << "\n";
     std::cout << "\n--- fallback claim test ---\n";

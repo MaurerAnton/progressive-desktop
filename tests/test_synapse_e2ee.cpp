@@ -416,14 +416,10 @@ static bool test_sas_verified_policy(const std::string& hs, TestUser& alice, Tes
     if (keyShared) alice.decryptor.markRoomKeyShared(roomId);
     CHECK(keyShared, "sas: room key shared");
 
-    // ---- Cross-signing for both alice devices (MSK exchange) ----
-    // A1 re-publishes (fresh keys -> UIA retry exercised), A3 first-time.
-    auto a1Keys = publishCrossSigning(alice);
-    auto a3Keys = publishCrossSigning(alice2);
-    CHECK(!a1Keys.masterPub.empty() && !a3Keys.masterPub.empty(),
-          "sas: both devices have cross-signing");
-
     // ---- Live SAS between A1 and A3 over the server ----
+    // (self-verification: no MSK exchange — same-user master keys can't be
+    // cross-signed via /keys/signatures/upload, the server routes them to the
+    // device-signed self path)
     VerificationManager a1m, a2m;
     a1m.setSendToDeviceFn([&](const std::string& type, const std::string& txnId,
                               const std::string& content, const std::string& user,
@@ -437,11 +433,6 @@ static bool test_sas_verified_policy(const std::string& hs, TestUser& alice, Tes
     });
     a1m.setDeviceKeyResolverFn(makeSasResolver(alice));
     a2m.setDeviceKeyResolverFn(makeSasResolver(alice2));
-    // MSK exchange: our master pub + the other device's master pub.
-    a1m.setOurMasterKeyFn([&]() { return a1Keys.masterPub; });
-    a1m.setTheirMasterKeyFn([&](const std::string&) { return a3Keys.masterPub; });
-    a2m.setOurMasterKeyFn([&]() { return a3Keys.masterPub; });
-    a2m.setTheirMasterKeyFn([&](const std::string&) { return a1Keys.masterPub; });
 
     auto* txnA = a1m.startVerification(alice2.userId, alice2.deviceId, alice.deviceId);
     CHECK(txnA != nullptr, "sas: A1 startVerification");
@@ -502,20 +493,6 @@ static bool test_sas_verified_policy(const std::string& hs, TestUser& alice, Tes
           "sas: A1 Done (mac verified)");
     CHECK(waitVState(alice2, a2m, sinceA2, txnId, VerificationState::Done),
           "sas: A3 Done via .done");
-    CHECK(!txnA->theirMasterKey.empty() && !txnB->theirMasterKey.empty(),
-          "sas: MSKs exchanged in the SAS mac");
-
-    // ---- Cross-sign A3's master key with A1's USK (what the sync engine
-    // does automatically after a SAS Done with the MSK exchange) ----
-    std::string xsContent = progressive::desktop::buildCrossSigningContent(
-        "m.cross_signing.master", a3Keys.masterPub,
-        a1Keys.userPub, a1Keys.userPriv, alice2.userId);
-    std::string sigBody = "{\"" + alice2.userId + "\":{\"master_key\":" + xsContent + "}}";
-    auto up = alice.client.uploadSignatures(sigBody);
-    CHECK(up.ok, "sas: cross-signed A3's master key uploaded");
-    auto q2 = alice.client.queryKeys("{\"device_keys\":{\"" + alice2.userId + "\":[]}}");
-    CHECK(q2.ok && q2.data.find("ed25519:" + a1Keys.userPub) != std::string::npos,
-          "sas: A3's master key carries A1's USK signature");
 
     // ---- Verified-only policy on A1 ----
     alice.decryptor.setShareKeysVerifiedOnly(true);
@@ -538,6 +515,90 @@ static bool test_sas_verified_policy(const std::string& hs, TestUser& alice, Tes
     alice.decryptor.setShareKeysVerifiedOnly(false);
     CHECK(alice.decryptor.handleRoomKeyRequest(buildReq("reqBob2", bob.deviceId), bob.userId),
           "sas: policy off -> unverified request honored");
+
+    // ---- Cross-user MSK exchange: SAS A1 <-> bob with both MSKs in the mac,
+    // then cross-sign bob's master key with A1's USK (the server's OTHER-user
+    // signature path) ----
+    auto a1Keys = publishCrossSigning(alice);   // fresh keys -> UIA retry again
+    auto bobKeys = publishCrossSigning(bob);
+    CHECK(!a1Keys.masterPub.empty() && !bobKeys.masterPub.empty(),
+          "sas: alice + bob have cross-signing");
+
+    VerificationManager a1m2, bobM;
+    a1m2.setSendToDeviceFn([&](const std::string& type, const std::string& t,
+                               const std::string& content, const std::string& user,
+                               const std::string& dev) {
+        sasSendToDevice(alice, type, t, content, user, dev);
+    });
+    bobM.setSendToDeviceFn([&](const std::string& type, const std::string& t,
+                               const std::string& content, const std::string& user,
+                               const std::string& dev) {
+        sasSendToDevice(bob, type, t, content, user, dev);
+    });
+    a1m2.setDeviceKeyResolverFn(makeSasResolver(alice));
+    bobM.setDeviceKeyResolverFn(makeSasResolver(bob));
+    a1m2.setOurMasterKeyFn([&]() { return a1Keys.masterPub; });
+    a1m2.setTheirMasterKeyFn([&](const std::string&) { return bobKeys.masterPub; });
+    bobM.setOurMasterKeyFn([&]() { return bobKeys.masterPub; });
+    bobM.setTheirMasterKeyFn([&](const std::string&) { return a1Keys.masterPub; });
+
+    auto* txnX = a1m2.startVerification(bob.userId, bob.deviceId, alice.deviceId);
+    CHECK(txnX != nullptr, "sas: A1 startVerification vs bob");
+    std::string txnXId = txnX->transactionId;
+    std::string sinceA1b, sinceBob;
+    sasSendToDevice(alice, "m.key.verification.request", txnXId,
+                    a1m2.buildRequestContent(alice.deviceId, txnXId),
+                    bob.userId, bob.deviceId);
+    CHECK(waitVState(bob, bobM, sinceBob, txnXId, VerificationState::RequestReceived),
+          "sas: bob received request");
+    auto* txnY = bobM.findTransaction(txnXId);
+    sasSendToDevice(bob, "m.key.verification.ready", txnXId,
+                    bobM.buildReadyContent(bob.deviceId, txnXId),
+                    alice.userId, alice.deviceId);
+    CHECK(waitVState(alice, a1m2, sinceA1b, txnXId, VerificationState::Ready),
+          "sas: A1 Ready vs bob");
+    std::string startX = bobM.buildStartContent(bob.deviceId, txnXId);
+    txnY->startContentJson = startX;
+    txnY->sas = sasCreate();
+    sasSendToDevice(bob, "m.key.verification.start", txnXId, startX,
+                    alice.userId, alice.deviceId);
+    CHECK(waitVState(alice, a1m2, sinceA1b, txnXId, VerificationState::KeySent),
+          "sas: A1 Started + auto accept/key vs bob");
+    CHECK(waitVState(bob, bobM, sinceBob, txnXId, VerificationState::KeyReceived),
+          "sas: bob Accepted + KeyReceived");
+    sasSendToDevice(bob, "m.key.verification.key", txnXId,
+                    bobM.buildKeyContent(bob.deviceId, txnXId, txnY->sas.ourPubkey),
+                    alice.userId, alice.deviceId);
+    CHECK(waitVState(alice, a1m2, sinceA1b, txnXId, VerificationState::KeyReceived),
+          "sas: A1 KeyReceived vs bob");
+    txnX->state = VerificationState::MacSent;
+    sasSendToDevice(alice, "m.key.verification.mac", txnXId,
+                    a1m2.buildMacContent(*txnX, txnX->sas),
+                    bob.userId, bob.deviceId);
+    CHECK(waitVState(bob, bobM, sinceBob, txnXId, VerificationState::MacReceived),
+          "sas: bob MacReceived after A1 mac");
+    txnY->state = VerificationState::MacSent;
+    sasSendToDevice(bob, "m.key.verification.mac", txnXId,
+                    bobM.buildMacContent(*txnY, txnY->sas),
+                    alice.userId, alice.deviceId);
+    CHECK(waitVState(alice, a1m2, sinceA1b, txnXId, VerificationState::Done),
+          "sas: A1 Done vs bob (mac verified)");
+    CHECK(waitVState(bob, bobM, sinceBob, txnXId, VerificationState::Done),
+          "sas: bob Done via .done");
+    CHECK(!txnX->theirMasterKey.empty() && !txnY->theirMasterKey.empty(),
+          "sas: MSKs exchanged in the cross-user mac");
+
+    // Cross-sign bob's master key with A1's USK (the sync engine does this
+    // automatically on a SAS Done with the MSK exchange).
+    std::string xsContent = progressive::desktop::buildCrossSigningContent(
+        "m.cross_signing.master", bobKeys.masterPub,
+        a1Keys.userPub, a1Keys.userPriv, bob.userId);
+    std::string sigBody = "{\"" + bob.userId + "\":{\"master_key\":" + xsContent + "}}";
+    auto up = alice.client.uploadSignatures(sigBody);
+    CHECK(up.ok, "sas: cross-signed bob's master key uploaded");
+    auto qBob = alice.client.queryKeys("{\"device_keys\":{\"" + bob.userId + "\":[]}}");
+    CHECK(qBob.ok && qBob.data.find("ed25519:" + a1Keys.userPub) != std::string::npos,
+          "sas: bob's master key carries A1's USK signature");
     return true;
 }
 

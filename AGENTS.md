@@ -2,7 +2,7 @@
 
 **Read this file, code_map.json, and memory/REFERENCE.md before any code change.**
 **memory/DREAM.md explains WHY the architecture exists.**
-**Last updated: August 1, 2026**
+**Last updated: August 3, 2026**
 
 ---
 
@@ -273,7 +273,23 @@ If a class calls `httpPost`/`httpPut` with auth headers (`makeAuthHeaders(token)
 - **Olm plaintext validation** — verify sender/recipient/recipient_keys per m.olm.v1 spec
 - **OTK + device key signature verification** — verify signed_curve25519 OTK signatures + device_keys signatures on /keys/query + /keys/claim
 - **SAS verification (m.sas.v1, Phase 2)** — full request→ready→start→accept→key→mac→done/cancel state machine, OlmSAS crypto, commitment + MAC verification over the other side's keys, to-device + in-room routing, two-manager protocol test (`test_e2ee_verify_protocol.cpp`) green
-- **Live-Synapse E2EE integration test (CI)** — `test_synapse_e2ee.cpp` registers 2 real users on a Synapse container, creates an encrypted room, shares the room key, and decrypts cross-account. Guarded by `.github/workflows/synapse-e2ee.yml`. Skips (exit 0) when `SYNAPSE_URL` unreachable so local `ctest` stays 100%.
+- **Fallback keys (Phase 3)** — generateFallbackKey/unpublishedFallbackKey/forgetOldFallbackKey (submodule API), /sync trigger, per-account cooldowns + gradual backoff (60s→30m→stop), live-Synapse claim test
+- **Key sharing + forwarded keys (Phase 4)** — m.room_key_request handling (`handleRoomKeyRequest`, verified-only policy via `verified_devices` table), m.forwarded_room_key (`handleForwardedRoomKey`), export/import (`exportAllKeys`/`importKeys`, MegolmSessionData envelope), Olm-encrypted key exchange (`sendOlmToDevice` with signature-verified device keys), pending-event replay
+- **Megolm rotation (Phase 5)** — `isRotationDue` + m.room.encryption config (messageCount/startTimeMs), re-share on rotate
+- **Cross-signing (Phase 6 core)** — libsodium ed25519 keygen/sign/verify, `POST /keys/device_signing/upload` with UIA (password) retry (`setupCrossSigningWithPassword`), device_keys re-upload with SSK signature (full canonical message, M_INVALID_SIGNATURE-verified), published-state guard via /keys/query. Trust computation (SAS MSK exchange, shields, reset) still pending — see docs/E2EE-roadmap.md
+- **Live-Synapse E2EE integration test (CI)** — `test_synapse_e2ee.cpp` registers 3-4 real users on a Synapse container, creates an encrypted room, shares the room key, and decrypts cross-account: 2-user round-trip, fallback claim (dedicated fresh user — Synapse ADDS OTKs, never replaces), rotation + key-request loop, cross-signing setup, and the multi-account/multi-device scenario (3 members, alice on 2 devices via /login, sender's own other devices decrypt, late joiner). Guarded by `.github/workflows/synapse-e2ee.yml`. Skips (exit 0) when `SYNAPSE_URL` unreachable so local `ctest` stays 100%.
+
+### E2EE test-infra caveats (known, accepted)
+- **UIA 401-retry has ZERO automated coverage**: CI Synapse returns 200 on the first
+  `/keys/device_signing/upload` (it never requires UIA), so the retry branches in
+  `test_synapse_e2ee.cpp` (`publishCrossSigning`, `test_cross_signing_setup`) and in
+  `SyncEngine::setupCrossSigningWithPassword` are never exercised. Fixing requires an
+  HTTP-mock transport for unit tests — not built.
+- **The test's UIA logic is a DUPLICATE** of `SyncEngine::setupCrossSigningWithPassword`
+  (the test drives client+decryptor directly, no SyncEngine) — the two can diverge.
+- **The synapse test proves the CORE, not the app glue** — it drives the decryptor
+  directly, bypassing SyncEngine/UI wiring. App-level flows (send path → shareRoomKey,
+  invite UI) are manually tested only.
 
 ### In Progress 🔄
 - **SAS UI polish** — dialog + handler exist (SasVerificationDialog, VerificationHandler, RoomMembersDialog → Verify, PrefsDialog → Your devices). Cross-client verification against Element/FluffyChat is next.
@@ -281,12 +297,9 @@ If a class calls `httpPost`/`httpPut` with auth headers (`makeAuthHeaders(token)
 ### Gaps
 | Gap | What | Priority |
 |---|---|---|
-| Device verification (cross-signing) | SAS works; cross-signing trust chain deferred | Phase 6 |
-| SSSS key backup | Can't recover history after re-login | Future sprint |
-| Fallback keys | No fallback when OTKs exhausted | P4 (REAL in submodule's OlmAccountData API — needs API port to OlmAccount class; NOT "blocked on submodule" anymore) |
-| m.room_key_request incoming | Don't re-share keys when another device requests | LOW (REAL in submodule keyshare.cpp — ready to port) |
-| m.forwarded_room_key | Don't handle forwarded keys | LOW (REAL in submodule keyshare.cpp — ready to port) |
-| Megolm rotation | No forward secrecy | LOW (REAL in submodule room_encryption.cpp — ready to port) |
+| Device verification (cross-signing) | Setup + publishing done (Phase 6 core); trust chain (SAS MSK exchange, device shields, cross-signing reset flow) deferred | Phase 6 tail |
+| SSSS key backup | Can't recover history after re-login; also unlocks cross-device secret sharing (device2 gets SSK → the mm test's `!a2SskSig` assertion must be REMOVED then) | Phase 7 |
+| Invite/add-member into EXISTING room | `MatrixClient::inviteUser` exists (test-only) but no UI calls it; planned as part of a command system (/invite, /ban, /confetti — user's Element-style copy-paste plan) | Later |
 | Threading: HTTP on UI thread | requestRoomKey blocks UI for 1-3s | LOW |
 | Option A refactor | ctxToken_ works but is stale-prone; inject MatrixClient | LOW |
 | FluffyChat multi-device OTK | Only claim 1 OTK for 2+ devices | LOW |

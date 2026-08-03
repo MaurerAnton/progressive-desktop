@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <sstream>
 #include <vector>
+#include <map>
 #include <random>
 #include <atomic>
 #include <chrono>
@@ -1099,9 +1100,11 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
     //   {"messages":{"@user:server":{"device_id":{"algorithm":"m.olm.v1.curve25519-aes-sha2",
     //    "ciphertext":{"<their_curve>":{"body":"<base64>","type":0}},
     //    "sender_key":"<our_curve>"}}}}
-    std::ostringstream sendBody;
-    sendBody << "{\"messages\":{";
-    first = true;
+    // Build the per-device messages grouped BY USER — a JSON object can't
+    // repeat a key, so "@alice":{A1..},"@alice":{A2..} would drop one device
+    // (server keeps the last). The multi-device CI test caught this: exactly
+    // one of the sender's other devices randomly never got the room key.
+    std::map<std::string, std::map<std::string, std::string>> perUserMsgs;
     int shared = 0;
 
     for (const auto& ck : claimedKeys) {
@@ -1166,17 +1169,29 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
                      encResult.data.c_str());
 
         // Build the per-device ciphertext entry
-        if (!first) sendBody << ",";
-        first = false;
-        sendBody << "\"" << ck.userId << "\":{"
-                 << "\"" << ck.deviceId << "\":{"
-                 << "\"algorithm\":\"m.olm.v1.curve25519-aes-sha2\","
-                 << "\"ciphertext\":{\"" << theirCurve << "\":{"
-                 << "\"body\":\"" << encResult.data << "\","
-                 << "\"type\":0}},"
-                 << "\"sender_key\":\"" << ourCurve << "\""
-                 << "}}";
+        std::string deviceMsg = "{\"algorithm\":\"m.olm.v1.curve25519-aes-sha2\","
+            "\"ciphertext\":{\"" + theirCurve + "\":{"
+            "\"body\":\"" + encResult.data + "\","
+            "\"type\":0}},"
+            "\"sender_key\":\"" + ourCurve + "\"}";
+        perUserMsgs[ck.userId][ck.deviceId] = std::move(deviceMsg);
         shared++;
+    }
+
+    std::ostringstream sendBody;
+    sendBody << "{\"messages\":{";
+    bool firstUserMsg = true;
+    for (const auto& [uid, devs] : perUserMsgs) {
+        if (!firstUserMsg) sendBody << ",";
+        firstUserMsg = false;
+        sendBody << "\"" << uid << "\":{";
+        bool firstDev = true;
+        for (const auto& [devId, msg] : devs) {
+            if (!firstDev) sendBody << ",";
+            firstDev = false;
+            sendBody << "\"" << devId << "\":" << msg;
+        }
+        sendBody << "}";
     }
     sendBody << "}}";
 

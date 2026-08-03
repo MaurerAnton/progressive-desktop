@@ -857,11 +857,12 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
 
     // Step 1: Query device keys for all room members — INCLUDING our own user
     // (our other devices need the room key too). The device loop below skips
-    // only the sending device itself.
+    // only the sending device itself. Dedupe: a JSON object can't repeat keys.
     std::ostringstream queryBody;
     queryBody << "{\"device_keys\":{";
     bool first = true;
     for (const auto& uid : userIds) {
+        if (std::find(userIds.begin(), &uid, uid) != &uid) continue;  // keep first occurrence
         if (!first) queryBody << ",";
         first = false;
         queryBody << "\"" << uid << "\":[]";
@@ -962,18 +963,29 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
         return false;
     }
 
-    // Step 2: Claim one-time keys for each device.
+    // Step 2: Claim one-time keys for each device. Group by user — a JSON
+    // object can't repeat a key, so a device list like "@alice: A2, A1" must
+    // become ONE entry with BOTH devices (else the parser keeps only the last
+    // device and the other's OTK is never claimed — the multi-device CI test
+    // caught this: shares with 2 devices of the same user failed for one).
     std::ostringstream claimBody;
     claimBody << "{\"one_time_keys\":{";
-    first = true;
-    for (const auto& d : devices) {
-        if (!first) claimBody << ",";
-        first = false;
-        claimBody << "\"" << d.userId << "\":{\""
-                  << d.deviceId << "\":\"signed_curve25519\"}";
+    bool firstUser = true;
+    for (size_t di = 0; di < devices.size(); ++di) {
+        if (di > 0 && devices[di].userId == devices[di - 1].userId) continue;
+        if (!firstUser) claimBody << ",";
+        firstUser = false;
+        claimBody << "\"" << devices[di].userId << "\":{";
+        bool firstDev = true;
+        for (const auto& d : devices) {
+            if (d.userId != devices[di].userId) continue;
+            if (!firstDev) claimBody << ",";
+            firstDev = false;
+            claimBody << "\"" << d.deviceId << "\":\"signed_curve25519\"";
+        }
+        claimBody << "}";
     }
     claimBody << "}}";
-
     auto claimResp = httpPost(homeserverUrl + "/_matrix/client/v3/keys/claim",
                               claimBody.str(), hdrs, 15000);
     if (!claimResp.success) {

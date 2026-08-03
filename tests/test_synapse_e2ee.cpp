@@ -228,13 +228,12 @@ static std::string sendEncrypted(TestUser& u, const std::string& hs,
 
 // 3 users + a 2-device account: cross-signing publishing across devices,
 // multi-device room-key delivery, late-joiner key delivery.
-static bool test_multiaccount_multidevice(const std::string& hs) {
+static bool test_multiaccount_multidevice(const std::string& hs,
+                                           TestUser& alice, TestUser& bob) {
     std::string pass = "synapse_test_pass_42";
-    TestUser alice, bob, carol, dan, alice2;
-    if (!registerUser(alice, hs, "mm_alice", pass)) return false;
-    if (!registerUser(bob, hs, "mm_bob", pass)) return false;
+    TestUser carol, dan, alice2;
     if (!registerUser(carol, hs, "mm_carol", pass)) return false;
-    if (!setupE2EE(alice, hs) || !setupE2EE(bob, hs) || !setupE2EE(carol, hs)) return false;
+    if (!setupE2EE(carol, hs)) return false;
 
     // Alice's second device (login -> new device for the same user).
     if (!loginUser(alice2, hs, "mm_alice", pass)) return false;
@@ -707,7 +706,7 @@ int main() {
 
     // Multi-account + multi-device: 3 members, 2-device account, late joiner.
     std::cout << "\n--- multiaccount multidevice test ---\n";
-    if (!test_multiaccount_multidevice(hs)) failures++;
+    if (!test_multiaccount_multidevice(hs, alice, bob)) failures++;
     std::cout << "--- multiaccount multidevice done ---\n";
 
     std::cout << "\n";

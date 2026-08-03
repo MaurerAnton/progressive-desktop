@@ -198,10 +198,20 @@ static bool waitForDecrypt(TestUser& u, const std::string& roomId,
         if (!resp.ok) { std::this_thread::sleep_for(std::chrono::milliseconds(500)); continue; }
         since = std::string(resp.data.nextBatch);
         for (const auto& evt : resp.data.toDeviceEventList) {
-            if (evt.type == "m.room.encrypted")
-                u.decryptor.handleOlmEncryptedToDevice(std::string(evt.senderId), std::string(evt.contentJson));
-            else if (evt.type == "m.room_key")
-                u.decryptor.handleRoomKey(std::string(evt.contentJson));
+            if (evt.type == "m.room.encrypted") {
+                bool handled = u.decryptor.handleOlmEncryptedToDevice(
+                    std::string(evt.senderId), std::string(evt.contentJson));
+                std::fprintf(stderr, "[synapse-test] %s/%s to-device m.room.encrypted sender=%s handled=%d\n",
+                             u.userId.c_str(), u.deviceId.c_str(),
+                             std::string(evt.senderId).c_str(), handled ? 1 : 0);
+            } else if (evt.type == "m.room_key") {
+                bool handled = u.decryptor.handleRoomKey(std::string(evt.contentJson));
+                std::fprintf(stderr, "[synapse-test] %s/%s to-device m.room_key handled=%d\n",
+                             u.userId.c_str(), u.deviceId.c_str(), handled ? 1 : 0);
+            } else {
+                std::fprintf(stderr, "[synapse-test] %s/%s to-device OTHER type=%s\n",
+                             u.userId.c_str(), u.deviceId.c_str(), std::string(evt.type).c_str());
+            }
         }
         for (const auto& [rid, room] : resp.data.joinedRooms) {
             if (rid != roomId) continue;

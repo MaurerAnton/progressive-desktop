@@ -25,6 +25,7 @@
 #include <vector>
 #include <thread>
 #include <chrono>
+#include <ctime>
 #include <simdjson.h>
 
 static int failures = 0;
@@ -116,6 +117,193 @@ static std::vector<std::string> joinedMembers(MatrixClient& client, const std::s
 // Key-request loop: alice rotates (new session NOT shared) -> bob fails to
 // decrypt msg2 (pending + requests key) -> alice's sync handles the request +
 // forwards m.forwarded_room_key -> bob imports + processPending re-decrypts.
+
+
+// --- Multi-account / multi-device helpers ---
+
+// Login as an existing user -> a NEW device (login, not register).
+static bool loginUser(TestUser& u, const std::string& hs, const std::string& uname,
+                      const std::string& pass) {
+    AccountInfo hsOnly;
+    hsOnly.homeserverUrl = hs;
+    u.client.setAccount(hsOnly);
+    auto r = u.client.loginWithPassword(uname, pass);
+    if (!r.ok) {
+        std::cerr << "[synapse-test] login " << uname << " failed: " << r.error.message << "\n";
+        return false;
+    }
+    u.userId = r.data.userId;
+    u.deviceId = r.data.deviceId;
+    u.token = r.data.accessToken;
+    u.client.setAccount(r.data);
+    return true;
+}
+
+// Generate + publish cross-signing keys (endpoint, UIA retry) + re-upload
+// device_keys with the SSK signature. Returns the keys (empty on failure).
+static progressive::desktop::CrossSigningKeys publishCrossSigning(TestUser& u) {
+    auto keys = progressive::desktop::generateCrossSigningKeys();
+    if (keys.masterPub.empty()) return {};
+    auto master = progressive::desktop::buildCrossSigningContent(
+        "m.cross_signing.master", keys.masterPub, "", "", u.userId);
+    auto self = progressive::desktop::buildCrossSigningContent(
+        "m.cross_signing.self_signing", keys.selfPub,
+        keys.masterPub, keys.masterPriv, u.userId);
+    auto user = progressive::desktop::buildCrossSigningContent(
+        "m.cross_signing.user_signing", keys.userPub,
+        keys.masterPub, keys.masterPriv, u.userId);
+    std::string body = "{\"master_key\":" + master
+        + ",\"self_signing_key\":" + self
+        + ",\"user_signing_key\":" + user + "}";
+    auto resp = u.client.uploadDeviceSigningKeys(body);
+    if (!resp.ok && resp.httpStatus == 401) {
+        std::string session;
+        {
+            simdjson::dom::parser p;
+            auto doc = p.parse(resp.data);
+            if (doc.error() == simdjson::SUCCESS) {
+                auto sess = doc.value()["session"].get_string();
+                if (sess.error() == simdjson::SUCCESS) session = std::string(sess.value());
+            }
+        }
+        if (!session.empty()) {
+            std::string auth = "{\"type\":\"m.login.password\",\"identifier\":{"
+                "\"type\":\"m.id.user\",\"user\":\"" + u.userId + "\"},"
+                "\"password\":\"synapse_test_pass_42\",\"session\":\"" + session + "\"}";
+            std::string body2 = "{\"auth\":" + auth
+                + ",\"master_key\":" + master
+                + ",\"self_signing_key\":" + self
+                + ",\"user_signing_key\":" + user + "}";
+            resp = u.client.uploadDeviceSigningKeys(body2);
+        }
+    }
+    if (!resp.ok) return {};
+    std::string dkBody = u.decryptor.buildKeysUploadBody(
+        u.userId, u.deviceId, 0, true, false, keys.selfPriv, keys.selfPub, true);
+    if (!dkBody.empty()) u.client.uploadKeys(dkBody);
+    return keys;
+}
+
+// Sync until the user decrypts a timeline event whose plaintext contains body.
+static bool waitForDecrypt(TestUser& u, const std::string& roomId,
+                           const std::string& body, std::string& since) {
+    for (int round = 0; round < 12; ++round) {
+        auto resp = u.client.syncFast(since, 3000, false);
+        if (!resp.ok) { std::this_thread::sleep_for(std::chrono::milliseconds(500)); continue; }
+        since = std::string(resp.data.nextBatch);
+        for (const auto& evt : resp.data.toDeviceEventList) {
+            if (evt.type == "m.room.encrypted")
+                u.decryptor.handleOlmEncryptedToDevice(std::string(evt.senderId), std::string(evt.contentJson));
+            else if (evt.type == "m.room_key")
+                u.decryptor.handleRoomKey(std::string(evt.contentJson));
+        }
+        for (const auto& [rid, room] : resp.data.joinedRooms) {
+            if (rid != roomId) continue;
+            for (const auto& evt : room.timeline.events) {
+                if (!evt.isEncrypted()) continue;
+                auto dec = u.decryptor.decryptMegolmEvent(roomId, std::string(evt.senderId),
+                    std::string(evt.contentJson), std::string(evt.eventId), evt.originServerTs);
+                if (dec.ok && dec.plaintext.find(body) != std::string::npos) return true;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+    return false;
+}
+
+// Share the current room key (if not already) + encrypt + send.
+static std::string sendEncrypted(TestUser& u, const std::string& hs,
+                                 const std::string& roomId, const std::string& body,
+                                 const std::string& tag) {
+    auto members = joinedMembers(u.client, roomId);
+    bool shared = u.decryptor.shareRoomKey(roomId, members, u.userId, u.deviceId, hs, u.token);
+    if (shared) u.decryptor.markRoomKeyShared(roomId);
+    std::string inner = "{\"type\":\"m.room.message\",\"content\":{\"msgtype\":\"m.text\",\"body\":\""
+                        + body + "\"},\"room_id\":\"" + roomId + "\"}";
+    std::string enc = u.decryptor.encryptMessage(roomId, u.deviceId, inner);
+    if (enc.empty()) return "";
+    u.client.sendEncryptedEvent(roomId, enc, tag + std::to_string(std::time(nullptr)));
+    return body;
+}
+
+// 3 users + a 2-device account: cross-signing publishing across devices,
+// multi-device room-key delivery, late-joiner key delivery.
+static bool test_multiaccount_multidevice(const std::string& hs) {
+    std::string pass = "synapse_test_pass_42";
+    TestUser alice, bob, carol, dan, alice2;
+    if (!registerUser(alice, hs, "mm_alice", pass)) return false;
+    if (!registerUser(bob, hs, "mm_bob", pass)) return false;
+    if (!registerUser(carol, hs, "mm_carol", pass)) return false;
+    if (!setupE2EE(alice, hs) || !setupE2EE(bob, hs) || !setupE2EE(carol, hs)) return false;
+
+    // Alice's second device (login -> new device for the same user).
+    if (!loginUser(alice2, hs, "mm_alice", pass)) return false;
+    if (!setupE2EE(alice2, hs)) return false;
+    CHECK(alice2.userId == alice.userId, "mm: second device same user");
+    CHECK(alice2.deviceId != alice.deviceId, "mm: distinct device IDs");
+
+    // Room: alice creates (encrypted), invites bob+carol; all join incl. alice2.
+    auto roomRes = alice.client.createRoom("mm-room", "", false,
+                                           {bob.userId, carol.userId}, true);
+    CHECK(roomRes.ok, "mm: room created");
+    std::string roomId = roomRes.data;
+    CHECK(bob.client.joinRoom(roomId).ok, "mm: bob joined");
+    CHECK(carol.client.joinRoom(roomId).ok, "mm: carol joined");
+    CHECK(alice2.client.joinRoom(roomId).ok, "mm: alice device2 joined");
+
+    // Cross-signing on A1.
+    auto xsKeys = publishCrossSigning(alice);
+    CHECK(!xsKeys.masterPub.empty(), "mm: cross-signing published on device1");
+
+    // Verify published keys + SSK sigs via /keys/query.
+    auto q = alice.client.queryKeys("{\"device_keys\":{\"" + alice.userId + "\":[]}}");
+    CHECK(q.ok && q.data.find(xsKeys.selfPub) != std::string::npos,
+          "mm: self_signing key published via /keys/query");
+    bool a1SskSig = false;
+    {
+        simdjson::dom::parser p;
+        auto doc = p.parse(q.data);
+        if (doc.error() == simdjson::SUCCESS) {
+            auto sig = doc.value()["device_keys"][alice.userId][alice.deviceId]
+                ["signatures"][alice.userId]["ed25519:" + xsKeys.selfPub].get_string();
+            if (sig.error() == simdjson::SUCCESS && !std::string(sig.value()).empty())
+                a1SskSig = true;
+        }
+    }
+    CHECK(a1SskSig, "mm: device1 device_keys carry the SSK signature");
+    // Device2 has no SSK sig (per-device key storage — Phase 7 secret sharing).
+    bool a2SskSig = false;
+    {
+        simdjson::dom::parser p;
+        auto doc = p.parse(q.data);
+        if (doc.error() == simdjson::SUCCESS) {
+            auto sig = doc.value()["device_keys"][alice.userId][alice2.deviceId]
+                ["signatures"][alice.userId]["ed25519:" + xsKeys.selfPub].get_string();
+            if (sig.error() == simdjson::SUCCESS) a2SskSig = true;
+        }
+    }
+    CHECK(!a2SskSig, "mm: device2 NOT SSK-signed (known per-device limitation, Phase 7)");
+
+    // Message 1: A1 sends -> B1, C1, A2 all decrypt.
+    std::string m1 = "mm-msg1-" + std::to_string(std::time(nullptr));
+    CHECK(!sendEncrypted(alice, hs, roomId, m1, "mm1").empty(), "mm: alice sent msg1");
+    std::string sinceB, sinceC, sinceA2;
+    CHECK(waitForDecrypt(bob, roomId, m1, sinceB), "mm: bob decrypts msg1");
+    CHECK(waitForDecrypt(carol, roomId, m1, sinceC), "mm: carol decrypts msg1");
+    CHECK(waitForDecrypt(alice2, roomId, m1, sinceA2), "mm: alice device2 decrypts msg1");
+
+    // Late joiner: dan joins; A1 shares the current key; A1 sends -> dan decrypts.
+    if (!registerUser(dan, hs, "mm_dan", pass)) return false;
+    if (!setupE2EE(dan, hs)) return false;
+    CHECK(dan.client.joinRoom(roomId).ok, "mm: dan joined");
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));  // membership propagation
+    std::string m2 = "mm-msg2-" + std::to_string(std::time(nullptr));
+    CHECK(!sendEncrypted(alice, hs, roomId, m2, "mm2").empty(), "mm: alice sent msg2");
+    std::string sinceD;
+    CHECK(waitForDecrypt(dan, roomId, m2, sinceD), "mm: late joiner dan decrypts msg2");
+    return true;
+}
+
 
 // Cross-signing setup end-to-end (mirrors SyncEngine::setupCrossSigning):
 // generate -> upload account_data + m.signing.key.upload -> device_keys-only
@@ -516,6 +704,11 @@ int main() {
     std::cout << "\n--- cross-signing setup test ---\n";
     if (!test_cross_signing_setup(hs, alice)) failures++;
     std::cout << "--- cross-signing setup done ---\n";
+
+    // Multi-account + multi-device: 3 members, 2-device account, late joiner.
+    std::cout << "\n--- multiaccount multidevice test ---\n";
+    if (!test_multiaccount_multidevice(hs)) failures++;
+    std::cout << "--- multiaccount multidevice done ---\n";
 
     std::cout << "\n";
     std::cout << "\n--- fallback claim test ---\n";

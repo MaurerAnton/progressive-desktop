@@ -296,6 +296,7 @@ static bool test_multiaccount_multidevice(const std::string& hs,
     // Late joiner: dan joins; A1 shares the current key; A1 sends -> dan decrypts.
     if (!registerUser(dan, hs, "mm_dan", pass)) return false;
     if (!setupE2EE(dan, hs)) return false;
+    CHECK(alice.client.inviteUser(roomId, dan.userId).ok, "mm: dan invited");
     CHECK(dan.client.joinRoom(roomId).ok, "mm: dan joined");
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));  // membership propagation
     std::string m2 = "mm-msg2-" + std::to_string(std::time(nullptr));

@@ -486,6 +486,20 @@ ApiResult<std::string> MatrixClient::joinRoom(const std::string& roomIdOrAlias,
     return r;
 }
 
+ApiResult<bool> MatrixClient::inviteUser(const std::string& roomId,
+                                              const std::string& userId) {
+    ApiResult<bool> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    std::string body = "{\"user_id\":\"" + jsonEscape(userId) + "\"}";
+    auto resp = httpPost(account().homeserverUrl + "/_matrix/client/v3/rooms/"
+                         + urlEncodePath(roomId) + "/invite", body, authHeaders(), 15000);
+    r.httpStatus = resp.statusCode; r.ok = resp.success; r.data = resp.success;
+    if (!resp.success && !resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+    LOG(LogChannel::NET, "inviteUser: room=%s user=%s ok=%d http=%d",
+        roomId.c_str(), userId.c_str(), r.ok ? 1 : 0, r.httpStatus);
+    return r;
+}
+
 ApiResult<bool> MatrixClient::leaveRoom(const std::string& roomId) {
     ApiResult<bool> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }

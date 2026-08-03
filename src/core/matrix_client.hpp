@@ -139,6 +139,10 @@ public:
     ApiResult<std::string> joinRoom(const std::string& roomIdOrAlias,
                                      const std::vector<std::string>& viaServers = {});
 
+    // POST /_matrix/client/v3/rooms/{roomId}/invite
+    ApiResult<bool> inviteUser(const std::string& roomId,
+                                const std::string& userId);
+
     // POST /_matrix/client/v3/rooms/{roomId}/leave
     ApiResult<bool> leaveRoom(const std::string& roomId);
 

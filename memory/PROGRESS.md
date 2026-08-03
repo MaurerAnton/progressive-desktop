@@ -163,7 +163,10 @@
 ```
 [ ] Markdown: cmark-gfm needed — lists/tables/code blocks show as raw markdown
 [ ] DM: always creates new room, doesn't check m.direct for existing
-[ ] Chat logging duplication (DEBT-002): RoomHandler + ToolbarHandler both have chatLogging_
+[x] Chat logging duplication (DEBT-002) — DONE (verified Aug 2): ChatLogger is now a single class
+    (src/ui/chat/chat_logger.cpp), owned only by ToolbarHandler (chatLogger_, toolbar_handler.hpp:83),
+    passed to ChatView via setChatLogger() (chat_view.hpp:23, main_window.cpp:176). room_handler no
+    longer has any logging code (0 hits). Invisible to users — pure code-maintenance dedup.
 [ ] Desktop notifications — basic implementation, blue square icon
 [ ] Notification loop: only ONE room notified per sync (`break` at sync_response_handler.cpp:87) —
     per sync cycle exactly one popup (first unread room), so N unread rooms ≠ N popups in one
@@ -181,7 +184,12 @@
     Also NO typing UI in the chat/timeline view at all (zero hits in src/ui/chat, src/ui/timeline).
     Fix scope: upsertRoom copy+emit for typingUsers + optionally in-chat indicator.
 ```
-```
+
+> **Next diagnostic pass (one AI-coder task):** three bugs need LOGs-before-fix, all visible only at runtime:
+> (1) ~3s message-delivery delay — log send start on ThreadPool + HTTP elapsed + sync sent/returned;
+> (2) images don't render — log downloadMedia/httpGet for image mxcUrl;
+> (3) thread reply count +1 per reaction in thread view — log eid + eventIdEmpty in appendBackBatch.
+> Per PLANNER #9: add LOGs first, analyze, THEN write the fix. Do NOT guess-fix any of these.
 
 ### Discussed Wishes (not yet prioritized)
 ```

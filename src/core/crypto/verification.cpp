@@ -366,8 +366,13 @@ std::string VerificationManager::buildMacContent(const VerificationTransaction& 
     bool useMsk = !txn.ourMasterKey.empty() && !txn.theirMasterKey.empty();
     std::string mskKeyId;
     if (useMsk) {
+        // The KEY_IDS mac must be SORTED — the verifier collects the mac-map
+        // keys and sorts them; an unsorted append would mismatch whenever the
+        // MSK pseudo-device sorts before the device keys.
         mskKeyId = "ed25519:" + txn.ourMasterKey;
-        keysSorted += "," + mskKeyId;
+        std::vector<std::string> ids = {curve25519KeyId, ed25519KeyId, mskKeyId};
+        std::sort(ids.begin(), ids.end());
+        keysSorted = ids[0] + "," + ids[1] + "," + ids[2];
     }
 
     std::string ed25519Info = macInfo(txn.ourUserId, txn.ourDeviceId,

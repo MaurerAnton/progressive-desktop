@@ -861,8 +861,10 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
     std::ostringstream queryBody;
     queryBody << "{\"device_keys\":{";
     bool first = true;
-    for (const auto& uid : userIds) {
-        if (std::find(userIds.begin(), &uid, uid) != &uid) continue;  // keep first occurrence
+    for (size_t ui = 0; ui < userIds.size(); ++ui) {
+        const auto& uid = userIds[ui];
+        if (std::find(userIds.begin(), userIds.begin() + ui, uid) != userIds.begin() + ui)
+            continue;  // keep the first occurrence of each user
         if (!first) queryBody << ",";
         first = false;
         queryBody << "\"" << uid << "\":[]";

@@ -431,8 +431,10 @@ void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
                                     "m.cross_signing.master", vtxn->theirMasterKey,
                                     std::string(uskPub.value()),
                                     std::string(uskPriv.value()), vtxn->otherUserId);
+                                // Body key = the target's bare master pub
+                                // (Synapse's _process_other_signatures).
                                 std::string sigBody = "{\"" + vtxn->otherUserId
-                                    + "\":{\"master_key\":" + content + "}}";
+                                    + "\":{\"" + vtxn->theirMasterKey + "\":" + content + "}}";
                                 auto up = client_->uploadSignatures(sigBody);
                                 LOG(LogChannel::E2EE,
                                     "processToDevice: cross-signed master key of %s ok=%d http=%d",

@@ -593,7 +593,10 @@ static bool test_sas_verified_policy(const std::string& hs, TestUser& alice, Tes
     std::string xsContent = progressive::desktop::buildCrossSigningContent(
         "m.cross_signing.master", bobKeys.masterPub,
         a1Keys.userPub, a1Keys.userPriv, bob.userId);
-    std::string sigBody = "{\"" + bob.userId + "\":{\"master_key\":" + xsContent + "}}";
+    // The server's _process_other_signatures looks up the target's master key
+    // by its BARE pub (master_key_id.split(":",1)[1]) — the body key must be
+    // the master pub, not "master_key".
+    std::string sigBody = "{\"" + bob.userId + "\":{\"" + bobKeys.masterPub + "\":" + xsContent + "}}";
     auto up = alice.client.uploadSignatures(sigBody);
     CHECK(up.ok, "sas: cross-signed bob's master key uploaded");
     auto qBob = alice.client.queryKeys("{\"device_keys\":{\"" + bob.userId + "\":[]}}");

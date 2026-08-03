@@ -402,7 +402,7 @@ static bool test_sas_verified_policy(const std::string& hs, TestUser& alice, Tes
     if (!setupE2EE(alice2, hs)) return false;
     CHECK(alice2.deviceId != alice.deviceId, "sas: distinct device IDs");
 
-    auto roomRes = alice.client.createRoom("sas-room", "", false, {alice2.userId}, true);
+    auto roomRes = alice.client.createRoom("sas-room", "", false, {}, true);
     CHECK(roomRes.ok, "sas: room created");
     std::string roomId = roomRes.data;
     CHECK(alice2.client.joinRoom(roomId).ok, "sas: alice device joined");

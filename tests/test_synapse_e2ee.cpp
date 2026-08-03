@@ -416,6 +416,13 @@ static bool test_sas_verified_policy(const std::string& hs, TestUser& alice, Tes
     if (keyShared) alice.decryptor.markRoomKeyShared(roomId);
     CHECK(keyShared, "sas: room key shared");
 
+    // ---- Cross-signing for both alice devices (MSK exchange) ----
+    // A1 re-publishes (fresh keys -> UIA retry exercised), A3 first-time.
+    auto a1Keys = publishCrossSigning(alice);
+    auto a3Keys = publishCrossSigning(alice2);
+    CHECK(!a1Keys.masterPub.empty() && !a3Keys.masterPub.empty(),
+          "sas: both devices have cross-signing");
+
     // ---- Live SAS between A1 and A3 over the server ----
     VerificationManager a1m, a2m;
     a1m.setSendToDeviceFn([&](const std::string& type, const std::string& txnId,
@@ -430,6 +437,11 @@ static bool test_sas_verified_policy(const std::string& hs, TestUser& alice, Tes
     });
     a1m.setDeviceKeyResolverFn(makeSasResolver(alice));
     a2m.setDeviceKeyResolverFn(makeSasResolver(alice2));
+    // MSK exchange: our master pub + the other device's master pub.
+    a1m.setOurMasterKeyFn([&]() { return a1Keys.masterPub; });
+    a1m.setTheirMasterKeyFn([&](const std::string&) { return a3Keys.masterPub; });
+    a2m.setOurMasterKeyFn([&]() { return a3Keys.masterPub; });
+    a2m.setTheirMasterKeyFn([&](const std::string&) { return a1Keys.masterPub; });
 
     auto* txnA = a1m.startVerification(alice2.userId, alice2.deviceId, alice.deviceId);
     CHECK(txnA != nullptr, "sas: A1 startVerification");
@@ -490,6 +502,20 @@ static bool test_sas_verified_policy(const std::string& hs, TestUser& alice, Tes
           "sas: A1 Done (mac verified)");
     CHECK(waitVState(alice2, a2m, sinceA2, txnId, VerificationState::Done),
           "sas: A3 Done via .done");
+    CHECK(!txnA->theirMasterKey.empty() && !txnB->theirMasterKey.empty(),
+          "sas: MSKs exchanged in the SAS mac");
+
+    // ---- Cross-sign A3's master key with A1's USK (what the sync engine
+    // does automatically after a SAS Done with the MSK exchange) ----
+    std::string xsContent = progressive::desktop::buildCrossSigningContent(
+        "m.cross_signing.master", a3Keys.masterPub,
+        a1Keys.userPub, a1Keys.userPriv, alice2.userId);
+    std::string sigBody = "{\"" + alice2.userId + "\":{\"master_key\":" + xsContent + "}}";
+    auto up = alice.client.uploadSignatures(sigBody);
+    CHECK(up.ok, "sas: cross-signed A3's master key uploaded");
+    auto q2 = alice.client.queryKeys("{\"device_keys\":{\"" + alice2.userId + "\":[]}}");
+    CHECK(q2.ok && q2.data.find("ed25519:" + a1Keys.userPub) != std::string::npos,
+          "sas: A3's master key carries A1's USK signature");
 
     // ---- Verified-only policy on A1 ----
     alice.decryptor.setShareKeysVerifiedOnly(true);

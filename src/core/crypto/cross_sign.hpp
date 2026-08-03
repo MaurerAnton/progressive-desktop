@@ -1,6 +1,7 @@
 // src/core/crypto/cross_sign.hpp — cross-signing keys (MSC1756) via libsodium.
 #pragma once
 #include <string>
+#include <vector>
 
 namespace progressive::desktop {
 
@@ -40,5 +41,27 @@ std::string crossSigningKeysCanonical(const std::string& pubKeyB64);
 std::string crossSigningKeyCanonical(const std::string& pubKeyB64,
                                      const std::string& usage,
                                      const std::string& userId);
+
+// ===== Phase 6 trust computation =====
+
+// Trust level for a device.
+enum class DeviceTrust { Unverified, Trusted, Verified };
+
+// Result of the trust computation for one device of a user.
+struct DeviceTrustResult {
+    std::string userId;
+    std::string deviceId;
+    DeviceTrust trust;
+};
+
+// Compute trust for all devices of `userId` from a /keys/query response body:
+// - the user's published master/self_signing keys (master_keys/self_signing_keys)
+// - each device's SSK signature over its canonical device_keys
+// Trusted = valid SSK signature (cross-signed); Unverified otherwise. SAS-verified
+// devices (Verified) are NOT computed here — the caller overlays the verified_devices
+// table (SAS verification is the stronger level).
+// Returns empty if the user has no published cross-signing keys.
+std::vector<DeviceTrustResult> computeDeviceTrust(const std::string& keysQueryJson,
+                                                  const std::string& userId);
 
 } // namespace progressive::desktop

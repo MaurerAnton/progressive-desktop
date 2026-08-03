@@ -59,7 +59,14 @@ VerificationTransaction* VerificationManager::startVerification(
     txn->startTime = std::chrono::steady_clock::now();
     auto* ptr = txn.get();
     transactions_.push_back(std::move(txn));
+    initMasterKeys(ptr);
     return ptr;
+}
+
+void VerificationManager::initMasterKeys(VerificationTransaction* txn) {
+    if (!txn) return;
+    if (ourMasterKeyFn_) txn->ourMasterKey = ourMasterKeyFn_();
+    if (theirMasterKeyFn_) txn->theirMasterKey = theirMasterKeyFn_(txn->otherUserId);
 }
 
 VerificationTransaction* VerificationManager::findTransaction(const std::string& txnId) {
@@ -171,6 +178,7 @@ VerificationTransaction* VerificationManager::handleEvent(
         t->startTime = std::chrono::steady_clock::now();
         txn = t.get();
         transactions_.push_back(std::move(t));
+        initMasterKeys(txn);
         if (stateChangedFn_) stateChangedFn_(txn);
         return txn;
     }
@@ -352,6 +360,16 @@ std::string VerificationManager::buildMacContent(const VerificationTransaction& 
     std::string curve25519KeyId = "curve25519:" + txn.ourDeviceId;
     std::string keysSorted = curve25519KeyId + "," + ed25519KeyId;
 
+    // Cross-signing MSK exchange: when BOTH parties have a master key, include
+    // the pseudo-device "ed25519:<ourMasterKey>" in the mac (both sides apply
+    // the same rule, so the key lists stay symmetric).
+    bool useMsk = !txn.ourMasterKey.empty() && !txn.theirMasterKey.empty();
+    std::string mskKeyId;
+    if (useMsk) {
+        mskKeyId = "ed25519:" + txn.ourMasterKey;
+        keysSorted += "," + mskKeyId;
+    }
+
     std::string ed25519Info = macInfo(txn.ourUserId, txn.ourDeviceId,
         txn.otherUserId, txn.otherDeviceId, txn.transactionId, ed25519KeyId);
     std::string curve25519Info = macInfo(txn.ourUserId, txn.ourDeviceId,
@@ -363,10 +381,18 @@ std::string VerificationManager::buildMacContent(const VerificationTransaction& 
     std::string curve25519mac = sasCalculateMac(sas, txn.ourCurve25519, curve25519Info);
     std::string keysMac = sasCalculateMac(sas, keysSorted, keysInfo);
 
+    std::string macJson = "{\"ed25519:" + esc(txn.ourDeviceId) + "\":\"" + esc(ed25519mac) + "\","
+        "\"curve25519:" + esc(txn.ourDeviceId) + "\":\"" + esc(curve25519mac) + "\"";
+    if (useMsk) {
+        std::string mskInfo = macInfo(txn.ourUserId, txn.ourDeviceId,
+            txn.otherUserId, txn.otherDeviceId, txn.transactionId, mskKeyId);
+        macJson += ",\"" + esc(mskKeyId) + "\":\"" + esc(sasCalculateMac(sas, txn.ourMasterKey, mskInfo)) + "\"";
+    }
+    macJson += "}";
+
     return "{\"from_device\":\"" + esc(txn.ourDeviceId) + "\","
            "\"transaction_id\":\"" + esc(txn.transactionId) + "\","
-           "\"mac\":{\"ed25519:" + esc(txn.ourDeviceId) + "\":\"" + esc(ed25519mac) + "\","
-           "\"curve25519:" + esc(txn.ourDeviceId) + "\":\"" + esc(curve25519mac) + "\"},"
+           "\"mac\":" + macJson + ","
            "\"keys\":\"" + esc(keysMac) + "\"}";
 }
 
@@ -420,7 +446,9 @@ bool VerificationManager::verifyTheirMac(VerificationTransaction& txn,
         auto theirMac = val.get_string();
         if (theirMac.error() == simdjson::SUCCESS) {
             std::string keyValue;
-            if (keyId.find("ed25519:") == 0) keyValue = txn.theirEd25519;
+            if (!txn.theirMasterKey.empty() && keyId == "ed25519:" + txn.theirMasterKey)
+                keyValue = txn.theirMasterKey;  // their MSK pseudo-device
+            else if (keyId.find("ed25519:") == 0) keyValue = txn.theirEd25519;
             else if (keyId.find("curve25519:") == 0) keyValue = txn.theirCurve25519;
             if (!sasVerifyMac(txn.sas, std::string(theirMac.value()), keyValue, info))
                 return false;

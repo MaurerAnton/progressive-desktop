@@ -20,6 +20,42 @@ SyncEngine::~SyncEngine() {
     stop();
 }
 
+void SyncEngine::initVerificationManager() {
+    if (!client_) return;
+    auto userId = client_->account().userId;
+    verificationManager_.setOurMasterKeyFn([this, userId]() {
+        if (!store_) return std::string();
+        auto xs = store_->loadCrossSigningKeys(userId);
+        if (!xs.has_value()) return std::string();
+        simdjson::dom::parser p;
+        auto d = p.parse(*xs);
+        if (d.error() != simdjson::SUCCESS) return std::string();
+        auto mp = d.value()["master"]["pub"].get_string();
+        return mp.error() == simdjson::SUCCESS ? std::string(mp.value()) : std::string();
+    });
+    verificationManager_.setTheirMasterKeyFn([this](const std::string& otherUserId) {
+        if (!client_) return std::string();
+        std::string body = "{\"device_keys\":{\"" + otherUserId + "\":[]}}";
+        auto q = client_->queryKeys(body);
+        if (!q.ok) return std::string();
+        simdjson::dom::parser p;
+        auto d = p.parse(q.data);
+        if (d.error() != simdjson::SUCCESS) return std::string();
+        auto keysObj = d.value()["master_keys"][otherUserId]["keys"].get_object();
+        if (keysObj.error() != simdjson::SUCCESS) return std::string();
+        for (auto [k, v] : keysObj.value()) {
+            std::string kStr(k);
+            if (kStr.find("ed25519:") == 0) {
+                auto vs = v.get_string();
+                if (vs.error() == simdjson::SUCCESS) return std::string(vs.value());
+            }
+        }
+        return std::string();
+    });
+    LOG(LogChannel::E2EE, "initVerificationManager: MSK exchange fns wired for %s",
+        userId.c_str());
+}
+
 void SyncEngine::start() {
     LOG(LogChannel::DBG, "sync start called");
     if (running_.exchange(true)) return;  // already running
@@ -379,6 +415,32 @@ void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
                 store_->saveVerifiedDevice(vtxn->otherUserId, vtxn->otherDeviceId);
                 LOG(LogChannel::E2EE, "processToDevice: recorded verified device %s/%s",
                     vtxn->otherUserId.c_str(), vtxn->otherDeviceId.c_str());
+                // Cross-sign their master key with our USK — the SAS mac covered
+                // both MSKs, so their master key is now SAS-verified.
+                if (!vtxn->theirMasterKey.empty() && client_) {
+                    auto xs = store_->loadCrossSigningKeys(client_->account().userId);
+                    if (xs.has_value()) {
+                        simdjson::dom::parser p;
+                        auto d = p.parse(*xs);
+                        if (d.error() == simdjson::SUCCESS) {
+                            auto uskPub = d.value()["user"]["pub"].get_string();
+                            auto uskPriv = d.value()["user"]["priv"].get_string();
+                            if (uskPub.error() == simdjson::SUCCESS &&
+                                uskPriv.error() == simdjson::SUCCESS) {
+                                std::string content = buildCrossSigningContent(
+                                    "m.cross_signing.master", vtxn->theirMasterKey,
+                                    std::string(uskPub.value()),
+                                    std::string(uskPriv.value()), vtxn->otherUserId);
+                                std::string sigBody = "{\"" + vtxn->otherUserId
+                                    + "\":{\"master_key\":" + content + "}}";
+                                auto up = client_->uploadSignatures(sigBody);
+                                LOG(LogChannel::E2EE,
+                                    "processToDevice: cross-signed master key of %s ok=%d http=%d",
+                                    vtxn->otherUserId.c_str(), up.ok ? 1 : 0, up.httpStatus);
+                            }
+                        }
+                    }
+                }
             }
         }
     }

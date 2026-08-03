@@ -313,6 +313,9 @@ public:
     // Publishes cross-signing keys. Body: CrossSigningKey objects (+ optional
     // UIA "auth"). Returns raw body (a 401 UIA challenge on r.data when needed).
     ApiResult<std::string> uploadDeviceSigningKeys(const std::string& body);
+    // POST /_matrix/client/v3/keys/signatures/upload — cross-sign another
+    // user's keys (master key signed by our user-signing key).
+    ApiResult<std::string> uploadSignatures(const std::string& body);
 
     // POST /_matrix/client/v3/keys/query
     // Query device keys for a list of users. Body:

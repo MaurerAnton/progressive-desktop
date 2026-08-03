@@ -40,6 +40,8 @@ struct VerificationTransaction {
     SasSession sas;
     std::string theirSasPubkey;
     std::string commitment;
+    std::string ourMasterKey;    // our cross-signing master pubkey ("" = not exchanged)
+    std::string theirMasterKey;  // the other party's master pubkey ("" = not exchanged)
     std::chrono::steady_clock::time_point startTime;
     std::optional<CancelCode> cancelCode;
     std::string roomId;
@@ -58,10 +60,16 @@ public:
         const std::string& userId, const std::string& deviceId,
         std::string& outEd25519, std::string& outCurve25519)>;
     using StateChangedFn = std::function<void(VerificationTransaction*)>;
+    // Our cross-signing master pubkey ("" if we have none).
+    using MasterKeyFn = std::function<std::string()>;
+    // The other party's master pubkey from /keys/query ("" if they have none).
+    using MasterKeyResolverFn = std::function<std::string(const std::string& userId)>;
 
     void setSendToDeviceFn(SendToDeviceFn fn) { sendToDeviceFn_ = std::move(fn); }
     void setDeviceKeyResolverFn(DeviceKeyResolverFn fn) { deviceKeyResolverFn_ = std::move(fn); }
     void setStateChangedFn(StateChangedFn fn) { stateChangedFn_ = std::move(fn); }
+    void setOurMasterKeyFn(MasterKeyFn fn) { ourMasterKeyFn_ = std::move(fn); }
+    void setTheirMasterKeyFn(MasterKeyResolverFn fn) { theirMasterKeyFn_ = std::move(fn); }
 
     static std::string generateTransactionId();
 
@@ -107,6 +115,9 @@ private:
     SendToDeviceFn sendToDeviceFn_;
     DeviceKeyResolverFn deviceKeyResolverFn_;
     StateChangedFn stateChangedFn_;
+    MasterKeyFn ourMasterKeyFn_;
+    MasterKeyResolverFn theirMasterKeyFn_;
+    void initMasterKeys(VerificationTransaction* txn);
     VerificationTransaction* findTransactionLocked(const std::string& txnId) const;
     std::string computeCommitment(const std::string& startContentJson,
         const std::string& ourSasPubkey) const;

@@ -35,6 +35,7 @@ struct Harness {
 
     std::vector<std::pair<std::string, std::string>> sentByA;  // (eventType, content)
     std::vector<std::pair<std::string, std::string>> sentByB;
+    std::string lastTxnId;
 
     Harness() {
         // Device key resolvers: return the OTHER side's fixed keys.
@@ -69,6 +70,7 @@ static bool driveToDone(Harness& h, bool assertChecks) {
     auto* txnA = h.a.startVerification(h.bUser, h.bDev, h.aDev);
     if (!txnA) { CHECK(false, "A startVerification"); return false; }
     std::string txnId = txnA->transactionId;
+    h.lastTxnId = txnId;
 
     // A → B: .request (feeds B's handleEvent directly — no sendToDeviceFn for start)
     h.b.handleEvent("m.key.verification.request", h.aUser,
@@ -244,7 +246,37 @@ static void test_expired_sweep() {
           "sweep: fresh txn survives");
 }
 
+
+// MSK exchange: when both sides provide their cross-signing master pubkeys,
+// the mac must include the "ed25519:<masterPub>" pseudo-devices and the flow
+// must still reach Done (the MSK entries verify on both sides).
+static void test_msk_exchange() {
+    Harness h;
+    h.a.setOurMasterKeyFn([]() { return std::string("mskA"); });
+    h.a.setTheirMasterKeyFn([](const std::string&) { return std::string("mskB"); });
+    h.b.setOurMasterKeyFn([]() { return std::string("mskB"); });
+    h.b.setTheirMasterKeyFn([](const std::string&) { return std::string("mskA"); });
+    bool done = driveToDone(h, false);
+    CHECK(done, "msk: flow reaches Done with MSKs exchanged");
+    // The mac content must carry the MSK pseudo-devices (built directly — the
+    // two-manager drive injects the macs, it doesn't send them over the wire).
+    auto* txnA = h.a.findTransaction(h.lastTxnId);
+    if (txnA) {
+        std::string macA = h.a.buildMacContent(*txnA, txnA->sas);
+        CHECK(macA.find("ed25519:mskA") != std::string::npos,
+              "msk: A's mac includes our MSK pseudo-device");
+    }
+    auto* txnB = h.b.findTransaction(h.lastTxnId);
+    if (txnB) {
+        std::string macB = h.b.buildMacContent(*txnB, txnB->sas);
+        CHECK(macB.find("ed25519:mskB") != std::string::npos,
+              "msk: B's mac includes its MSK pseudo-device");
+    }
+}
+
 int main() {
+    test_msk_exchange();
+
     test_happy_path();
     test_corrupted_mac_cancels();
     test_expired_sweep();

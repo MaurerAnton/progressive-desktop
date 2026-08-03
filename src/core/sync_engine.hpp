@@ -58,13 +58,14 @@ public:
     SyncEngine();
     ~SyncEngine();
 
-    void setClient(std::shared_ptr<MatrixClient> c) { client_ = std::move(c); }
+    void setClient(std::shared_ptr<MatrixClient> c) { client_ = std::move(c); initVerificationManager(); }
     void setSessionStore(std::shared_ptr<SessionStore> s) {
         store_ = std::move(s);
         decryptor_.setVerifiedDeviceChecker([this](const std::string& userId,
             const std::string& deviceId) {
             return store_ ? store_->isDeviceVerified(userId, deviceId) : false;
         });
+        initVerificationManager();
     }
     void onSync(SyncCallback cb) { syncCb_ = std::move(cb); }
     void onStateChange(StateCallback cb) { stateCb_ = std::move(cb); }
@@ -110,6 +111,9 @@ public:
     void resume();
 
 private:
+    // Wire the SAS MSK exchange fns (our master pub from the store, the other
+    // party's master pub via /keys/query master_keys).
+    void initVerificationManager();
     // Returns true if cross-signing is already PUBLISHED (via /keys/query master_keys).
     bool isCrossSigningPublished(const std::string& userId);
     // Persist the keys JSON for a user.

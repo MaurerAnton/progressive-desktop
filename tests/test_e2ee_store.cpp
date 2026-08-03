@@ -1,6 +1,7 @@
 #include "core/crypto/megolm_store.hpp"
 #include "core/crypto/decryptor.hpp"
 #include "core/crypto/cross_sign.hpp"
+#include "core/crypto/sig_verify.hpp"
 #include <iostream>
 #include <string>
 #include <vector>
@@ -166,7 +167,56 @@ static void test_cross_signing() {
           "xs: keys-only canonical does NOT verify (full canonical required)");
 }
 
+// Trust computation: SSK-signed device -> Trusted, unsigned -> Unverified,
+// no cross-signing published -> empty result.
+static void test_trust_computation() {
+    using namespace progressive::desktop;
+    auto keys = generateCrossSigningKeys();
+
+    // A device whose keys are SSK-signed (canonical device_keys).
+    std::string devId = "DEVT1";
+    std::string curve = "curveDevT1";
+    std::string ed = "edDevT1";
+    std::string canonical = buildDeviceKeysCanonical("@alice:test", devId, curve, ed);
+    std::string sskSig = signEd25519(keys.selfPriv, canonical);
+
+    std::string queryJson =
+        "{\"device_keys\":{\"@alice:test\":{"
+        "\"" + devId + "\":{\"user_id\":\"@alice:test\",\"device_id\":\"" + devId + "\","
+        "\"algorithms\":[\"m.olm.v1.curve25519-aes-sha2\"],"
+        "\"keys\":{\"curve25519:" + devId + "\":\"" + curve + "\","
+        "\"ed25519:" + devId + "\":\"" + ed + "\"},"
+        "\"signatures\":{\"@alice:test\":{\"ed25519:" + keys.selfPub + "\":\"" + sskSig + "\"}}}"
+        "}},\"master_keys\":{\"@alice:test\":{\"keys\":{\"ed25519:" + keys.masterPub + "\":\"" + keys.masterPub + "\"}}},"
+        "\"self_signing_keys\":{\"@alice:test\":{\"keys\":{\"ed25519:" + keys.selfPub + "\":\"" + keys.selfPub + "\"}}}}";
+
+    auto trust = computeDeviceTrust(queryJson, "@alice:test");
+    CHECK(trust.size() == 1, "trust: one device evaluated");
+    if (!trust.empty()) {
+        CHECK(trust[0].deviceId == devId, "trust: device id");
+        CHECK(trust[0].trust == DeviceTrust::Trusted, "trust: SSK-signed device is Trusted");
+    }
+
+    // Tamper the signature (a data char, NOT the base64 padding — the lenient
+    // decoder ignores trailing padding) -> Unverified.
+    std::string badSig = sskSig;
+    if (badSig.size() > 10) {
+        badSig[10] = (badSig[10] == 'A') ? 'B' : 'A';
+    }
+    std::string badQuery = queryJson;
+    auto pos = badQuery.find(sskSig);
+    if (pos != std::string::npos) badQuery.replace(pos, sskSig.size(), badSig);
+    auto trust2 = computeDeviceTrust(badQuery, "@alice:test");
+    CHECK(trust2.size() == 1 && trust2[0].trust == DeviceTrust::Unverified,
+          "trust: tampered SSK signature -> Unverified");
+
+    // No self_signing_keys -> empty (user has no cross-signing).
+    std::string noXs = "{\"device_keys\":{},\"master_keys\":{},\"self_signing_keys\":{}}";
+    CHECK(computeDeviceTrust(noXs, "@alice:test").empty(), "trust: no cross-signing -> empty");
+}
+
 int main() {    test_cross_signing();
+    test_trust_computation();
 
     test_megolm_rotation();
     test_key_export_import();

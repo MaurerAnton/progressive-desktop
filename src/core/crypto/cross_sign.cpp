@@ -1,9 +1,11 @@
 // src/core/crypto/cross_sign.cpp — cross-signing key generation + signing.
 #include "cross_sign.hpp"
+#include "sig_verify.hpp"
 
 #include <sodium.h>
 #include <cstring>
 #include <vector>
+#include <simdjson.h>
 
 namespace progressive::desktop {
 
@@ -123,6 +125,69 @@ std::string buildCrossSigningContent(const std::string& type,
     }
     out += ",\"usage\":[\"" + usage + "\"],\"user_id\":\"" + userId + "\"}";
     return out;
+}
+
+// ===== Phase 6 trust computation =====
+
+std::vector<DeviceTrustResult> computeDeviceTrust(const std::string& keysQueryJson,
+                                                  const std::string& userId) {
+    std::vector<DeviceTrustResult> results;
+
+    simdjson::dom::parser p;
+    auto doc = p.parse(keysQueryJson);
+    if (doc.error() != simdjson::SUCCESS) return results;
+
+    // The user's published self-signing key.
+    std::string sskPub;
+    {
+        auto sskObj = doc.value()["self_signing_keys"][userId]["keys"].get_object();
+        if (sskObj.error() == simdjson::SUCCESS) {
+            for (auto [k, v] : sskObj.value()) {
+                std::string kStr(k);
+                if (kStr.find("ed25519:") == 0) {
+                    auto vs = v.get_string();
+                    if (vs.error() == simdjson::SUCCESS) sskPub = std::string(vs.value());
+                }
+            }
+        }
+    }
+    if (sskPub.empty()) return results;  // no cross-signing published
+
+    auto devices = doc.value()["device_keys"][userId].get_object();
+    if (devices.error() != simdjson::SUCCESS) return results;
+
+    for (auto devField : devices.value()) {
+        std::string devId(devField.key);
+        std::string curve, ed;
+        auto keysObj = devField.value["keys"].get_object();
+        if (keysObj.error() == simdjson::SUCCESS) {
+            for (auto [k, v] : keysObj.value()) {
+                auto vs = v.get_string();
+                if (vs.error() != simdjson::SUCCESS) continue;
+                std::string kStr(k);
+                if (kStr == "curve25519:" + devId) curve = std::string(vs.value());
+                else if (kStr == "ed25519:" + devId) ed = std::string(vs.value());
+            }
+        }
+        if (curve.empty() || ed.empty()) continue;
+
+        // The SSK's signature over the canonical device_keys.
+        std::string sskSig;
+        {
+            auto sig = devField.value["signatures"][userId]["ed25519:" + sskPub].get_string();
+            if (sig.error() == simdjson::SUCCESS) sskSig = std::string(sig.value());
+        }
+        DeviceTrustResult r;
+        r.userId = userId;
+        r.deviceId = devId;
+        r.trust = DeviceTrust::Unverified;
+        if (!sskSig.empty() &&
+            verifyEd25519(sskPub, buildDeviceKeysCanonical(userId, devId, curve, ed), sskSig)) {
+            r.trust = DeviceTrust::Trusted;
+        }
+        results.push_back(std::move(r));
+    }
+    return results;
 }
 
 } // namespace progressive::desktop

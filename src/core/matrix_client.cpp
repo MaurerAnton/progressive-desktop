@@ -1059,6 +1059,20 @@ ApiResult<std::string> MatrixClient::uploadDeviceSigningKeys(const std::string& 
     return r;
 }
 
+ApiResult<std::string> MatrixClient::uploadSignatures(const std::string& body) {
+    ApiResult<std::string> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    auto resp = httpPost(account().homeserverUrl + "/_matrix/client/v3/keys/signatures/upload",
+                         body, authHeaders(), 15000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) { r.ok = true; r.data = resp.body; }
+    else { r.error = progressive::parseMatrixErrorJson(resp.body);
+           r.error.message = resp.errorMessage.empty() ? r.error.message : resp.errorMessage; }
+    LOG(LogChannel::NET, "uploadSignatures: ok=%d http=%d failures=%.300s",
+        r.ok ? 1 : 0, r.httpStatus, resp.body.c_str());
+    return r;
+}
+
 ApiResult<std::string> MatrixClient::queryKeys(const std::string& body) {
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }

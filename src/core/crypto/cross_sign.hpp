@@ -31,7 +31,8 @@ std::string buildCrossSigningContent(const std::string& type,
                                      const std::string& pubKeyB64,
                                      const std::string& signingPubB64,
                                      const std::string& signingPrivB64,
-                                     const std::string& userId);
+                                     const std::string& userId,
+                                     const std::string& signerUserId = "");
 
 // Canonical form of the "keys" object (the value of a CrossSigningKey.keys).
 std::string crossSigningKeysCanonical(const std::string& pubKeyB64);

@@ -101,7 +101,8 @@ std::string buildCrossSigningContent(const std::string& type,
                                      const std::string& pubKeyB64,
                                      const std::string& signingPubB64,
                                      const std::string& signingPrivB64,
-                                     const std::string& userId) {
+                                     const std::string& userId,
+                                     const std::string& signerUserId) {
     std::string usage;
     if (type.find("self_signing") != std::string::npos) usage = "self_signing";
     else if (type.find("user_signing") != std::string::npos) usage = "user_signing";
@@ -116,9 +117,13 @@ std::string buildCrossSigningContent(const std::string& type,
         sig = signEd25519(signingPrivB64, signedJson);
     }
 
+    // The signatures map is keyed by the SIGNER's user id — for the setup
+    // uploads signer == the key's owner, but for cross-user signing (another
+    // user's master key signed by our USK) they differ.
+    std::string signer = signerUserId.empty() ? userId : signerUserId;
     std::string out = "{\"keys\":" + keysJson;
     if (!sig.empty()) {
-        out += ",\"signatures\":{\"" + userId
+        out += ",\"signatures\":{\"" + signer
             + "\":{\"ed25519:" + signingPubB64 + "\":\"" + sig + "\"}}";
     } else {
         out += ",\"signatures\":{}";

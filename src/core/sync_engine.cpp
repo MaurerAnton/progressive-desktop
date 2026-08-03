@@ -430,7 +430,8 @@ void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
                                 std::string content = buildCrossSigningContent(
                                     "m.cross_signing.master", vtxn->theirMasterKey,
                                     std::string(uskPub.value()),
-                                    std::string(uskPriv.value()), vtxn->otherUserId);
+                                    std::string(uskPriv.value()), vtxn->otherUserId,
+                                    client_->account().userId);
                                 // Body key = the target's bare master pub
                                 // (Synapse's _process_other_signatures).
                                 std::string sigBody = "{\"" + vtxn->otherUserId

@@ -592,7 +592,7 @@ static bool test_sas_verified_policy(const std::string& hs, TestUser& alice, Tes
     // automatically on a SAS Done with the MSK exchange).
     std::string xsContent = progressive::desktop::buildCrossSigningContent(
         "m.cross_signing.master", bobKeys.masterPub,
-        a1Keys.userPub, a1Keys.userPriv, bob.userId);
+        a1Keys.userPub, a1Keys.userPriv, bob.userId, alice.userId);
     // The server's _process_other_signatures looks up the target's master key
     // by its BARE pub (master_key_id.split(":",1)[1]) — the body key must be
     // the master pub, not "master_key".

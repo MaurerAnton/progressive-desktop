@@ -855,12 +855,13 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
         }
     }
 
-    // Step 1: Query device keys for all room members.
+    // Step 1: Query device keys for all room members — INCLUDING our own user
+    // (our other devices need the room key too). The device loop below skips
+    // only the sending device itself.
     std::ostringstream queryBody;
     queryBody << "{\"device_keys\":{";
     bool first = true;
     for (const auto& uid : userIds) {
-        if (uid == ourUserId) continue;  // skip self
         if (!first) queryBody << ",";
         first = false;
         queryBody << "\"" << uid << "\":[]";

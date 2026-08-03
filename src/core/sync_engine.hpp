@@ -96,18 +96,6 @@ public:
     bool setupCrossSigningWithPassword(const std::string& password);
     std::string uiaSession() const { return uiaSession_; }
 
-private:
-    // Returns true if cross-signing is already PUBLISHED (via /keys/query master_keys).
-    bool isCrossSigningPublished(const std::string& userId);
-    // Persist the keys JSON for a user.
-    void saveCrossSigningKeysJson(const std::string& userId, const CrossSigningKeys& keys);
-    // Re-upload device_keys with the SSK signature (device_keys-only body).
-    void reuploadDeviceKeys(const std::string& userId, const CrossSigningKeys& keys);
-    // POST /keys/device_signing/upload. Returns 1=published, 0=UIA (session stashed), -1=failed.
-    int publishCrossSigningKeys(const CrossSigningKeys& keys,
-                                const std::string& userId,
-                                const std::string& authJson);
-
     const SyncEngineStats& stats() const { return stats_; }
 
     // Start the loop. If a saved since-token exists, continues incremental;
@@ -122,6 +110,17 @@ private:
     void resume();
 
 private:
+    // Returns true if cross-signing is already PUBLISHED (via /keys/query master_keys).
+    bool isCrossSigningPublished(const std::string& userId);
+    // Persist the keys JSON for a user.
+    void saveCrossSigningKeysJson(const std::string& userId, const CrossSigningKeys& keys);
+    // Re-upload device_keys with the SSK signature (device_keys-only body).
+    void reuploadDeviceKeys(const std::string& userId, const CrossSigningKeys& keys);
+    // POST /keys/device_signing/upload. Returns 1=published, 0=UIA (session stashed), -1=failed.
+    int publishCrossSigningKeys(const CrossSigningKeys& keys,
+                                const std::string& userId,
+                                const std::string& authJson);
+
     void run();
     void setState(SyncEngineState s);
     int computeBackoffMs(int consecutiveErrors) const;

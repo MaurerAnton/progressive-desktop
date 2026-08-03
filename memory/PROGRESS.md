@@ -135,6 +135,13 @@
 [ ] Thread: first reply appears twice in thread view (echo temp ID vs sync real ID)
 [ ] Invite: reject fails with M_FORBIDDEN "duplicate auth_events for m.room.member" (need diagnostic LOGs)
 [ ] Image: images don't render in timeline or viewer — downloadMedia may fail silently (need diagnostic LOGs)
+[ ] File/audio download dead — CONFIRMED root cause (Aug 2): mxcUrl is only parsed for
+    m.image/m.video, NOT m.file/m.audio (room_store.cpp:376 `if (msgtype=="m.image"||"m.video")`).
+    So file/audio cards render (painter draws card from msgtype only, timeline_painter.cpp:303)
+    but clicks silently no-op because timeline_delegate.cpp:217 requires !mxcUrl.isEmpty().
+    History path (room_data_loader.cpp parseEventFields :110-122) never sets mxcUrl at all.
+    Fix scope (deferred, not now): parse url (+filename) for m.file/m.audio in BOTH room_store.cpp
+    sync path and room_data_loader.cpp history path.
 [ ] Room creation: no "+ New room" action for group rooms, no encrypted room creation
 [x] Multi-account UI — DONE (account_switcher.cpp addAccount/switchAccount/logout wired via combo in main_window.cpp:285; LoginDialog flow verified Aug 2)
 [ ] Copy messages: cannot copy message text from timeline (no copy-to-clipboard)

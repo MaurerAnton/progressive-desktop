@@ -72,14 +72,14 @@ Unblocks P4. Removes "OTKs exhausted → can't receive" failure mode.
 - [x] m.room.encryption state event parsed per room (sync loop)
 - [x] Rotation test (rotation_period_msgs=1)
 
-## Phase 6 — Cross-signing (3-4 sessions)
+## Phase 6 — Cross-signing (3-4 sessions) — 🔄 IN PROGRESS (Aug 2)
 Depends on Phase 1 (ed25519 verify).
-- Port cross_signing_manager.cpp data model (PARTIAL — trust checks exist)
-- Implement MSK/USK/SSK key generation (ed25519 keypairs)
-- Sign SSK+USK with MSK; upload to account_data
-- Sign own device with SSK; sign other user's MSK with USK
-- Trust computation with REAL signature verification (Phase 1 primitive)
-- UI: "Set up secure messaging" flow, device shields (red/grey/green), cross-signing reset
+- ✅ MSK/USK/SSK ed25519 keygen + sign/verify (libsodium, `0806d83`)
+- ✅ Setup + device signing: SSK signs device_keys, PrefsDialog "Set up secure messaging" (`db6c5f0`, `05827d2`)
+- ✅ Spec-correct publishing: POST /keys/device_signing/upload (CrossSigningKey format) + UIA password flow (`1075b57`); full canonical key signature (`db5da04`)
+- 🔄 In flight: AI coder (sync_engine.cpp/hpp modified, not committed to docs yet)
+- [ ] Trust computation with REAL signature verification (Phase 1 primitive)
+- [ ] UI: device shields (red/grey/green), cross-signing reset
 
 ## Phase 7 — SSSS + key backup (4-5 sessions)
 The hardest phase — crypto core must be written from scratch.

@@ -71,12 +71,6 @@ jobs:
         echo "Synapse failed to start"
         exit 1
 
-    - name: Dump OTK store source
-      run: |
-        docker exec synapse sh -c "find /usr/local/lib -name 'e2e_worker_store.py' -o -name 'e2e.py' 2>/dev/null | head -3"
-        docker exec synapse sh -c "sed -n '1190,1330p' /usr/local/lib/python3.*/site-packages/synapse/storage/databases/main/end_to_end_keys.py" || true
-        docker exec synapse sh -c "sed -n '663,700p' /usr/local/lib/python3.*/site-packages/synapse/storage/databases/main/end_to_end_keys.py" || true
-        docker exec synapse sh -c "grep -n -A 25 'def _claim_e2e_one_time_keys' /usr/local/lib/python3.*/site-packages/synapse/storage/databases/main/end_to_end_keys.py" || true
 
     - name: Configure
       run: cmake --preset ci

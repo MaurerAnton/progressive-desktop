@@ -1067,8 +1067,7 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
     std::fprintf(stderr, "[e2ee] claimed %zu one-time keys (had %zu devices)\n",
                  claimedKeys.size(), devices.size());
 
-    // Instrument every claim: the raw response + the claimed key IDs.
-    LOG(LogChannel::E2EE, "shareRoomKey: claimResp body=%.900s", claimResp.body.c_str());
+    // Log the claimed key IDs (handy for diagnosing OTK-pool issues).
     std::string claimedIds;
     for (const auto& ck : claimedKeys) {
         if (!claimedIds.empty()) claimedIds += ",";

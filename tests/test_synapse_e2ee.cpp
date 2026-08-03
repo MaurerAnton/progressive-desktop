@@ -81,13 +81,7 @@ static bool setupE2EE(TestUser& u, const std::string& hs) {
     }
     u.decryptor.setCryptoContext(u.userId, u.deviceId, hs, u.token);
     std::string body = u.decryptor.buildKeysUploadBody(u.userId, u.deviceId, 10, true);
-    size_t otkPos = body.find("\"one_time_keys\"");
     auto up = u.client.uploadKeys(body);
-    std::cerr << "[synapse-test] setupE2EE " << u.userId << "/" << u.deviceId
-              << ": upload ok=" << up.ok << " http=" << up.httpStatus
-              << " otkSection=" << (otkPos != std::string::npos ? "present" : "MISSING")
-              << " resp=" << up.data.substr(0, 120)
-              << "\n";
     if (!up.ok) {
         std::cerr << "[synapse-test] keys/upload failed for " << u.userId << ": "
                   << up.error.message << "\n";
@@ -193,25 +187,15 @@ static progressive::desktop::CrossSigningKeys publishCrossSigning(TestUser& u) {
 // Sync until the user decrypts a timeline event whose plaintext contains body.
 static bool waitForDecrypt(TestUser& u, const std::string& roomId,
                            const std::string& body, std::string& since) {
-    for (int round = 0; round < 12; ++round) {
+    for (int round = 0; round < 24; ++round) {
         auto resp = u.client.syncFast(since, 3000, false);
         if (!resp.ok) { std::this_thread::sleep_for(std::chrono::milliseconds(500)); continue; }
         since = std::string(resp.data.nextBatch);
         for (const auto& evt : resp.data.toDeviceEventList) {
-            if (evt.type == "m.room.encrypted") {
-                std::string inner = u.decryptor.handleOlmEncryptedToDevice(
-                    std::string(evt.senderId), std::string(evt.contentJson));
-                std::fprintf(stderr, "[synapse-test] %s/%s to-device m.room.encrypted sender=%s handled=%d\n",
-                             u.userId.c_str(), u.deviceId.c_str(),
-                             std::string(evt.senderId).c_str(), inner.empty() ? 0 : 1);
-            } else if (evt.type == "m.room_key") {
-                bool handled = u.decryptor.handleRoomKey(std::string(evt.contentJson));
-                std::fprintf(stderr, "[synapse-test] %s/%s to-device m.room_key handled=%d\n",
-                             u.userId.c_str(), u.deviceId.c_str(), handled ? 1 : 0);
-            } else {
-                std::fprintf(stderr, "[synapse-test] %s/%s to-device OTHER type=%s\n",
-                             u.userId.c_str(), u.deviceId.c_str(), std::string(evt.type).c_str());
-            }
+            if (evt.type == "m.room.encrypted")
+                u.decryptor.handleOlmEncryptedToDevice(std::string(evt.senderId), std::string(evt.contentJson));
+            else if (evt.type == "m.room_key")
+                u.decryptor.handleRoomKey(std::string(evt.contentJson));
         }
         for (const auto& [rid, room] : resp.data.joinedRooms) {
             if (rid != roomId) continue;

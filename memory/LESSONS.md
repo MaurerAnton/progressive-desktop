@@ -117,3 +117,91 @@ the brain stays free.
 1. How many workers does the app have?
 2. What's the "cashier / back room" analogy?
 3. What pattern do workers use to update the UI?
+
+---
+
+## Bet Rounds (multiple-choice game — what we learned)
+
+> Format: I give a real scenario + 3 choices, user guesses, I reveal the code. Each round
+> teaches one real mechanism. Score is tracked in conversation, not here.
+
+### Round 1 — "You press Send" (correct: B — optimistic UI)
+- The message appears INSTANTLY as a local **echo** (`chat_view.cpp:39-46`, `appendBack`),
+  before the server answers. The echo is later replaced by the real event (`replaceEcho`)
+  or by `❌ <error>` on failure (`chat_view.cpp:130,195`).
+- Called **optimistic UI**: show-something-now feels better than waiting.
+- Why "message appears twice" bugs existed: echo temp-ID vs server event-ID must match.
+
+### Round 2 — "The 3-second question" (close, but the subtlety flips it)
+- Design: `/sync?timeout=3000` = **long-poll**, not polling. The server holds the open
+  connection and answers THE INSTANT new data arrives; 3s is only the "nothing new" ceiling.
+- Polling = messages wait for YOU. Long-polling = you wait for messages.
+- BUT real-world: Progressive→Progressive (plaintext) both wait ~3s; Element→Element instant;
+  Progressive→Element arrives late on Element too → delay is on Progressive's SEND side.
+  Tracked as a bug in PROGRESS.md (needs diagnostic LOGs, no guess-fix).
+
+### Round 3 — "You click a room" (half right: frame cached, history not)
+- Every room click CLEARS the timeline (`room_handler.cpp:88`) and re-fetches the last N
+  messages over the network (`getMessages`, default 50). History is NOT cached.
+- What IS cached and reused: room metadata (`stateLoaded` flag, `room_data_loader.cpp:301`),
+  member avatars/names (`memberAvatarCache_`), avatar images (ImageLoader QCache).
+- That's why the 2nd click is faster: the *frame* is cached, the *content* re-downloads.
+- Element caches the timeline too → that gap = "Performance Mode P2" in DREAM.md.
+
+### Round 4 — "Your internet drops 30s" (wrong: B IS implemented)
+- Exponential backoff IS real: `computeBackoffMs` (`sync_engine.cpp:62-66`) =
+  1s → 2s → 4s → 8s → 16s → 32s → 60s, applied via `cv_.wait_for` (`:202-208`).
+- Success resets errors → backoff back to 1s. No manual reconnect needed.
+- Lesson: resilience features are invisible until things break — "works when connected"
+  doesn't mean "not implemented."
+
+### Round 5 — "You log out" (correct: B — keys are kept)
+- Logout calls `clearAccount` which runs ONLY `DELETE FROM account WHERE user_id=?`
+  (`session_store.cpp:178`). The login row is removed; crypto keys in `olm_account`,
+  `e2ee_data` (scoped `megolm:userId/devId`), `cross_signing` are NOT touched.
+- NUANCE: re-login reuses device_id only if still set (`login_dialog.cpp:235-238`); if it
+  generates a new UUID, old keys are orphaned → old encrypted history unreadable.
+- That's exactly why SSSS key backup (Phase 7) exists.
+
+### Round 6 — "Someone is typing" (correct: B — ephemeral, via sync)
+- Typing arrives in the `/sync` response's **ephemeral** section (`fast_sync.cpp:114-130`,
+  `m.typing`), is NOT saved to the database (`room_store.cpp:484` treats m.typing/m.receipt/
+  m.fully_read as ephemeral), and only affects what's on screen now.
+- Room list paints "X is typing..." (`room_list_delegate.cpp:200-210`).
+- FRAGILE because it depends on sync timing (the ~3s issue from Round 2), isn't stored, and
+  Progressive can't SEND typing yet (M2 — PUT /typing not built).
+- **Verified gap (tracked as bug):** `RoomListModel::upsertRoom` (room_list_model.cpp:60)
+  never copies `typingUsers` into the existing room and never emits dataChanged for it → the
+  sidebar indicator likely doesn't refresh live. And there's NO in-chat typing UI at all.
+
+### Round 7 — "3 rooms get messages while you're away" (none of A/B/C — the `break` quirk)
+- Notification loop `sync_response_handler.cpp:78-88`: per sync cycle, exactly ONE popup fires —
+  the FIRST unread room, then `break` (`:87`). NOT one-per-room in a single batch.
+- User observed 2 rooms = 2 successive sync cycles each notified a different room (order/counts shift).
+- `@mention in RoomName` body text IS implemented (`:83-84`).
+- No dedup: a room that stays unread-and-first re-notifies every sync.
+- Tracked as bug in PROGRESS.md.
+
+### Round 8 — "Close + reopen 2h later" (correct: A, with the empty-since catch)
+- A saved `since` token is loaded at startup (`sync_engine.cpp:28-30`) → incremental after first sync.
+- BUT the FIRST sync deliberately uses empty `since` (`firstRun_=true`, `:32,88-92`) → "current
+  state of all rooms" snapshot ("Starting sync..."). Saved token ignored on that call, overwritten
+  with the new `next_batch` (`:216`). Not full history re-download (rules out B), not offline (rules out C).
+
+### Round 9 — "Busy room, 200-message cap" (correct: B — sliding window)
+- `MAX_TIMELINE_EVENTS = 200` (`timeline_model.cpp:75`); when exceeded, oldest events are dropped
+  from the TOP (`:134-142`), IDs erased from seenIds_. New messages never blocked (rules out A);
+  nothing saved to disk on eviction (rules out C — old msgs just leave memory).
+- This is the RAM safety valve; scroll-up past the window needs a `/messages` re-fetch. That's why
+  W16 (offline message cache) exists — persist last N events to SQLite so re-showing is local.
+
+### Round 10 — "You click a file someone sent" (refused to guess — CORRECT reasoning)
+- Intended path (code): click → `downloadMedia` → write `/tmp/progressive_*.pdf` →
+  `QDesktopServices::openUrl` (`attachment_handler.cpp:42-62`). Temp file never cleaned/saved.
+- BUT user's reality: card renders (color bar + 📄/🎵 + filename) yet CANNOT download/open.
+- **CONFIRMED ROOT CAUSE:** `mxcUrl` only parsed for m.image/m.video (`room_store.cpp:376`),
+  NOT m.file/m.audio → card paints (painter ignores mxcUrl, `timeline_painter.cpp:303`) but click
+  silently no-ops (`timeline_delegate.cpp:217` requires !mxcUrl.isEmpty()). History path
+  (`room_data_loader.cpp:110-122`) never sets mxcUrl at all.
+- Lesson: "the code path exists, but the feature is broken in practice" — why we track bugs.
+- Tracked in PROGRESS.md (Critical). Fix deferred by user request.

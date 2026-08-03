@@ -303,6 +303,27 @@ static bool test_multiaccount_multidevice(const std::string& hs,
     CHECK(!sendEncrypted(alice, hs, roomId, m2, "mm2").empty(), "mm: alice sent msg2");
     std::string sinceD;
     CHECK(waitForDecrypt(dan, roomId, m2, sinceD), "mm: late joiner dan decrypts msg2");
+
+    // Alice device2 (a non-SSK-signed device) sends -> bob, carol, dan and
+    // device1 all decrypt. Device1 needs a sync token to receive the room key
+    // that device2 shares (shareRoomKey delivers to the sender's OWN other
+    // devices — the fix this test caught).
+    std::string sinceA;
+    auto syncA = alice.client.syncFast("", 5000, false);
+    if (syncA.ok) sinceA = std::string(syncA.data.nextBatch);
+    CHECK(!sinceA.empty(), "mm: alice device1 has a sync token");
+    std::string m3 = "mm-msg3-" + std::to_string(std::time(nullptr));
+    CHECK(!sendEncrypted(alice2, hs, roomId, m3, "mm3").empty(), "mm: alice device2 sent msg3");
+    CHECK(waitForDecrypt(bob, roomId, m3, sinceB), "mm: bob decrypts msg3");
+    CHECK(waitForDecrypt(carol, roomId, m3, sinceC), "mm: carol decrypts msg3");
+    CHECK(waitForDecrypt(dan, roomId, m3, sinceD), "mm: dan decrypts msg3");
+    CHECK(waitForDecrypt(alice, roomId, m3, sinceA), "mm: alice device1 decrypts device2's msg3");
+
+    // Late joiner replies: dan sends -> both alice devices decrypt.
+    std::string m4 = "mm-msg4-" + std::to_string(std::time(nullptr));
+    CHECK(!sendEncrypted(dan, hs, roomId, m4, "mm4").empty(), "mm: dan sent msg4");
+    CHECK(waitForDecrypt(alice, roomId, m4, sinceA), "mm: alice device1 decrypts msg4");
+    CHECK(waitForDecrypt(alice2, roomId, m4, sinceA2), "mm: alice device2 decrypts msg4");
     return true;
 }
 

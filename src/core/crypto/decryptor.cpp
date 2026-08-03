@@ -1052,6 +1052,20 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
     std::fprintf(stderr, "[e2ee] claimed %zu one-time keys (had %zu devices)\n",
                  claimedKeys.size(), devices.size());
 
+    // Diagnose claim failures: which devices got keys and which were MISSING
+    // (a device with no OTKs on the server comes back as an empty {} object).
+    if (claimedKeys.size() != devices.size()) {
+        LOG(LogChannel::E2EE, "shareRoomKey: claimResp body=%.800s", claimResp.body.c_str());
+        for (const auto& d : devices) {
+            bool got = false;
+            for (const auto& ck : claimedKeys) {
+                if (ck.userId == d.userId && ck.deviceId == d.deviceId) got = true;
+            }
+            std::fprintf(stderr, "[e2ee] claim result: %s/%s %s\n",
+                         d.userId.c_str(), d.deviceId.c_str(), got ? "GOT" : "MISSING");
+        }
+    }
+
     if (claimedKeys.empty()) {
         std::fprintf(stderr, "[e2ee] no one-time keys claimed — can't share room_key\n");
         return false;

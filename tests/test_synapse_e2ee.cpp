@@ -81,7 +81,12 @@ static bool setupE2EE(TestUser& u, const std::string& hs) {
     }
     u.decryptor.setCryptoContext(u.userId, u.deviceId, hs, u.token);
     std::string body = u.decryptor.buildKeysUploadBody(u.userId, u.deviceId, 10, true);
+    size_t otkPos = body.find("\"one_time_keys\"");
     auto up = u.client.uploadKeys(body);
+    std::cerr << "[synapse-test] setupE2EE " << u.userId << "/" << u.deviceId
+              << ": upload ok=" << up.ok << " http=" << up.httpStatus
+              << " otkSection=" << (otkPos != std::string::npos ? "present" : "MISSING")
+              << "\n";
     if (!up.ok) {
         std::cerr << "[synapse-test] keys/upload failed for " << u.userId << ": "
                   << up.error.message << "\n";

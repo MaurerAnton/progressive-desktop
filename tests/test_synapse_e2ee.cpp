@@ -86,6 +86,7 @@ static bool setupE2EE(TestUser& u, const std::string& hs) {
     std::cerr << "[synapse-test] setupE2EE " << u.userId << "/" << u.deviceId
               << ": upload ok=" << up.ok << " http=" << up.httpStatus
               << " otkSection=" << (otkPos != std::string::npos ? "present" : "MISSING")
+              << " resp=" << up.data.substr(0, 120)
               << "\n";
     if (!up.ok) {
         std::cerr << "[synapse-test] keys/upload failed for " << u.userId << ": "

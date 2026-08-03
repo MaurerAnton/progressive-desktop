@@ -129,10 +129,15 @@
 
 ### Active — Critical (blocking alpha)
 ```
-[ ] Thread: reply OK button — message not appearing anywhere after sending
-[ ] Thread: root message emoji/smile disappears after room switch (loadHistory doesn't set thread flags)
-[ ] Thread: threadReplyCount never increments via sync path (use-after-move in appendTimelineForRoom)
-[ ] Thread: first reply appears twice in thread view (echo temp ID vs sync real ID)
+[x] Thread: reply OK button — message not appearing anywhere after sending — DONE (user verified Aug 2)
+[x] Thread: root message emoji/smile disappears after room switch (loadHistory doesn't set thread flags) — DONE (user verified Aug 2)
+[x] Thread: threadReplyCount never increments via sync path (use-after-move in appendTimelineForRoom) — DONE (user verified Aug 2: was about other users' replies; now increments correctly)
+[x] Thread: first reply appears twice in thread view (echo temp ID vs sync real ID) — DONE (echo uses r.data, thread_handler.cpp:187; user verified Aug 2)
+[ ] Thread: reply count grows +1 per reaction click IN THREAD VIEW — clicking a reaction on a thread reply
+    increments threadReplyCount by 1 each click; going back to chat reloads and shows the correct number.
+    Suspected: reaction sync re-delivers the reacted-to reply with an empty eventId, evading seenIds_ dedupe
+    (timeline_model.cpp:247-248,270-277), so it's appended as a "new" reply → +1. NEEDS DIAGNOSTIC LOGs
+    (per PLANNER #9): log eid + eventIdEmpty in appendBackBatch; confirm before fixing. Do NOT guess-fix.
 [ ] Invite: reject fails with M_FORBIDDEN "duplicate auth_events for m.room.member" (need diagnostic LOGs)
 [ ] Image: images don't render in timeline or viewer — downloadMedia may fail silently (need diagnostic LOGs)
 [ ] File/audio download dead — CONFIRMED root cause (Aug 2): mxcUrl is only parsed for

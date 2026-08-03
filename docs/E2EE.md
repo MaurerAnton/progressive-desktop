@@ -400,7 +400,7 @@ std::string pickleOlmSessions(const std::string& key) {
 | 6 | Sending room_key BEFORE encrypting message | Recipient gets message before key → "Unable to decrypt" | Share key first, then message |
 | 7 | Missing `room_id` in Megolm plaintext | Element/rust-sdk: `MismatchedRoom` error | Include `room_id` in plaintext JSON |
 | 8 | Caching access token in member variable | 401 on token rotation → recovery chain stalls | Read live from `MatrixClient::account()` |
-| 9 | Only claiming 1 OTK for multi-device friends | One device gets key, other doesn't → can't decrypt | Claim N OTKs where N = device count |
+| 9 | Only claiming 1 OTK for multi-device friends | One device gets key, other doesn't → can't decrypt | Claim N OTKs where N = device count. **DONE (Aug 3): the multi-device CI scenario verifies all devices of a user receive the room key — the claim AND sendToDevice bodies must group devices BY USER (JSON can't repeat keys; the server keeps the last and silently drops the first)** |
 | 10 | Not importing outbound as inbound | Own messages stay encrypted after room switch | `addInboundSession(self.sessionKey)` |
 
 ---
@@ -446,7 +446,7 @@ std::string pickleOlmSessions(const std::string& key) {
 | Token rotation | Wait for M_UNKNOWN_TOKEN → recovery still works (fresh token used) |
 | Pickle persistence | Close + reopen → Olm sessions survive, decrypt still works |
 | Multi-device | Login on 2 devices → both receive room_key, both decrypt |
-| **Cross-account E2EE round-trip** | **Automated — `tests/test_synapse_e2ee.cpp` (live Synapse in CI): registers alice+bob, creates encrypted room, shares room key, bob decrypts alice's message. Skips gracefully when no server.** |
+| **Cross-account E2EE round-trip** | **Automated — `tests/test_synapse_e2ee.cpp` (live Synapse in CI): registers 3-4 users, encrypted room, room-key sharing, decryption, rotation + key request, fallback claim, cross-signing setup, and the multi-account/multi-device scenario (2 devices per account, late joiner, both send directions). Skips gracefully when no server.** |
 | SAS protocol | **Automated — `tests/test_e2ee_verify_protocol.cpp`: two managers complete request→done, emoji match, corrupted-MAC cancel.** |
 
 ---

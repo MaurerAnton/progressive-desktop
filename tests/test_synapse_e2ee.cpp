@@ -156,6 +156,8 @@ static progressive::desktop::CrossSigningKeys publishCrossSigning(TestUser& u) {
         + ",\"self_signing_key\":" + self
         + ",\"user_signing_key\":" + user + "}";
     auto resp = u.client.uploadDeviceSigningKeys(body);
+    std::cerr << "[synapse-test] publishCrossSigning first attempt http=" << resp.httpStatus
+              << " (401 = UIA retry path exercised)\n";
     if (!resp.ok && resp.httpStatus == 401) {
         std::string session;
         {

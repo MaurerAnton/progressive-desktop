@@ -72,6 +72,18 @@ Unblocks P4. Removes "OTKs exhausted → can't receive" failure mode.
 - [x] m.room.encryption state event parsed per room (sync loop)
 - [x] Rotation test (rotation_period_msgs=1)
 
+## Phase 4/5 hardening — Multi-device room-key delivery ✅ (Aug 3)
+The multi-account/multi-device CI scenario (`test_multiaccount_multidevice`) caught TWO
+real bugs in `shareRoomKey`'s JSON request bodies — JSON objects can't repeat a key, so
+per-device loops produced `"@user":{dev1},"@user":{dev2}` and the server kept only the
+last, silently dropping one device:
+- [/keys/claim body] grouped per user (each device's OTK claimed)
+- [/sendToDevice body] grouped per user (every device gets its own m.room_key)
+- keys/query body deduped (benign before, now correct)
+Scenario coverage: 3 members, alice on 2 devices (login helper), both alice devices
+decrypt the sender's messages, device2 sends + device1 decrypts, late joiner invited +
+decrypts, cross-signing publishing verified across devices.
+
 ## Phase 6 — Cross-signing (3-4 sessions) — 🔄 IN PROGRESS (Aug 2)
 Depends on Phase 1 (ed25519 verify).
 - ✅ MSK/USK/SSK ed25519 keygen + sign/verify (libsodium, `0806d83`)

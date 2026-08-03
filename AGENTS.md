@@ -155,6 +155,19 @@ ThreadPool::instance().enqueue([guard = QPointer<QObject>(this), client = client
 for (auto [key, value] : obj) { if (key == "...") ... }
 ```
 
+### JSON request bodies: NEVER repeat a user key (group per-user maps)
+Matrix request bodies are JSON objects — a duplicate key is silently resolved by the
+server (it keeps the LAST one), silently dropping the first. Building per-device bodies
+with a loop like `"@user":{dev1},"@user":{dev2}` LOSES one device. **Bit us TWICE in one
+session (Aug 3):** the `/keys/claim` body and the `/sendToDevice` body in
+`shareRoomKey` each wrote one entry per device, so multi-device members randomly never
+got room keys — the multi-device CI test caught both. Rule:
+- `/keys/query`, `/keys/claim`, and `/sendToDevice` bodies with per-device entries MUST
+  group by user: `{"@user":{"dev1":...,"dev2":...}}`.
+- `shareRoomKey` (decryptor.cpp) is the reference implementation.
+- The multi-device CI scenario (`test_multiaccount_multidevice`) is the guard; new
+  multi-device JSON endpoints should extend it or be added to it.
+
 ---
 
 ## Top 5 Bug Patterns AI Creates
@@ -280,16 +293,26 @@ If a class calls `httpPost`/`httpPut` with auth headers (`makeAuthHeaders(token)
 - **Live-Synapse E2EE integration test (CI)** — `test_synapse_e2ee.cpp` registers 3-4 real users on a Synapse container, creates an encrypted room, shares the room key, and decrypts cross-account: 2-user round-trip, fallback claim (dedicated fresh user — Synapse ADDS OTKs, never replaces), rotation + key-request loop, cross-signing setup, and the multi-account/multi-device scenario (3 members, alice on 2 devices via /login, sender's own other devices decrypt, late joiner). Guarded by `.github/workflows/synapse-e2ee.yml`. Skips (exit 0) when `SYNAPSE_URL` unreachable so local `ctest` stays 100%.
 
 ### E2EE test-infra caveats (known, accepted)
-- **UIA 401-retry has ZERO automated coverage**: CI Synapse returns 200 on the first
-  `/keys/device_signing/upload` (it never requires UIA), so the retry branches in
-  `test_synapse_e2ee.cpp` (`publishCrossSigning`, `test_cross_signing_setup`) and in
-  `SyncEngine::setupCrossSigningWithPassword` are never exercised. Fixing requires an
-  HTTP-mock transport for unit tests — not built.
+- **The UIA 401-retry IS exercised in CI** — the mm test's `publishCrossSigning` re-uploads
+  FRESH keys to an account that already has cross-signing, which Synapse requires UIA for
+  (`SigningKeyUploadServlet`, `can_skip_ui_auth=False`) → the first attempt 401s and the
+  test's `m.login.password` retry runs on every CI run. What has NO automated coverage is
+  the APP's own `SyncEngine::setupCrossSigningWithPassword` flow (the test has its own
+  copy of the retry logic). The first-attempt httpStatus is logged by the test
+  (`[synapse-test] publishCrossSigning first attempt http=`).
 - **The test's UIA logic is a DUPLICATE** of `SyncEngine::setupCrossSigningWithPassword`
   (the test drives client+decryptor directly, no SyncEngine) — the two can diverge.
 - **The synapse test proves the CORE, not the app glue** — it drives the decryptor
   directly, bypassing SyncEngine/UI wiring. App-level flows (send path → shareRoomKey,
   invite UI) are manually tested only.
+
+### CI infrastructure notes
+- Both workflows use ccache (launcher in the ci preset, persisted via actions/cache) and
+  cache `build/_deps` + the sqlite amalgamation (keyed on `cmake/**`); the Synapse
+  workflow is gated on E2EE-relevant paths. If a `cmake/**` change or a CONFIGURATION
+  failure ever appears right after a cancelled run, suspect a partial `build/_deps`
+  restore (the sqlite self-heals, git clones don't) — delete the `deps-*` cache entry in
+  the Actions UI and re-run.
 
 ### In Progress 🔄
 - **SAS UI polish** — dialog + handler exist (SasVerificationDialog, VerificationHandler, RoomMembersDialog → Verify, PrefsDialog → Your devices). Cross-client verification against Element/FluffyChat is next.

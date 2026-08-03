@@ -215,6 +215,7 @@ static bool waitForDecrypt(TestUser& u, const std::string& roomId,
 static std::string sendEncrypted(TestUser& u, const std::string& hs,
                                  const std::string& roomId, const std::string& body,
                                  const std::string& tag) {
+    u.decryptor.getOrCreateOutboundSession(roomId);  // ensure the outbound session exists
     auto members = joinedMembers(u.client, roomId);
     bool shared = u.decryptor.shareRoomKey(roomId, members, u.userId, u.deviceId, hs, u.token);
     if (shared) u.decryptor.markRoomKeyShared(roomId);

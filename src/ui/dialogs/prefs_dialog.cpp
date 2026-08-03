@@ -2,6 +2,9 @@
 #include "prefs_dialog.hpp"
 #include "../handlers/verification_handler.hpp"
 #include "core/crypto/decryptor.hpp"
+#include "core/crypto/cross_sign.hpp"
+#include "core/session_store.hpp"
+#include <map>
 #include <QFileDialog>
 #include <QInputDialog>
 #include <QMessageBox>
@@ -77,8 +80,13 @@ PrefsDialog::PrefsDialog(QWidget* parent) : QDialog(parent) {
     auto* xsBtn = new QPushButton("Set up secure messaging…", this);
     xsBtn->setToolTip("Generate cross-signing keys (MSK/USK/SSK) and upload them. "
                       "Other devices can then verify this one.");
+    auto* xsResetBtn = new QPushButton("Reset cross-signing…", this);
+    xsResetBtn->setToolTip("Regenerate the master/self-signing/user-signing keys. "
+                           "Existing device signatures become invalid — re-verify "
+                           "your devices afterwards.");
     securityLayout->addWidget(xsStatusLabel_);
     securityLayout->addWidget(xsBtn);
+    securityLayout->addWidget(xsResetBtn);
     root->addWidget(securityGroup);
 
     connect(xsBtn, &QPushButton::clicked, this, [this]() {
@@ -111,6 +119,41 @@ PrefsDialog::PrefsDialog(QWidget* parent) : QDialog(parent) {
         }
         QMessageBox::warning(this, "Security",
             "Could not set up cross-signing (not logged in, or upload failed).");
+    });
+
+    connect(xsResetBtn, &QPushButton::clicked, this, [this]() {
+        if (QMessageBox::question(this, "Reset cross-signing",
+                "This replaces your master/self-signing/user-signing keys. "
+                "All device signatures become invalid and other users must "
+                "re-verify you. Continue?") != QMessageBox::Yes) return;
+        if (resetCrossSigningFn_ && resetCrossSigningFn_()) {
+            xsStatusLabel_->setText("Cross-signing: reset");
+            QMessageBox::information(this, "Security",
+                "Cross-signing keys regenerated and uploaded.");
+            return;
+        }
+        std::string session = uiaSessionFn_ ? uiaSessionFn_() : "";
+        if (!session.empty() && setupCrossSigningWithPasswordFn_) {
+            bool ok = false;
+            QInputDialog dlg(this);
+            dlg.setWindowTitle("Confirm password");
+            dlg.setLabelText("The homeserver requires password confirmation:");
+            dlg.setTextEchoMode(QLineEdit::Password);
+            if (dlg.exec() == QDialog::Accepted && !dlg.textValue().isEmpty()) {
+                ok = setupCrossSigningWithPasswordFn_(dlg.textValue().toStdString());
+            }
+            if (ok) {
+                xsStatusLabel_->setText("Cross-signing: reset");
+                QMessageBox::information(this, "Security",
+                    "Cross-signing keys regenerated and uploaded.");
+            } else {
+                QMessageBox::warning(this, "Security",
+                    "Could not reset cross-signing (wrong password or upload failed).");
+            }
+            return;
+        }
+        QMessageBox::warning(this, "Security",
+            "Could not reset cross-signing (not logged in, or upload failed).");
     });
 
     auto* backupGroup = new QGroupBox("Key backup", this);
@@ -202,6 +245,11 @@ void PrefsDialog::loadDevices(QVBoxLayout* sectionLayout) {
         sectionLayout->addWidget(new QLabel("No device keys found.", this));
         return;
     }
+
+    // Trust shields: green = SAS-verified, grey = SSK cross-signed, red = unverified.
+    std::map<std::string, progressive::desktop::DeviceTrust> trustByDev;
+    for (const auto& r : progressive::desktop::computeDeviceTrust(resp.data, ourUserId))
+        trustByDev[r.deviceId] = r.trust;
     int count = 0;
     for (auto dev : userObj.value().get_object().value()) {
         std::string deviceId(dev.key);
@@ -216,9 +264,20 @@ void PrefsDialog::loadDevices(QVBoxLayout* sectionLayout) {
         if (displayName.empty()) displayName = deviceId;
 
         auto* row = new QHBoxLayout;
+        bool sasVerified = store_ && store_->isDeviceVerified(ourUserId, deviceId);
+        auto trustIt = trustByDev.find(deviceId);
+        bool sskTrusted = trustIt != trustByDev.end() &&
+                          trustIt->second == progressive::desktop::DeviceTrust::Trusted;
+        QString shieldColor = sasVerified ? "#4CAF50" : (sskTrusted ? "#9E9E9E" : "#F44336");
+        auto* shield = new QLabel("●", this);
+        shield->setStyleSheet("color:" + shieldColor + "; font-size:14px;");
+        shield->setToolTip(sasVerified ? "Verified (SAS)" :
+                           (sskTrusted ? "Trusted (cross-signed)" : "Unverified"));
         auto* label = new QLabel(QString::fromStdString(displayName), this);
         label->setToolTip(QString::fromStdString(deviceId));
         auto* verifyBtn = new QPushButton("Verify", this);
+        row->addWidget(shield);
+        row->addWidget(label, 1);
         row->addWidget(label, 1);
         row->addWidget(verifyBtn);
         auto* rowWidget = new QWidget(this);

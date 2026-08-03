@@ -8,6 +8,8 @@
 #include <functional>
 #include <memory>
 
+namespace progressive::desktop { class SessionStore; }
+
 class QVBoxLayout;
 
 namespace progressive::desktop {
@@ -22,12 +24,15 @@ public:
     explicit PrefsDialog(QWidget* parent = nullptr);
 
     void setClient(std::shared_ptr<MatrixClient> c) { client_ = std::move(c); }
+    void setSessionStore(SessionStore* s) { store_ = s; }
     void setVerificationHandler(VerificationHandler* vh) { verifyHandler_ = vh; }
     void setDecryptor(Decryptor* d) { decryptor_ = d; }
     using SetupCrossSigningFn = std::function<bool()>;
     using SetupCrossSigningWithPasswordFn = std::function<bool(const std::string&)>;
     using UiaSessionFn = std::function<std::string()>;
+    using ResetCrossSigningFn = std::function<bool()>;
     void setSetupCrossSigningFn(SetupCrossSigningFn fn) { setupCrossSigningFn_ = std::move(fn); }
+    void setResetCrossSigningFn(ResetCrossSigningFn fn) { resetCrossSigningFn_ = std::move(fn); }
     void setSetupCrossSigningWithPasswordFn(SetupCrossSigningWithPasswordFn fn) { setupCrossSigningWithPasswordFn_ = std::move(fn); }
     void setUiaSessionFn(UiaSessionFn fn) { uiaSessionFn_ = std::move(fn); }
 
@@ -66,9 +71,11 @@ private:
     void loadDevices(QVBoxLayout* sectionLayout);
 
     std::shared_ptr<MatrixClient> client_;
+    SessionStore* store_ = nullptr;
     VerificationHandler* verifyHandler_ = nullptr;
     Decryptor* decryptor_ = nullptr;
     SetupCrossSigningFn setupCrossSigningFn_;
+    ResetCrossSigningFn resetCrossSigningFn_;
     SetupCrossSigningWithPasswordFn setupCrossSigningWithPasswordFn_;
     UiaSessionFn uiaSessionFn_;
     QSpinBox* cacheSpin_;

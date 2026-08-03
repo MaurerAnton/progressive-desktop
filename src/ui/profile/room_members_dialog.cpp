@@ -1,5 +1,6 @@
 // src/ui/room_members_dialog.cpp
 #include "room_members_dialog.hpp"
+#include "core/crypto/cross_sign.hpp"
 #include "../shared/theme.hpp"
 #include <QPointer>
 #include "user_profile_dialog.hpp"
@@ -115,9 +116,37 @@ void RoomMembersDialog::loadMembers() {
             }
         }
 
-        QMetaObject::invokeMethod(guard, [guard, members = std::move(members), ok = r.ok]() {
+        // Trust shields: one batch /keys/query for all members, then per-user
+        // trust (0 unverified, 1 SSK cross-signed, 2 SAS-verified).
+        std::map<std::string, int> trust;
+        {
+            std::string queryBody = "{\"device_keys\":{";
+            bool firstUser = true;
+            for (const auto& mbr : members) {
+                if (!firstUser) queryBody += ",";
+                firstUser = false;
+                queryBody += "\"" + mbr.userId + "\":[]";
+            }
+            queryBody += "}}";
+            auto q = client_->queryKeys(queryBody);
+            if (q.ok) {
+                for (const auto& mbr : members) {
+                    int level = 0;
+                    auto trustRes = computeDeviceTrust(q.data, mbr.userId);
+                    for (const auto& r : trustRes) {
+                        if (r.trust == DeviceTrust::Trusted) level = 1;
+                        if (store_ && store_->isDeviceVerified(mbr.userId, r.deviceId)) level = 2;
+                    }
+                    trust[mbr.userId] = level;
+                }
+            }
+        }
+
+        QMetaObject::invokeMethod(guard, [guard, members = std::move(members), ok = r.ok,
+                                         trust = std::move(trust)]() {
             if (guard.isNull()) return;
             guard->allMembers_ = std::move(members);
+            guard->userTrust_ = std::move(trust);
             guard->loaded_ = true;
             guard->statusLabel_->setText(
                 guard->allMembers_.empty()
@@ -139,6 +168,11 @@ void RoomMembersDialog::applyFilter() {
                 !QString::fromStdString(m.userId).toLower().contains(search))
                 continue;
         }
+        int level = 0;
+        auto tit = userTrust_.find(m.userId);
+        if (tit != userTrust_.end()) level = tit->second;
+        QString shieldColor = level == 2 ? "#4CAF50" : (level == 1 ? "#9E9E9E" : "#F44336");
+        display = "<span style='color:" + shieldColor + ";'>●</span> " + display;
         auto* item = new QListWidgetItem(display);
         item->setData(Qt::UserRole, QString::fromStdString(m.userId));
         item->setToolTip(QString::fromStdString(m.userId));

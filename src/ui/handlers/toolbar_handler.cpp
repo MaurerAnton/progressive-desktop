@@ -183,6 +183,7 @@ void ToolbarHandler::onRoomSettings() {
 void ToolbarHandler::onRoomMembers() {
     if (!client_) { QMessageBox::information(parentWidget_, "Members", "Select a room first."); return; }
     RoomMembersDialog dlg(client_.get(), "", parentWidget_);
+    if (sync_) dlg.setSessionStore(sync_->sessionStore());
     connect(&dlg, &RoomMembersDialog::verifyRequested, this,
         [this](const QString& userId, const QString& deviceId) {
             if (verifyHandler_)
@@ -217,6 +218,7 @@ void ToolbarHandler::onSettings() {
         PrefsDialog dlg(parentWidget_);
         dlg.setClient(client_);
         dlg.setVerificationHandler(verifyHandler_);
+        if (sync_) dlg.setSessionStore(sync_->sessionStore());
         if (sync_) dlg.setDecryptor(sync_->decryptor());
         dlg.setSetupCrossSigningFn([this]() {
             return sync_ ? sync_->setupCrossSigning() : false;
@@ -226,6 +228,9 @@ void ToolbarHandler::onSettings() {
         });
         dlg.setUiaSessionFn([this]() {
             return sync_ ? sync_->uiaSession() : std::string();
+        });
+        dlg.setResetCrossSigningFn([this]() {
+            return sync_ ? sync_->resetCrossSigning() : false;
         });
         connect(&dlg, &PrefsDialog::settingsChanged, this, &ToolbarHandler::prefsChanged);
         dlg.exec();

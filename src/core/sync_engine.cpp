@@ -639,6 +639,26 @@ bool SyncEngine::setupCrossSigning() {
     return true;
 }
 
+bool SyncEngine::resetCrossSigning() {
+    if (!client_ || !client_->isLoggedIn()) return false;
+    std::string userId = client_->account().userId;
+
+    auto keys = generateCrossSigningKeys();
+    if (keys.masterPub.empty()) return false;
+    saveCrossSigningKeysJson(userId, keys);
+    int rc = publishCrossSigningKeys(keys, userId, "");
+    if (rc == 0) {
+        LOG(LogChannel::E2EE, "resetCrossSigning: UIA required for %s — awaiting password",
+            userId.c_str());
+        return false;
+    }
+    if (rc < 0) return false;
+    reuploadDeviceKeys(userId, keys);
+    LOG(LogChannel::E2EE, "resetCrossSigning: keys regenerated + uploaded for %s",
+        userId.c_str());
+    return true;
+}
+
 bool SyncEngine::setupCrossSigningWithPassword(const std::string& password) {
     if (!client_ || !client_->isLoggedIn() || uiaSession_.empty()) return false;
     std::string userId = client_->account().userId;

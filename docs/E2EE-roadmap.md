@@ -84,7 +84,18 @@ Scenario coverage: 3 members, alice on 2 devices (login helper), both alice devi
 decrypt the sender's messages, device2 sends + device1 decrypts, late joiner invited +
 decrypts, cross-signing publishing verified across devices.
 
-## Phase 6 — Cross-signing (3-4 sessions) — 🔄 IN PROGRESS (Aug 2)
+## Phase 6 — Cross-signing (3-4 sessions) — ✅ COMPLETE (Aug 3)
+
+### Phase 6 tail (Aug 3):
+- [x] Trust computation — `computeDeviceTrust` (SSK sig over canonical device_keys vs published self_signing_keys)
+- [x] SAS MSK exchange — master key as a pseudo-device in the SAS mac (both sides symmetric, KEY_IDS sorted)
+- [x] Cross-user cross-signing — after a verified SAS, sign the other user's master key with our USK → `POST /keys/signatures/upload` (body key = the target's BARE master pub; signatures map keyed by the SIGNER's user id)
+- [x] UI device shields — PrefsDialog devices + RoomMembersDialog (green verified / grey cross-signed / red unverified)
+- [x] Cross-signing reset — `SyncEngine::resetCrossSigning` + PrefsDialog button (UIA-aware)
+- [x] Live-Synapse CI: A1↔A3 self-SAS, cross-user MSK SAS A1↔bob, USK cross-signature upload, verified-only key-share policy
+
+### Phase 6 earlier work (Aug 2):
+
 Depends on Phase 1 (ed25519 verify).
 - ✅ MSK/USK/SSK ed25519 keygen + sign/verify (libsodium, `0806d83`)
 - ✅ Setup + device signing: SSK signs device_keys, PrefsDialog "Set up secure messaging" (`db6c5f0`, `05827d2`)

@@ -6,6 +6,7 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QTimer>
+#include <map>
 #include <vector>
 #include <string>
 #include "core/matrix_client.hpp"
@@ -19,11 +20,14 @@ struct MemberInfo {
     std::string membership;
 };
 
+namespace progressive::desktop { class SessionStore; }
+
 class RoomMembersDialog : public QDialog {
     Q_OBJECT
 public:
     explicit RoomMembersDialog(MatrixClient* client, const std::string& roomId,
                                 QWidget* parent = nullptr);
+    void setSessionStore(SessionStore* s) { store_ = s; }
 
 private slots:
     void onSearchChanged();
@@ -35,6 +39,7 @@ signals:
 
 private:
     MatrixClient* client_;
+    SessionStore* store_ = nullptr;
     std::string roomId_;
     QLineEdit* searchEdit_;
     QListWidget* list_;
@@ -42,6 +47,7 @@ private:
     QPushButton* closeBtn_;
     QTimer* debounceTimer_;
     std::vector<MemberInfo> allMembers_;
+    std::map<std::string, int> userTrust_;  // userId -> 0 unverified, 1 trusted, 2 verified
     bool loaded_ = false;
 
     void loadMembers();

@@ -73,6 +73,8 @@ public:
     // clear the saved session and show the login dialog.
     void onAuthError(AuthErrorCallback cb) { authErrCb_ = std::move(cb); }
 
+    SessionStore* sessionStore() { return store_.get(); }
+
     // Access the E2EE decryptor (for setup at login time).
     Decryptor* decryptor() { return &decryptor_; }
     VerificationManager& verificationManager() { return verificationManager_; }
@@ -95,6 +97,9 @@ public:
     // the session in uiaSession_ and returns false — retry with the password.
     bool setupCrossSigning();
     bool setupCrossSigningWithPassword(const std::string& password);
+    // Regenerate + re-publish cross-signing keys (overwrites the identity;
+    // UIA-aware — the password retry reuses setupCrossSigningWithPassword).
+    bool resetCrossSigning();
     std::string uiaSession() const { return uiaSession_; }
 
     const SyncEngineStats& stats() const { return stats_; }

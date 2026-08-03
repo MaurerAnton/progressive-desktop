@@ -35,7 +35,7 @@
         {
             "name": "ci",
             "displayName": "CI (GitHub Actions)",
-            "description": "Release build for CI, no ccache assumption.",
+            "description": "Release build for CI, ccache as the compiler launcher (cache persisted via actions/cache).",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build",
             "cacheVariables": {
@@ -43,7 +43,9 @@
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
                 "PROGRESSIVE_LTO": "OFF",
                 "PROGRESSIVE_MOBILE": "OFF",
-                "PROGRESSIVE_BUILD_TESTS": "ON"
+                "PROGRESSIVE_BUILD_TESTS": "ON",
+                "CMAKE_C_COMPILER_LAUNCHER": "ccache",
+                "CMAKE_CXX_COMPILER_LAUNCHER": "ccache"
             }
         }
     ],

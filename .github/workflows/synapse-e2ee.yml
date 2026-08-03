@@ -3,8 +3,32 @@ name: Synapse E2EE Integration
 on:
   push:
     branches: [main]
+    paths:
+      - 'src/core/**'
+      - 'tests/test_synapse_e2ee.cpp'
+      - 'tests/test_e2ee_*.cpp'
+      - 'tests/test_olm_inbound.cpp'
+      - 'cmake/**'
+      - 'CMakeLists.txt'
+      - 'CMakePresets.json'
+      - 'third_party/**'
+      - '.github/workflows/synapse-e2ee.yml'
   pull_request:
     branches: [main]
+    paths:
+      - 'src/core/**'
+      - 'tests/test_synapse_e2ee.cpp'
+      - 'tests/test_e2ee_*.cpp'
+      - 'tests/test_olm_inbound.cpp'
+      - 'cmake/**'
+      - 'CMakeLists.txt'
+      - 'CMakePresets.json'
+      - 'third_party/**'
+      - '.github/workflows/synapse-e2ee.yml'
+
+concurrency:
+  group: synapse-e2ee-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   synapse-e2ee:
@@ -21,6 +45,25 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y qt6-base-dev libqt6widgets6 qt6-base-dev-tools \
           cmake ninja-build ccache libcurl4-openssl-dev libsqlite3-dev libsodium-dev
+
+    - name: ccache cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ccache
+        key: ccache-${{ runner.os }}-${{ hashFiles('src/**', 'tests/**', 'CMakeLists.txt', 'cmake/**', 'CMakePresets.json', 'third_party/patches/**') }}
+        restore-keys: |
+          ccache-${{ runner.os }}-
+
+    - name: FetchContent + sqlite cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          build/_deps
+          build/sqlite3.zip
+          build/sqlite-amalgamation-3450200
+        key: deps-${{ runner.os }}-${{ hashFiles('cmake/**', 'CMakeLists.txt') }}
+        restore-keys: |
+          deps-${{ runner.os }}-
 
     - name: Generate Synapse config
       run: |
@@ -70,7 +113,6 @@ jobs:
         docker logs synapse
         echo "Synapse failed to start"
         exit 1
-
 
     - name: Configure
       run: cmake --preset ci

@@ -94,6 +94,16 @@ cd progressive-desktop
 > ```bash
 > git submodule update --init --recursive
 > ```
+>
+> **After every `git pull`:** `git pull` does NOT update submodules. If a pull changed the
+> submodule pointer, sync it or you'll get compile errors (e.g. missing `forgetOldFallbackKey`):
+>
+> ```bash
+> git submodule update --init --recursive
+> ```
+>
+> Daily build shortcut (PineTab): `git pull && git submodule update --init --recursive &&
+> cmake --preset pinetab2 && cmake --build build -j4 && ./build/progressive-desktop`
 
 ### Other presets
 

@@ -81,7 +81,9 @@ int main() {
     room.timeline.events = {e1, e2};
     resp.joinedRooms.push_back({(*owned)[0], std::move(room)});
 
+    std::cerr << "[applier-checkpoint] response built\n";
     auto u = SyncApplier::prepareRoomSyncUpdate(resp, "!room1:test", "@me:test");
+    std::cerr << "[applier-checkpoint] prepareRoomSyncUpdate done\n";
     CHECK(u.roomsToUpsert.size() == 1, "applier: one room upserted");
     CHECK(u.currentRoomUpdated && u.currentRoomEvents.size() == 2,
           "applier: current room events captured");
@@ -120,8 +122,10 @@ int main() {
     CHECK(big.size() <= static_cast<size_t>(TimelineState::MAX_TIMELINE_EVENTS),
           "applier: cap-200 enforced");
     CHECK(big.at(0)->eventId == "$cap50", "applier: oldest evicted");
+    std::cerr << "[applier-checkpoint] all applier checks done\n";
 
     if (failures) { std::cerr << failures << " TEST(S) FAILED\n"; return 1; }
+    std::cerr << "[applier-checkpoint] main returning 0\n";
     std::cout << "All sync_applier tests passed\n";
     return 0;
 }

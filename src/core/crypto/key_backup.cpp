@@ -104,7 +104,12 @@ int restoreKeyBackup(MatrixClient& client, Decryptor& decryptor,
     if (pair.privateKeyB64.empty()) return 0;
 
     auto resp = client.getRoomKeys(info.version);
-    if (!resp.ok) return 0;
+    if (!resp.ok) {
+        std::fprintf(stderr, "[key-backup] getRoomKeys FAILED http=%d\n", resp.httpStatus);
+        return 0;
+    }
+    std::fprintf(stderr, "[key-backup] getRoomKeys ok, has sender_key=%d\n",
+        resp.data.find("\"sender_key\"") != std::string::npos ? 1 : 0);
 
     simdjson::dom::parser p;
     auto doc = p.parse(resp.data);

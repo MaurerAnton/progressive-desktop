@@ -1081,6 +1081,8 @@ ApiResult<std::string> MatrixClient::createRoomKeysVersion(const std::string& bo
     r.httpStatus = resp.statusCode;
     if (resp.success) { r.ok = true; r.data = resp.body; }
     else { r.error = progressive::parseMatrixErrorJson(resp.body); }
+    LOG(LogChannel::NET, "createRoomKeysVersion: ok=%d http=%d body=%.200s",
+        r.ok ? 1 : 0, r.httpStatus, resp.body.c_str());
     return r;
 }
 
@@ -1094,6 +1096,8 @@ ApiResult<std::string> MatrixClient::uploadRoomKeys(const std::string& body,
     r.httpStatus = resp.statusCode;
     if (resp.success) { r.ok = true; r.data = resp.body; }
     else { r.error = progressive::parseMatrixErrorJson(resp.body); }
+    LOG(LogChannel::NET, "uploadRoomKeys: ok=%d http=%d body=%.200s",
+        r.ok ? 1 : 0, r.httpStatus, resp.body.c_str());
     return r;
 }
 
@@ -1105,6 +1109,8 @@ ApiResult<std::string> MatrixClient::getRoomKeysVersion(const std::string& versi
     r.httpStatus = resp.statusCode;
     if (resp.success) { r.ok = true; r.data = resp.body; }
     else { r.error = progressive::parseMatrixErrorJson(resp.body); }
+    LOG(LogChannel::NET, "getRoomKeysVersion: ok=%d http=%d body=%.200s",
+        r.ok ? 1 : 0, r.httpStatus, resp.body.c_str());
     return r;
 }
 
@@ -1116,6 +1122,8 @@ ApiResult<std::string> MatrixClient::getRoomKeys(const std::string& version) {
     r.httpStatus = resp.statusCode;
     if (resp.success) { r.ok = true; r.data = resp.body; }
     else { r.error = progressive::parseMatrixErrorJson(resp.body); }
+    LOG(LogChannel::NET, "getRoomKeys: ok=%d http=%d body=%.300s",
+        r.ok ? 1 : 0, r.httpStatus, resp.body.c_str());
     return r;
 }
 

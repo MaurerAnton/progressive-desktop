@@ -321,9 +321,10 @@ public:
     // {"algorithm":"m.megolm_backup.v1.curve25519-aes-sha2",
     //  "auth_data":{"public_key":...,"signatures":{}}}. Returns {"version":..}.
     ApiResult<std::string> createRoomKeysVersion(const std::string& body);
-    // PUT /room_keys/keys — upload all sessions. Body: {"rooms":{...}}.
-    // Returns {"count":N}.
-    ApiResult<std::string> uploadRoomKeys(const std::string& body);
+    // PUT /room_keys/keys?version={version} — upload all sessions.
+    // Body: {"rooms":{...}}. Returns {"count":N}.
+    ApiResult<std::string> uploadRoomKeys(const std::string& body,
+                                          const std::string& version);
     // GET /room_keys/version/{version} — the backup version info.
     ApiResult<std::string> getRoomKeysVersion(const std::string& version);
     // GET /room_keys/keys?version={version} — all backed-up sessions.

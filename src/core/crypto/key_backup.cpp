@@ -93,7 +93,7 @@ bool uploadKeyBackup(MatrixClient& client, Decryptor& decryptor,
     }
     body << "}}";
 
-    auto resp = client.uploadRoomKeys(body.str());
+    auto resp = client.uploadRoomKeys(body.str(), info.version);
     return resp.ok;
 }
 

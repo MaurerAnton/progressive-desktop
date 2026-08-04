@@ -1084,11 +1084,13 @@ ApiResult<std::string> MatrixClient::createRoomKeysVersion(const std::string& bo
     return r;
 }
 
-ApiResult<std::string> MatrixClient::uploadRoomKeys(const std::string& body) {
+ApiResult<std::string> MatrixClient::uploadRoomKeys(const std::string& body,
+                                                        const std::string& version) {
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
-    auto resp = httpPut(account().homeserverUrl + "/_matrix/client/v3/room_keys/keys",
-                        body, authHeaders(), 30000);
+    // The spec: the version is a QUERY PARAMETER (the server stores into it).
+    auto resp = httpPut(account().homeserverUrl + "/_matrix/client/v3/room_keys/keys?version="
+                        + urlEncodePath(version), body, authHeaders(), 30000);
     r.httpStatus = resp.statusCode;
     if (resp.success) { r.ok = true; r.data = resp.body; }
     else { r.error = progressive::parseMatrixErrorJson(resp.body); }

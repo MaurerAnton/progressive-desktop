@@ -190,6 +190,7 @@ void ToolbarHandler::onRoomMembers() {
     RoomMembersDialog dlg(client_.get(),
                           roomHandler_ ? roomHandler_->currentRoomId() : "",
                           parentWidget_);
+    dlg.setFallbackTimeline(timelineModel_);
     if (sync_) dlg.setSessionStore(sync_->sessionStore());
     connect(&dlg, &RoomMembersDialog::verifyRequested, this,
         [this](const QString& userId, const QString& deviceId) {

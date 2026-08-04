@@ -158,6 +158,24 @@ DecryptionResult Decryptor::decryptMegolmEvent(const std::string& roomId,
 }
 
 bool Decryptor::handleRoomKey(const std::string& contentJson) {
+    {
+        // A received session satisfies any pending requests for it.
+        simdjson::dom::parser p;
+        auto doc = p.parse(contentJson);
+        if (doc.error() == simdjson::SUCCESS) {
+            auto rid = doc.value()["room_id"].get_string();
+            auto sid = doc.value()["session_id"].get_string();
+            auto sk = doc.value()["sender_key"].get_string();
+            if (rid.error() == simdjson::SUCCESS && sid.error() == simdjson::SUCCESS &&
+                sk.error() == simdjson::SUCCESS) {
+                std::string key = std::string(rid.value()) + "|" +
+                                  std::string(sid.value()) + "|" +
+                                  std::string(sk.value());
+                std::lock_guard<std::mutex> lk(requestMtx_);
+                requestedKeys_.erase(key);
+            }
+        }
+    }
     simdjson::dom::parser rp;
     auto doc = rp.parse(contentJson);
     if (doc.error() != simdjson::SUCCESS) return false;
@@ -1243,8 +1261,14 @@ void Decryptor::requestRoomKey(const std::string& roomId, const std::string& sen
     std::string key = roomId + "|" + sessionId + "|" + senderKey;
     {
         std::lock_guard<std::mutex> lk(requestMtx_);
-        if (requestedKeys_.count(key)) return;
-        requestedKeys_.insert(key);
+        if (requestedKeys_.count(key)) return;  // retries go through maybeReRequestKeys
+        KeyRequestState st;
+        st.attempts = 1;  // this first request counts
+        st.lastMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        st.senderId = senderId;
+        st.senderDeviceId = senderDeviceId;
+        requestedKeys_.emplace(key, std::move(st));
     }
     std::string reqId = "pdrkr" + std::to_string(
         static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count())
@@ -1267,6 +1291,39 @@ void Decryptor::requestRoomKey(const std::string& roomId, const std::string& sen
                  roomId.c_str(), sessionId.c_str(), senderId.c_str(), ok ? 1 : 0);
 }
 
+
+void Decryptor::maybeReRequestKeys() {
+    if (ctxHomeserver_.empty() || ctxToken_.empty()) return;
+    auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    std::lock_guard<std::mutex> lk(requestMtx_);
+    for (auto& [key, st] : requestedKeys_) {
+        int64_t elapsed = nowMs - st.lastMs;
+        if (!shouldReRequestKey(st.attempts, elapsed)) continue;
+        st.attempts++;
+        st.lastMs = nowMs;
+        std::string reqId = "pdrkr" + std::to_string(
+            static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count())
+            + g_txnCounter.fetch_add(1));
+        auto sep1 = key.find('|');
+        auto sep2 = key.find('|', sep1 == std::string::npos ? 0 : sep1 + 1);
+        if (sep1 == std::string::npos || sep2 == std::string::npos) continue;
+        std::string roomId = key.substr(0, sep1);
+        std::string sessionId = key.substr(sep1 + 1, sep2 - sep1 - 1);
+        std::string senderKey = key.substr(sep2 + 1);
+        std::string requestContent = "{\"action\":\"request\","
+            "\"body\":{\"algorithm\":\"m.megolm.v1.aes-sha2\","
+            "\"room_id\":\"" + roomId + "\","
+            "\"sender_key\":\"" + senderKey + "\","
+            "\"session_id\":\"" + sessionId + "\"},"
+            "\"request_id\":\"" + reqId + "\","
+            "\"requesting_device_id\":\"" + ctxDeviceId_ + "\"}";
+        bool ok = !st.senderDeviceId.empty() &&
+            sendOlmToDevice(st.senderId, st.senderDeviceId, "m.room_key_request", requestContent);
+        LOG(LogChannel::E2EE, "maybeReRequestKeys: retry %d for room=%.40s sid=%.20s ok=%d",
+            st.attempts, roomId.c_str(), sessionId.c_str(), ok ? 1 : 0);
+    }
+}
 
 bool Decryptor::handleRoomKeyRequest(const std::string& contentJson,
     const std::string& senderId) {

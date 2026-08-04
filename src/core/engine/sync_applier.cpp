@@ -263,7 +263,7 @@ void SyncApplier::fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
         if (fbIsObject) {
             htmlBody = extractStringDecAt(de.contentJson, "body", fbValPos);
         } else {
-            de.body = jsonUnescape(extractStringDec(de.contentJson, "body"));
+            de.body = extractStringDec(de.contentJson, "body");  // extractor unescapes
             if (de.body.empty()) {
                 // Plain formatted_body HTML string.
                 htmlBody = extractStringDec(de.contentJson, "formatted_body");
@@ -283,7 +283,7 @@ void SyncApplier::fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
         de.msgtype = extractStringDec(de.contentJson, "msgtype");
         if (de.msgtype == "m.image" || de.msgtype == "m.video" ||
             de.msgtype == "m.file" || de.msgtype == "m.audio") {
-            de.mxcUrl = jsonUnescape(extractStringDec(de.contentJson, "url"));
+            de.mxcUrl = extractStringDec(de.contentJson, "url");
             de.mimetype = extractStringDec(de.contentJson, "mimetype");
             if (de.body.empty())
                 de.body = extractStringDec(de.contentJson, "filename");
@@ -293,14 +293,7 @@ void SyncApplier::fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
         // Bug fix: replies arriving via /sync never got isReply/replyToEventId.
         std::string replyTo = SyncApplier::extractReplyToId(de.contentJson);
         if (!replyTo.empty()) { de.isReply = true; de.replyToEventId = replyTo; }
-        if (de.isReply && de.body.size() > 2 && de.body[0] == '>' && de.body[1] == ' ') {
-            // Strip Element's fallback quote: "> <@user:server> text\n\nreal".
-            auto nl = de.body.find('\n');
-            if (nl != std::string::npos) {
-                de.body.erase(0, nl + 1);
-                if (!de.body.empty() && de.body[0] == '\n') de.body.erase(0, 1);
-            }
-        }
+        stripReplyFallback(de);
     }
     if (de.type == "m.room.encrypted") {
         LOG(LogChannel::DBG, "sync-encrypted: sender=%s content=[%.300s]",
@@ -310,6 +303,17 @@ void SyncApplier::fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
     LOG(LogChannel::DBG, "sync-event: type=%s bodyEmpty=%d contentEmpty=%d sender=%.30s body=[%.100s]",
         de.type.c_str(), (int)de.body.empty(), (int)de.contentJson.empty(),
         de.senderId.c_str(), de.body.c_str());
+}
+
+void SyncApplier::stripReplyFallback(DisplayedEvent& de) {
+    if (!de.isReply || de.body.size() <= 2 || de.body[0] != '>' || de.body[1] != ' ')
+        return;
+    // Strip Element's fallback quote: "> <@user:server> text\n\nreal".
+    auto nl = de.body.find('\n');
+    if (nl != std::string::npos) {
+        de.body.erase(0, nl + 1);
+        if (!de.body.empty() && de.body[0] == '\n') de.body.erase(0, 1);
+    }
 }
 
 std::string SyncApplier::makeSystemBody(const std::string& type, const std::string& contentJson,

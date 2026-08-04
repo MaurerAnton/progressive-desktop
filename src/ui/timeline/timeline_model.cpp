@@ -53,7 +53,7 @@ QVariant TimelineModel::data(const QModelIndex& index, int role) const {
         case Qt::ToolTipRole:
             if (!e.decryptError.empty())
                 return "Cannot decrypt this message: " + QString::fromStdString(e.decryptError) +
-                       "\nKey request sent to the sender — see Log viewer (E2EE) for details.";
+                       "\nA key request is sent to the sender — see Log viewer (E2EE) for details.";
             return {};
         case ReactionsRole: {
             // Convert reactions to a QStringList of "emoji (count)" entries

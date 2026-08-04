@@ -410,6 +410,7 @@ void PrefsDialog::loadDevices(QVBoxLayout* sectionLayout) {
                                      queryBody, sectionLayout, this]() {
         std::vector<DeviceRow> rows;
         std::string fetchError;
+        progressive::desktop::DeviceTrust selfTrust = progressive::desktop::DeviceTrust::Unverified;
         auto resp = client->queryKeys(queryBody);
         if (!resp.ok) {
             fetchError = "Could not fetch devices. (HTTP " +
@@ -424,6 +425,8 @@ void PrefsDialog::loadDevices(QVBoxLayout* sectionLayout) {
             for (const auto& r : progressive::desktop::computeDeviceTrust(
                     resp.data, ourUserId, ourUserId, ourUsk))
                 trustByDev[r.deviceId] = r.trust;
+            auto selfIt = trustByDev.find(ourDeviceId);
+            if (selfIt != trustByDev.end()) selfTrust = selfIt->second;
             simdjson::dom::parser p;
             auto doc = p.parse(resp.data);
             if (doc.error() == simdjson::SUCCESS) {
@@ -449,7 +452,7 @@ void PrefsDialog::loadDevices(QVBoxLayout* sectionLayout) {
                 }
             }
         }
-        QMetaObject::invokeMethod(guard, [guard, sectionLayout, rows, fetchError, this, ourUserId, ourDeviceId]() {
+        QMetaObject::invokeMethod(guard, [guard, sectionLayout, rows, fetchError, this, ourUserId, ourDeviceId, selfTrust]() {
             if (guard.isNull()) return;
             while (QLayoutItem* item = sectionLayout->takeAt(0)) {
                 if (QWidget* w = item->widget()) w->deleteLater();
@@ -465,11 +468,7 @@ void PrefsDialog::loadDevices(QVBoxLayout* sectionLayout) {
             // The current device's status: cross-signing published? device
             // signed by the account's SSK? (answers "why is my device not
             // logged in / verified" in-app).
-            bool selfSigned = false;
-            for (const auto& row : rows) {
-                if (row.deviceId == ourDeviceId && row.trust == progressive::desktop::DeviceTrust::Trusted)
-                    selfSigned = true;
-            }
+            bool selfSigned = selfTrust == progressive::desktop::DeviceTrust::Trusted;
             QString selfState;
             QColor selfColor = QColor("#F44336");
             if (selfSigned) {

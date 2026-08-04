@@ -171,9 +171,9 @@ void RoomHandler::onLoadMoreClicked() {
     QPointer<MainWindow> guard(mainWindow_);
     QPointer<RoomHandler> self(this);
 
-    ThreadPool::instance().enqueue([guard, self, client, roomId, from]() {
+    ThreadPool::instance().enqueue([guard, self, client, roomId, from, decryptor = sync_ ? sync_->decryptor() : nullptr]() {
         auto result = client->getMessages(roomId, from, PrefsDialog::historyLoadLimit());
-        QMetaObject::invokeMethod(guard, [guard, self, result]() {
+        QMetaObject::invokeMethod(guard, [guard, self, result, roomId, decryptor]() {
             if (guard.isNull() || self.isNull()) return;
             if (!result.ok) {
                 self->statusLabel_->setText("Failed to load older messages.");
@@ -212,27 +212,73 @@ void RoomHandler::onLoadMoreClicked() {
             for (auto evt : chunkResult.value()) {
                 DisplayedEvent de;
                 parseEventFields(evt, de);
-                if (de.type == "m.room.message") {
-                    de.msgtype = SyncApplier::extractStringDec(de.contentJson, "msgtype");
-                    de.body = SyncApplier::extractStringDec(de.contentJson, "body");
-                    if (de.msgtype == "m.image" || de.msgtype == "m.video" ||
-                        de.msgtype == "m.file" || de.msgtype == "m.audio") {
-                        de.mxcUrl = SyncApplier::extractStringDec(de.contentJson, "url");
-                        de.mimetype = SyncApplier::extractStringDec(de.contentJson, "mimetype");
-                        if (de.body.empty())
-                            de.body = SyncApplier::extractStringDec(de.contentJson, "filename");
+                if (de.type == "m.room.redaction" && !de.contentJson.empty()) {
+                    auto rid = SyncApplier::extractStringDec(de.contentJson, "redacts");
+                    if (!rid.empty()) self->timelineModel_->markDeleted(rid);
+                    continue;
+                }
+                if (de.type == "m.reaction" && !de.contentJson.empty()) {
+                    simdjson::dom::parser rp;
+                    auto doc = rp.parse(de.contentJson);
+                    if (doc.error() == simdjson::SUCCESS) {
+                        auto rel = doc.value()["m.relates_to"];
+                        auto te = rel["event_id"].get_string();
+                        auto key = rel["key"].get_string();
+                        if (te.error() == simdjson::SUCCESS && key.error() == simdjson::SUCCESS)
+                            self->timelineModel_->addReaction(std::string(te.value()),
+                                                              std::string(key.value()), de.senderId);
                     }
-                    std::string_view cv(de.contentJson);
-                    std::string threadRoot = SyncApplier::extractThreadRootId(cv);
-                    if (!threadRoot.empty()) {
-                        de.isThreadReply = true;
-                        de.threadRootId = threadRoot;
+                    continue;
+                }
+                if (de.type == "m.room.member" || de.type == "m.room.topic" ||
+                    de.type == "m.room.name" || de.type == "m.room.encryption" ||
+                    de.type == "m.room.create" || de.type == "m.room.avatar") {
+                    std::string stateKey;
+                    auto sk = evt["state_key"].get_string();
+                    if (sk.error() == simdjson::SUCCESS) stateKey = std::string(sk.value());
+                    auto body = SyncApplier::makeSystemBody(de.type, de.contentJson, stateKey);
+                    if (!body.empty()) {
+                        DisplayedEvent sys;
+                        sys.type = "progressive.system";
+                        sys.eventId = de.eventId;
+                        sys.senderName = "system";
+                        sys.originServerTs = de.originServerTs;
+                        sys.body = body;
+                        events.push_back(std::move(sys));
                     }
-                    std::string replyTo = SyncApplier::extractReplyToId(cv);
-                    if (!replyTo.empty()) {
-                        de.isReply = true;
-                        de.replyToEventId = replyTo;
+                    continue;
+                }
+                if (de.type == "m.typing" || de.type == "m.receipt" ||
+                    de.type == "m.fully_read") {
+                    continue;
+                }
+                if (de.type != "m.room.message" && de.type != "m.room.encrypted") continue;
+                // Route through the engine's single conversion path (decrypt,
+                // extraction, thread, reply, fallback strip).
+                FastEvent fe;
+                fe.type = std::string_view(de.type);
+                fe.eventId = std::string_view(de.eventId);
+                fe.senderId = std::string_view(de.senderId);
+                fe.contentJson = std::string_view(de.contentJson);
+                fe.originServerTs = de.originServerTs;
+                SyncApplier::fastEventToDisplayed(fe, de, roomId, decryptor);
+                if (de.type == "m.reaction" && !de.contentJson.empty()) {
+                    // Decrypted reactions: extract + skip (never rows).
+                    simdjson::dom::parser rp;
+                    auto doc = rp.parse(de.contentJson);
+                    if (doc.error() == simdjson::SUCCESS) {
+                        auto rel = doc.value()["m.relates_to"];
+                        auto te = rel["event_id"].get_string();
+                        auto key = rel["key"].get_string();
+                        if (te.error() == simdjson::SUCCESS && key.error() == simdjson::SUCCESS)
+                            self->timelineModel_->addReaction(std::string(te.value()),
+                                                              std::string(key.value()), de.senderId);
                     }
+                    continue;
+                }
+                if (de.type == "m.room.encrypted") {
+                    de.body = "[encrypted]";
+                    de.msgtype = "m.notice";
                 }
                 auto it = self->memberAvatarCache_.find(de.senderId);
                 if (it != self->memberAvatarCache_.end()) de.avatarUrl = it->second;

@@ -54,6 +54,8 @@ void SyncResponseHandler::handle(FastSyncResponse resp) {
     ThreadPool::instance().enqueue([guard, rmh, resp = std::move(resp), myUserId, curRoomId, notifier]() mutable {
         auto keepAlive = std::make_shared<FastSyncResponse>(std::move(resp));
         auto syncUpdate = SyncApplier::prepareRoomSyncUpdate(*keepAlive, curRoomId, myUserId);
+        if (guard && guard->decryptor_)
+            guard->decryptor_->maybeReRequestKeys();  // worker thread, once per sync
 
         QMetaObject::invokeMethod(guard, [guard, rmh, syncUpdate = std::move(syncUpdate), notifier, keepAlive]() mutable {
             if (guard.isNull()) return;
@@ -85,6 +87,13 @@ void SyncResponseHandler::handle(FastSyncResponse resp) {
                     de.senderId = evt.senderId;
                     de.originServerTs = evt.originServerTs;
                     SyncApplier::fastEventToDisplayed(fe, de, evt.roomId, nullptr);
+                    // Preserve the row's avatar (the freshly-converted event
+                    // has none — the lookup happens in the sync apply).
+                    {
+                        int oldRow = guard->timelineModel_->findRow(evt.eventId);
+                        const DisplayedEvent* oldEvt = oldRow >= 0 ? guard->timelineModel_->at(oldRow) : nullptr;
+                        if (oldEvt && !oldEvt->avatarUrl.empty()) de.avatarUrl = oldEvt->avatarUrl;
+                    }
                     guard->timelineModel_->replaceEvent(evt.eventId, de);
                 }
             }

@@ -79,3 +79,19 @@ completed items are removed.
       long-poll timeout)
 - [x] Tests: formatted_body (plain + nested), sync-path reply, m.file/m.audio,
       member-avatar extraction, reaction-count guard, reset re-signs the device
+
+## Aug 5 batch (members fallback + structural dedup + audit rounds)
+- [x] Members dialog: local-state fallback when /members fails ("Not in the
+      room" on a stale room id) + Reload button + getRoomMembers diagnostic log
+- [x] Structural dedup: load-more + history now route through
+      fastEventToDisplayed (single extraction path) — they gain decrypt,
+      badge/decryptError, reply strip, reactions-as-rows fixes for free
+- [x] Load-more: member/system events become system rows, reactions extracted,
+      encrypted events decrypted (were blank rows)
+- [x] Key-request retry: backoff (30s/2min/10min/1h) + fresh request_id per
+      attempt + satisfied-request removal + once-per-sync worker hook + tests
+- [x] Own-device status row now truthful (trust passed through, not dead loop)
+- [x] Avatar map cleared on room switch (no cross-room contamination)
+- [x] Avatar preserved when a re-decrypted event replaces its row
+- [x] Double-unescape removed (extractor unescapes; callers no longer re-wrap)
+- [x] Tooltip wording softened ("a key request is sent…")

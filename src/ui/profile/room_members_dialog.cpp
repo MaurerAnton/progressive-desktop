@@ -1,5 +1,8 @@
 // src/ui/room_members_dialog.cpp
 #include "room_members_dialog.hpp"
+#include "../timeline/timeline_model.hpp"
+#include <QHBoxLayout>
+#include <set>
 #include "core/crypto/cross_sign.hpp"
 #include "../shared/theme.hpp"
 #include <QPointer>
@@ -52,7 +55,14 @@ RoomMembersDialog::RoomMembersDialog(MatrixClient* client, const std::string& ro
     root->addWidget(searchEdit_);
     root->addWidget(list_);
     root->addWidget(statusLabel_);
-    root->addWidget(closeBtn_);
+    auto* btnRow = new QHBoxLayout;
+    reloadBtn_ = new QPushButton("Reload", this);
+    reloadBtn_->setEnabled(false);
+    btnRow->addWidget(reloadBtn_);
+    btnRow->addStretch();
+    btnRow->addWidget(closeBtn_);
+    root->addLayout(btnRow);
+    connect(reloadBtn_, &QPushButton::clicked, this, &RoomMembersDialog::reload);
 
     // 150ms debounce: filter client-side, not reload from server
     debounceTimer_ = new QTimer(this);
@@ -156,14 +166,45 @@ void RoomMembersDialog::loadMembers() {
             guard->allMembers_ = std::move(members);
             guard->userTrust_ = std::move(trust);
             guard->loaded_ = true;
-            guard->statusLabel_->setText(
-                guard->allMembers_.empty()
-                    ? (ok ? "No members found"
-                          : "Failed to load members: " + failReason)
-                    : QString("%1 members").arg(guard->allMembers_.size()));
+            QString status;
+            if (guard->allMembers_.empty() && !ok) {
+                // Local-state fallback: the members seen in the current
+                // timeline (a failed /members shouldn't yield an empty list).
+                std::set<std::string> seen;
+                if (guard->fallbackModel_) {
+                    for (int i = 0; i < guard->fallbackModel_->rowCount(); ++i) {
+                        auto* evt = guard->fallbackModel_->at(i);
+                        if (!evt || evt->senderId.empty() || !seen.insert(evt->senderId).second)
+                            continue;
+                        MemberInfo m;
+                        m.userId = evt->senderId;
+                        m.displayName = evt->senderName;
+                        m.avatarUrl = evt->avatarUrl;
+                        m.membership = "join";
+                        guard->allMembers_.push_back(std::move(m));
+                    }
+                }
+                status = guard->allMembers_.empty()
+                    ? "Failed to load members: " + failReason
+                    : QString("Server fetch failed (%1) — showing %2 local members")
+                          .arg(failReason).arg(guard->allMembers_.size());
+            } else if (guard->allMembers_.empty()) {
+                status = "No members found";
+            } else {
+                status = QString("%1 members").arg(guard->allMembers_.size());
+            }
+            guard->statusLabel_->setText(status);
+            guard->reloadBtn_->setEnabled(true);
             guard->applyFilter();
         }, Qt::QueuedConnection);
     });
+}
+
+void RoomMembersDialog::reload() {
+    loaded_ = false;
+    list_->clear();
+    statusLabel_->setText("Loading members...");
+    loadMembers();
 }
 
 void RoomMembersDialog::applyFilter() {

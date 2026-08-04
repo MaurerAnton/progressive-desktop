@@ -22,12 +22,19 @@ struct MemberInfo {
 
 namespace progressive::desktop { class SessionStore; }
 
+class TimelineModel;
+
 class RoomMembersDialog : public QDialog {
     Q_OBJECT
 public:
     explicit RoomMembersDialog(MatrixClient* client, const std::string& roomId,
                                 QWidget* parent = nullptr);
     void setSessionStore(SessionStore* s) { store_ = s; }
+    // Local-state fallback: when /members fails (e.g. "Not in the room" on a
+    // stale room id), show the members seen in the current timeline instead
+    // of failing empty.
+    void setFallbackTimeline(TimelineModel* model) { fallbackModel_ = model; }
+    void reload();
 
 private slots:
     void onSearchChanged();
@@ -40,11 +47,13 @@ signals:
 private:
     MatrixClient* client_;
     SessionStore* store_ = nullptr;
+    TimelineModel* fallbackModel_ = nullptr;
     std::string roomId_;
     QLineEdit* searchEdit_;
     QListWidget* list_;
     QLabel* statusLabel_;
     QPushButton* closeBtn_;
+    QPushButton* reloadBtn_ = nullptr;
     QTimer* debounceTimer_;
     std::vector<MemberInfo> allMembers_;
     std::map<std::string, int> userTrust_;  // userId -> 0 unverified, 1 trusted, 2 verified

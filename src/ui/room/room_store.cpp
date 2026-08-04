@@ -79,7 +79,11 @@ void RoomStore::applyRoomSyncUpdate(RoomSyncUpdate& syncUpdate,
     if (syncUpdate.currentRoomUpdated && currentTimeline) {
         // Accumulate member avatars across syncs — Synapse omits the state
         // block on incremental syncs, so a fresh per-sync map would leave
-        // every new message without an avatar.
+        // every new message without an avatar. Cleared when the user switches
+        // rooms (otherwise the previous room's avatars bleed in).
+        if (!lastAppliedRoom_.empty() && lastAppliedRoom_ != syncUpdate.currentRoomId)
+            memberAvatars_.clear();
+        lastAppliedRoom_ = syncUpdate.currentRoomId;
         for (const auto& [uid, av] : syncUpdate.currentRoomAvatars) memberAvatars_[uid] = av;
         appendTimelineForRoom(syncUpdate.currentRoomId, syncUpdate.currentRoomEvents,
                               currentTimeline, &memberAvatars_,

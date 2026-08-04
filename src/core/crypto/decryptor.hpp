@@ -48,6 +48,15 @@ struct OutboundMegolmSession {
     int64_t startTimeMs = 0;     // session creation time (rotation)
 };
 
+// Pure backoff decision for the room-key request retry (testable without a
+// server). Attempts: 1st retry after 30s, 2nd after 2min, 3rd after 10min,
+// 4th after 1h, then give up.
+inline bool shouldReRequestKey(int attempts, int64_t elapsedMs) {
+    static const int64_t kSchedule[] = {30000, 120000, 600000, 3600000};
+    if (attempts <= 0 || attempts > 4) return false;
+    return elapsedMs >= kSchedule[attempts - 1];
+}
+
 class Decryptor {
 public:
     Decryptor();
@@ -240,6 +249,10 @@ public:
                                  const std::string& stateContentJson);
     bool shareKeysVerifiedOnly() const { return shareKeysVerifiedOnly_; }
 
+    // Re-send room-key requests that got no answer (a lost to-device message
+    // would otherwise leave the event encrypted forever). Backoff schedule.
+    // Call from the sync worker thread, once per sync.
+    void maybeReRequestKeys();
     void requestRoomKey(const std::string& roomId, const std::string& senderId,
                         const std::string& senderKey, const std::string& sessionId,
                         const std::string& senderDeviceId = "");
@@ -263,7 +276,13 @@ private:
     std::mutex olmMtx_;
     // Credentials for to-device HTTP calls (set once at E2EE init).
     std::string ctxUserId_, ctxDeviceId_, ctxHomeserver_, ctxToken_;
-    std::unordered_set<std::string> requestedKeys_;
+    struct KeyRequestState {
+        int attempts = 0;            // requests sent so far (incl. the first)
+        int64_t lastMs = 0;          // steady_clock ms of the last request
+        std::string senderId;
+        std::string senderDeviceId;
+    };
+    std::unordered_map<std::string, KeyRequestState> requestedKeys_;
     std::unordered_set<std::string> recentKeyRequests_;  // dedup by request_id (capped)
     bool shareKeysVerifiedOnly_ = false;  // policy: only share with SAS-verified devices
     VerifiedDeviceChecker verifiedDeviceChecker_;

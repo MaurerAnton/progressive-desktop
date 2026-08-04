@@ -66,6 +66,8 @@ public:
     // nested {"formatted_body":{"body":"..."}} shape).
     static std::string extractStringDecAt(std::string_view json, const std::string& key,
                                           size_t startPos);
+    // Strip Element's "> <@user:server> text\n\nreal" fallback from reply bodies.
+    static void stripReplyFallback(DisplayedEvent& de);
     static std::string extractString(std::string_view json, const std::string& key);
     // Fill the message fields of a DisplayedEvent from a FastEvent.
     static void fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,

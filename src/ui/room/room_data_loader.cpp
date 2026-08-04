@@ -107,67 +107,34 @@ void RoomDataLoader::loadHistory(const std::string& roomId, TimelineModel* model
                     continue;
                 }
                 if (de.type != "m.room.message" && de.type != "m.room.encrypted") continue;
-                if (de.type == "m.room.message") {
-                    de.msgtype = SyncApplier::msgType(de.contentJson);
-                    de.body = SyncApplier::msgBody(de.contentJson);
-                    std::string_view cv(de.contentJson);
-                    std::string threadRoot = SyncApplier::extractThreadRootId(cv);
-                    if (!threadRoot.empty()) {
-                        de.isThreadReply = true;
-                        de.threadRootId = threadRoot;
+                // Route through the engine's single conversion path (decrypt,
+                // msgtype/body/formatted_body/mxcUrl, thread, reply, fallback
+                // strip) — the UI no longer keeps its own copies.
+                FastEvent fe;
+                fe.type = std::string_view(de.type);
+                fe.eventId = std::string_view(de.eventId);
+                fe.senderId = std::string_view(de.senderId);
+                fe.contentJson = std::string_view(de.contentJson);
+                fe.originServerTs = de.originServerTs;
+                SyncApplier::fastEventToDisplayed(fe, de, roomId, decryptor);
+                if (de.type == "m.reaction" && !de.contentJson.empty()) {
+                    // Decrypted reactions: extract + skip (never rows).
+                    simdjson::dom::parser rp;
+                    auto doc = rp.parse(de.contentJson);
+                    if (doc.error() == simdjson::SUCCESS) {
+                        auto rel = doc.value()["m.relates_to"];
+                        auto te = rel["event_id"].get_string();
+                        auto key = rel["key"].get_string();
+                        if (te.error() == simdjson::SUCCESS && key.error() == simdjson::SUCCESS)
+                            pendingReactions.emplace_back(std::string(te.value()),
+                                                          std::string(key.value()), de.senderId);
                     }
-                    std::string replyTo = SyncApplier::extractReplyToId(cv);
-                    if (!replyTo.empty()) {
-                        de.isReply = true;
-                        de.replyToEventId = replyTo;
-                    }
-                    if (de.msgtype == "m.image" || de.msgtype == "m.video" ||
-                        de.msgtype == "m.file" || de.msgtype == "m.audio") {
-                        de.mxcUrl = SyncApplier::extractStringDec(de.contentJson, "url");
-                        de.mimetype = SyncApplier::extractStringDec(de.contentJson, "mimetype");
-                        if (de.body.empty())
-                            de.body = SyncApplier::extractStringDec(de.contentJson, "filename");
-                    }
-                } else if (de.type == "m.room.encrypted" && decryptor && decryptor->isInitialized()) {
-                    auto result = decryptor->decryptMegolmEvent(roomId, de.senderId,
-                                                                 de.contentJson, de.eventId,
-                                                                 de.originServerTs);
-                    LOG(LogChannel::E2EE, "loadHistory: decrypt eid=%s ok=%d err=%s",
-                        de.eventId.c_str(), result.ok ? 1 : 0,
-                        result.error.empty() ? "(none)" : result.error.c_str());
-                    if (result.ok && !result.plaintext.empty()) {
-                        if (parsePlaintextBody(result.plaintext, de.type, de.contentJson)) {
-                            de.msgtype = SyncApplier::msgType(de.contentJson);
-                            de.body = SyncApplier::msgBody(de.contentJson);
-                            if (de.msgtype == "m.image" || de.msgtype == "m.video" ||
-                                de.msgtype == "m.file" || de.msgtype == "m.audio") {
-                                de.mxcUrl = SyncApplier::extractStringDec(de.contentJson, "url");
-                                de.mimetype = SyncApplier::extractStringDec(de.contentJson, "mimetype");
-                                if (de.body.empty())
-                                    de.body = SyncApplier::extractStringDec(de.contentJson, "filename");
-                            }
-                            std::string_view cv(de.contentJson);
-                            std::string threadRoot = SyncApplier::extractThreadRootId(cv);
-                            if (!threadRoot.empty()) {
-                                de.isThreadReply = true;
-                                de.threadRootId = threadRoot;
-                            }
-                            std::string replyTo = SyncApplier::extractReplyToId(cv);
-                            if (!replyTo.empty()) {
-                                de.isReply = true;
-                                de.replyToEventId = replyTo;
-                            }
-                        } else {
-                            LOG(LogChannel::E2EE, "loadHistory: parsePlaintextBody FAILED eid=%s", de.eventId.c_str());
-                            de.body = "[encrypted]"; de.msgtype = "m.notice";
-                        }
-                    } else {
-                        de.body = "[encrypted]"; de.msgtype = "m.notice";
-                    }
-                } else if (de.type == "m.room.encrypted") {
-                    LOG(LogChannel::E2EE, "loadHistory: SKIP decrypt eid=%s (decryptor=%p init=%d)",
-                        de.eventId.c_str(), (void*)decryptor, decryptor ? decryptor->isInitialized() : 0);
-                    de.body = "[encrypted]"; de.msgtype = "m.notice";
+                    continue;
+                }
+                if (de.type == "m.room.encrypted") {
+                    // Decrypt skipped (no decryptor) — keep the visible marker.
+                    de.body = "[encrypted]";
+                    de.msgtype = "m.notice";
                 }
                 events.push_back(std::move(de));
             }

@@ -5,6 +5,7 @@
 #include "core/engine/timeline_state.hpp"
 #include "core/sync_engine.hpp"
 #include "core/session_store.hpp"
+#include "core/crypto/decryptor.hpp"
 #include "core/matrix_client.hpp"
 
 #include <iostream>
@@ -163,6 +164,26 @@ int main() {
         auto it = u.currentRoomAvatars.find("@alice:test");
         CHECK(it != u.currentRoomAvatars.end() && it->second == "mxc://server/ava1",
               "applier: member avatar extracted into currentRoomAvatars");
+    }
+
+    // --- key-request retry backoff (pure decision) ---
+    {
+        CHECK(!progressive::desktop::shouldReRequestKey(0, 40000),
+              "retry: attempt 0 (initial) never re-requests");
+        CHECK(!progressive::desktop::shouldReRequestKey(1, 29000),
+              "retry: first retry needs >=30s");
+        CHECK(progressive::desktop::shouldReRequestKey(1, 31000),
+              "retry: first retry after 30s");
+        CHECK(!progressive::desktop::shouldReRequestKey(2, 119000),
+              "retry: second retry needs >=2min");
+        CHECK(progressive::desktop::shouldReRequestKey(2, 121000),
+              "retry: second retry after 2min");
+        CHECK(progressive::desktop::shouldReRequestKey(3, 601000),
+              "retry: third retry after 10min");
+        CHECK(progressive::desktop::shouldReRequestKey(4, 3601000),
+              "retry: fourth retry after 1h");
+        CHECK(!progressive::desktop::shouldReRequestKey(5, 3601000),
+              "retry: capped after 4 retries");
     }
 
     // --- reactions never count as thread replies ---

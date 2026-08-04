@@ -242,11 +242,16 @@ void SyncApplier::fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
         auto doc = p.parse(de.contentJson);
         std::fprintf(stderr, "[fast-cp] parsed err=%d\n", (int)doc.error());
         if (doc.error() == simdjson::SUCCESS) {
+            std::fprintf(stderr, "[fast-cp] doc value access\n");
             auto val = doc.value();
+            std::fprintf(stderr, "[fast-cp] val obtained\n");
+            auto objRes = val.get_object();
+            std::fprintf(stderr, "[fast-cp] get_object err=%d\n", (int)objRes.error());
             std::string keys;
-            for (auto [k, v] : val.get_object().value()) {
+            for (auto [k, v] : objRes.value()) {
                 keys += std::string(k) + ",";
             }
+            std::fprintf(stderr, "[fast-cp] keys done len=%zu\n", keys.size());
             LOG(LogChannel::DBG, "sync-fluffy: content keys=[%s] content=[%.200s]",
                 keys.c_str(), de.contentJson.c_str());
             auto bodyStr = val["body"].get_string();

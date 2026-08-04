@@ -179,6 +179,11 @@ got room keys — the multi-device CI test caught both. Rule:
   the content's `signatures` map must be keyed by the SIGNER's user id (bob's
   master signed by alice -> `signatures["@alice"]`) — `buildCrossSigningContent`
   takes a `signerUserId` param for this.
+- **URL-encode every type/path segment that can carry base64** — SSSS key ids
+  (and OTK/session ids) are base64 and can contain `/` (and `+`); an unencoded
+  `/` breaks the URL path (404 — the live SSSS test caught it). `urlEncodePath`
+  encodes `#`, space and `/` — use it for account-data types and any
+  user-controlled path segment.
 - The multi-device CI scenario (`test_multiaccount_multidevice`) is the guard; new
   multi-device JSON endpoints should extend it or be added to it.
 

@@ -1,5 +1,6 @@
 // src/core/crypto/backup_crypto.cpp
 #include "backup_crypto.hpp"
+#include "olm_account.hpp"
 
 #include <sodium.h>
 #include <vector>
@@ -8,33 +9,14 @@
 namespace progressive::desktop {
 
 namespace {
-static const char kB64[] =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-std::string b64Encode(const uint8_t* data, size_t len) {
-    std::string r;
-    int val = 0, vb = -6;
-    for (size_t i = 0; i < len; i++) {
-        val = (val << 8) + data[i]; vb += 8;
-        while (vb >= 0) { r.push_back(kB64[(val >> vb) & 0x3F]); vb -= 6; }
-    }
-    if (vb > -6) r.push_back(kB64[((val << 8) >> (vb + 8)) & 0x3F]);
-    while (r.size() % 4) r.push_back('=');
-    return r;
+// Byte-oriented helpers over the canonical string-based base64 (olm_account).
+static std::vector<uint8_t> b64Decode(const std::string& in) {
+    auto s = base64Decode(in);
+    return std::vector<uint8_t>(s.begin(), s.end());
 }
-
-std::vector<uint8_t> b64Decode(const std::string& in) {
-    std::vector<uint8_t> out;
-    int val = 0, bits = -8;
-    for (char c : in) {
-        if (c == '=') break;
-        const char* p = std::strchr(kB64, c);
-        if (!p) continue;
-        val = (val << 6) | static_cast<int>(p - kB64);
-        bits += 6;
-        if (bits >= 0) { out.push_back(static_cast<uint8_t>((val >> bits) & 0xFF)); bits -= 8; }
-    }
-    return out;
+static std::string b64Encode(const uint8_t* d, size_t n) {
+    return base64Encode(std::string(reinterpret_cast<const char*>(d), n));
 }
 
 bool sodiumReady() {

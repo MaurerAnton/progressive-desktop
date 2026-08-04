@@ -209,6 +209,7 @@ RoomSyncUpdate SyncApplier::prepareRoomSyncUpdate(const FastSyncResponse& resp,
 void SyncApplier::fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
                                        const std::string& currentRoomId,
                                        Decryptor* decryptor) {
+    std::fprintf(stderr, "[fast-cp] enter type=%.20s\n", std::string(e.type).c_str());
     de.eventId = std::string(e.eventId);
     de.senderId = std::string(e.senderId);
     de.type = std::string(e.type);
@@ -233,10 +234,13 @@ void SyncApplier::fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
         LOG(LogChannel::E2EE, "fastEventToDisplayed: SKIP decryptor=%p init=%d",
             (void*)decryptor, decryptor ? decryptor->isInitialized() : 0);
     }
+    std::fprintf(stderr, "[fast-cp] before message branch\n");
     if (de.type == "m.room.message") {
         // Parse content with simdjson for correct extraction (works for ALL clients)
+        std::fprintf(stderr, "[fast-cp] parsing content\n");
         simdjson::dom::parser p;
         auto doc = p.parse(de.contentJson);
+        std::fprintf(stderr, "[fast-cp] parsed err=%d\n", (int)doc.error());
         if (doc.error() == simdjson::SUCCESS) {
             auto val = doc.value();
             std::string keys;
@@ -279,11 +283,13 @@ void SyncApplier::fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
         }
         auto thRoot = SyncApplier::extractThreadRootId(de.contentJson);
         if (!thRoot.empty()) { de.isThreadReply = true; de.threadRootId = thRoot; }
+        std::fprintf(stderr, "[fast-cp] message branch done\n");
     }
     if (de.type == "m.room.encrypted") {
         LOG(LogChannel::DBG, "sync-encrypted: sender=%s content=[%.300s]",
             de.senderId.c_str(), de.contentJson.c_str());
     }
+    std::fprintf(stderr, "[fast-cp] end\n");
     // Catch-all: log every event that passes through sync path
     LOG(LogChannel::DBG, "sync-event: type=%s bodyEmpty=%d contentEmpty=%d sender=%.30s body=[%.100s]",
         de.type.c_str(), (int)de.body.empty(), (int)de.contentJson.empty(),

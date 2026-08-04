@@ -308,9 +308,6 @@ public:
     // GET /_matrix/client/v3/user/{userId}/account_data/{type}
     // Returns the content JSON. Not ok if absent (404).
     ApiResult<std::string> getAccountData(const std::string& type);
-    // GET /user/{userId}/account_data — ALL account-data types (for SSSS
-    // key discovery: find the m.secret_storage.key.* entries).
-    ApiResult<std::string> getAccountDataAll();
 
     // POST /_matrix/client/v3/keys/device_signing/upload
     // Publishes cross-signing keys. Body: CrossSigningKey objects (+ optional
@@ -330,6 +327,10 @@ public:
                                           const std::string& version);
     // GET /room_keys/version/{version} — the backup version info.
     ApiResult<std::string> getRoomKeysVersion(const std::string& version);
+    // GET /room_keys/version — list the backup versions (the LATEST id is in
+    // "versions[0]"... actually the response is {"versions":[...]} — the last
+    // entry is the most recent). Used by the cross-device restore.
+    ApiResult<std::string> getRoomKeysVersions();
     // GET /room_keys/keys?version={version} — all backed-up sessions.
     ApiResult<std::string> getRoomKeys(const std::string& version);
     // DELETE /room_keys/version/{version} — delete the backup.

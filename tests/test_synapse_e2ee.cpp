@@ -620,6 +620,7 @@ static bool test_sas_verified_policy(const std::string& hs, TestUser& alice, Tes
 // fresh decryptor -> decrypt a real message.
 static bool test_key_backup_api(const std::string& hs, TestUser& alice) {
     using namespace progressive::desktop;
+    std::string pass = "synapse_test_pass_42";
 
     // A room with a real outbound session + one encrypted message.
     auto roomRes = alice.client.createRoom("bk-room", "", false, {}, true);
@@ -667,6 +668,40 @@ static bool test_key_backup_api(const std::string& hs, TestUser& alice) {
     auto res = dec2.decryptMegolmEvent(roomId, alice.userId, enc, "bkEid", 0);
     CHECK(res.ok && res.plaintext.find(msg) != std::string::npos,
           "bk-api: restored session decrypts the message");
+
+    // Fresh-device restore: a NEW login of alice (NO local store entry) must
+    // restore via the server's version LIST (the cross-device case).
+    TestUser fresh;
+    std::string aliceUname = alice.userId.substr(1, alice.userId.find(':') - 1);
+    if (!loginUser(fresh, hs, aliceUname, pass)) return false;
+    if (!setupE2EE(fresh, hs)) return false;
+    std::string latestVersion;
+    {
+        auto versions = fresh.client.getRoomKeysVersions();
+        CHECK(versions.ok, "bk-api: fresh device lists versions");
+        if (versions.ok) {
+            simdjson::dom::parser p;
+            auto doc = p.parse(versions.data);
+            if (doc.error() == simdjson::SUCCESS) {
+                auto arr = doc.value()["versions"].get_array();
+                if (arr.error() == simdjson::SUCCESS && arr.value().size() > 0) {
+                    auto last = arr.value().at(arr.value().size() - 1).get_string();
+                    if (last.error() == simdjson::SUCCESS)
+                        latestVersion = std::string(last.value());
+                }
+            }
+        }
+    }
+    CHECK(!latestVersion.empty(), "bk-api: fresh device finds the latest version");
+    BackupInfo finfo;
+    finfo.version = latestVersion;
+    finfo.recoveryKey = rk;
+    finfo.publicKey = pair.publicKeyB64;
+    int nFresh = restoreKeyBackup(fresh.client, fresh.decryptor, finfo);
+    CHECK(nFresh > 0, "bk-api: fresh device restores without a local store entry");
+    auto resFresh = fresh.decryptor.decryptMegolmEvent(roomId, alice.userId, enc, "bkEidF", 0);
+    CHECK(resFresh.ok && resFresh.plaintext.find(msg) != std::string::npos,
+          "bk-api: fresh device decrypts the restored message");
     return true;
 }
 
@@ -1143,9 +1178,9 @@ int main() {
     if (!test_cross_signing_setup(hs, alice)) failures++;
     std::cout << "--- cross-signing setup done ---\n";
 
-    // NOTE: scenario ORDER matters — the sas test re-publishes alice's
-    // cross-signing keys (invalidating the mm test's SSK sigs), so it must
-    // stay LAST.
+    // NOTE: scenario ORDER matters — the sas, backup and ssss tests re-publish
+    // alice's cross-signing keys / depend on her account state (invalidating
+    // the mm test's SSK sigs), so they must all stay AFTER the mm test.
     // Multi-account + multi-device: 3 members, 2-device account, late joiner.
     std::cout << "\n--- multiaccount multidevice test ---\n";
     if (!test_multiaccount_multidevice(hs, alice, bob)) failures++;

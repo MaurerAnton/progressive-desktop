@@ -111,6 +111,8 @@ public:
     // Restore from a recovery key (fetch + decrypt + import). Returns the
     // number of sessions imported.
     int restoreKeyBackupNow(const std::string& recoveryKey);
+    // Delete the current backup version on the server + the local registry.
+    bool deleteKeyBackupNow();
     // Called by the sync loop: re-upload when new sessions arrived.
     void maybeUploadBackup();
 

@@ -76,6 +76,9 @@ If build or tests fail → revert. Never push broken code.
 - libsodium (system package) — ed25519 keypair generation + curve25519/AEAD for
   cross-signing (Phase 6) and key backup (Phase 7). Arch/PineTab: `pacman -S libsodium`.
   CI installs `libsodium-dev`. Linked to progressive_core via PkgConfig::SODIUM.
+- OpenSSL (libcrypto) — AES-256-CBC for SSSS (m.secret_storage.v1.aes-hmac-sha2)
+  + EVP_PKEY_ED25519 public-key derivation (libsodium's seed_keypair segfaults
+  on some AArch64 builds). CI installs `libssl-dev`. Linked via OpenSSL::Crypto.
 - **libsodium AArch64 quirks (PineTab-class boxes, found Aug 4)**: (1)
   `crypto_sign_ed25519_seed_keypair` SEGFAULTS on some AArch64 builds — for the
   key backup, the recovery seed IS the curve25519 secret (m.megolm_backup.v1),
@@ -333,7 +336,7 @@ If a class calls `httpPost`/`httpPut` with auth headers (`makeAuthHeaders(token)
 | Gap | What | Priority |
 |---|---|---|
 | Device verification (cross-signing) | Setup + publishing done (Phase 6 core); trust chain (SAS MSK exchange, device shields, cross-signing reset flow) deferred | Phase 6 tail |
-| SSSS key backup | Can't recover history after re-login; also unlocks cross-device secret sharing (device2 gets SSK → the mm test's `!a2SskSig` assertion must be REMOVED then) | Phase 7 |
+| SSSS + key backup | DONE (Phase 7, Aug 4) — /room_keys backup (create/upload/restore/delete + recovery key), sync auto-upload, SSSS secret sharing (cross-signing keys to account-data). Cross-device onboarding flow + Element interop remain manual-verification items | ✅ |
 | Invite/add-member into EXISTING room | `MatrixClient::inviteUser` exists (test-only) but no UI calls it; planned as part of a command system (/invite, /ban, /confetti — user's Element-style copy-paste plan) | Later |
 | Threading: HTTP on UI thread | requestRoomKey blocks UI for 1-3s | LOW |
 | Option A refactor | ctxToken_ works but is stale-prone; inject MatrixClient | LOW |

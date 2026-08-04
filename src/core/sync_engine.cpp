@@ -675,14 +675,38 @@ int SyncEngine::restoreKeyBackupNow(const std::string& recoveryKey) {
     info.recoveryKey = recoveryKey;
     info.publicKey = deriveBackupKey(recoveryKeySeed(recoveryKey)).publicKeyB64;
     if (info.publicKey.empty()) return 0;
-    // The version: the current one on the server (the latest) — query it.
-    auto versions = client_->getRoomKeysVersion("");
-    (void)versions;
-    // Simplest correct source: the stored version, else list versions.
-    auto stored = store_->loadBackupInfo(client_->account().userId);
-    if (stored.has_value()) info.version = stored->version;
+    // The version: the LATEST on the server (cross-device restore — a new
+    // device has no local store entry). Fallback: the stored version.
+    auto versions = client_->getRoomKeysVersions();
+    if (versions.ok) {
+        simdjson::dom::parser p;
+        auto doc = p.parse(versions.data);
+        if (doc.error() == simdjson::SUCCESS) {
+            auto arr = doc.value()["versions"].get_array();
+            if (arr.error() == simdjson::SUCCESS && arr.value().size() > 0) {
+                // The list is ordered oldest->newest; the LAST is the latest.
+                auto last = arr.value().at(arr.value().size() - 1).get_string();
+                if (last.error() == simdjson::SUCCESS)
+                    info.version = std::string(last.value());
+            }
+        }
+    }
+    if (info.version.empty()) {
+        auto stored = store_->loadBackupInfo(client_->account().userId);
+        if (stored.has_value()) info.version = stored->version;
+    }
     if (info.version.empty()) return 0;
     return restoreKeyBackup(*client_, decryptor_, info);
+}
+
+bool SyncEngine::deleteKeyBackupNow() {
+    if (!client_ || !client_->isLoggedIn() || !store_) return false;
+    auto userId = client_->account().userId;
+    auto info = store_->loadBackupInfo(userId);
+    if (info.has_value() && !info->version.empty())
+        client_->deleteRoomKeysVersion(info->version);
+    store_->clearBackupInfo(userId);
+    return true;
 }
 
 void SyncEngine::maybeUploadBackup() {

@@ -238,6 +238,9 @@ void ToolbarHandler::onSettings() {
         dlg.setUploadKeyBackupFn([this]() {
             return sync_ ? sync_->uploadKeyBackupNow() : false;
         });
+        dlg.setDeleteKeyBackupFn([this]() {
+            return sync_ ? sync_->deleteKeyBackupNow() : false;
+        });
         dlg.setRestoreKeyBackupFn([this](const std::string& key) {
             return sync_ ? sync_->restoreKeyBackupNow(key) : 0;
         });

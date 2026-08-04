@@ -163,6 +163,7 @@ PrefsDialog::PrefsDialog(QWidget* parent) : QDialog(parent) {
     createBackupBtn->setToolTip("Generate a recovery key and create a server-side "
                                 "encrypted backup of your room keys.");
     auto* backupNowBtn = new QPushButton("Backup now", this);
+    auto* deleteBackupBtn = new QPushButton("Delete backup…", this);
     auto* restoreBtn = new QPushButton("Restore from recovery key…", this);
     auto* ssssUploadBtn = new QPushButton("Sync secrets to my other devices…", this);
     ssssUploadBtn->setToolTip("Encrypt the cross-signing keys to account-data, "
@@ -173,6 +174,7 @@ PrefsDialog::PrefsDialog(QWidget* parent) : QDialog(parent) {
     backupLayout->addWidget(backupStatus);
     backupLayout->addWidget(createBackupBtn);
     backupLayout->addWidget(backupNowBtn);
+    backupLayout->addWidget(deleteBackupBtn);
     backupLayout->addWidget(restoreBtn);
     backupLayout->addWidget(ssssUploadBtn);
     backupLayout->addWidget(ssssRetrieveBtn);
@@ -202,6 +204,16 @@ PrefsDialog::PrefsDialog(QWidget* parent) : QDialog(parent) {
             if (uploadKeyBackupFn_ && uploadKeyBackupFn_())
                 backupStatus->setText("Backup configured and uploaded");
         }
+    });
+    connect(deleteBackupBtn, &QPushButton::clicked, this, [this, backupStatus]() {
+        if (!deleteKeyBackupFn_) return;
+        if (QMessageBox::question(this, "Delete backup",
+                "Delete the server-side key backup? The recovery key becomes "
+                "useless for this account.") != QMessageBox::Yes) return;
+        if (deleteKeyBackupFn_())
+            backupStatus->setText("Backup deleted");
+        else
+            QMessageBox::warning(this, "Delete backup", "Delete failed.");
     });
     connect(backupNowBtn, &QPushButton::clicked, this, [this, backupStatus]() {
         if (uploadKeyBackupFn_ && uploadKeyBackupFn_())

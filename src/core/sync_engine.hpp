@@ -116,6 +116,17 @@ public:
     // Called by the sync loop: re-upload when new sessions arrived.
     void maybeUploadBackup();
 
+    // ---- E2EE bootstrap (X1 phase 4: moved from the UI e2ee_init_handler) ----
+    struct E2eeInitResult {
+        bool e2eeOk = false;
+        bool keysPublished = false;
+    };
+    // Load-or-create the olm account, restore persisted sessions, schedule the
+    // device-keys upload. Pure core (Qt-free).
+    E2eeInitResult initializeE2EE();
+    // Persist the current crypto state (megolm/outbound/olm sessions).
+    void persistCrypto();
+
     // ---- SSSS (cross-device secret sharing, Phase 7) ----
     // Encrypt the cross-signing private keys to account-data, unlockable with
     // the recovery key (m.secret_storage.v1.aes-hmac-sha2). True on success.

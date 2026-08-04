@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <ctime>
 #include "core/debug_log.hpp"
+#include "core/thread_pool.hpp"
 #include "core/crypto/cross_sign.hpp"
 #include "core/crypto/key_backup.hpp"
 #include "core/crypto/recovery_key.hpp"
@@ -841,6 +842,95 @@ int SyncEngine::retrieveSsssSecrets(const std::string& recoveryKey) {
     LOG(LogChannel::E2EE, "retrieveSsssSecrets: cross-signing secrets restored "
         "for %s — device keys re-signed with the SSK", userId.c_str());
     return 1;
+}
+
+
+SyncEngine::E2eeInitResult SyncEngine::initializeE2EE() {
+    E2eeInitResult result;
+    if (!client_ || !client_->isLoggedIn() || !decryptor_.isInitialized()) {
+        // A fresh or reloaded account — initializeE2EE() itself does the init.
+    }
+    auto acct = client_->account();
+    std::string pickleKey = acct.userId + "/" + acct.deviceId;
+
+    try {
+        std::string savedPickle, savedKey;
+        bool savedShared = false;
+        int savedKeyCount = 0;
+        if (store_) {
+            auto saved = store_->loadOlmAccount(pickleKey);
+            if (saved) {
+                savedPickle = saved->pickle;
+                savedKey = saved->pickleKey;
+                savedShared = saved->shared;
+                savedKeyCount = saved->uploadedKeyCount;
+            }
+        }
+        if (!savedPickle.empty()) {
+            result.e2eeOk = decryptor_.init(savedPickle, savedKey, savedShared);
+            if (result.e2eeOk) {
+                decryptor_.account()->setUploadedKeyCount(savedKeyCount);
+            } else {
+                LOG(LogChannel::E2EE, "initializeE2EE: failed to load saved olm account — creating new one");
+                result.e2eeOk = decryptor_.init();
+            }
+        } else {
+            result.e2eeOk = decryptor_.init();
+        }
+        if (!result.e2eeOk) {
+            LOG(LogChannel::E2EE, "initializeE2EE: failed to create olm account");
+            return result;
+        }
+
+        decryptor_.setCryptoContext(acct.userId, acct.deviceId,
+                                     acct.homeserverUrl, acct.accessToken);
+        std::string newPickle = decryptor_.saveAccountPickle(pickleKey);
+        if (!newPickle.empty() && store_) {
+            store_->saveOlmAccount(newPickle, pickleKey,
+                                   decryptor_.accountShared(),
+                                   decryptor_.account()->uploadedKeyCount());
+        }
+        if (store_) {
+            auto megolmData = store_->loadMegolmSessions(pickleKey);
+            if (megolmData && !megolmData->empty()) {
+                decryptor_.megolm()->unpickleAll(pickleKey, *megolmData);
+            }
+            auto outboundData = store_->loadOutboundSessions(pickleKey);
+            if (outboundData) {
+                decryptor_.unpickleOutboundSessions(pickleKey, *outboundData);
+            }
+            auto olmSessionsData = store_->loadOlmSessions(pickleKey);
+            if (olmSessionsData && !olmSessionsData->empty()) {
+                decryptor_.unpickleOlmSessions(pickleKey, *olmSessionsData);
+                if (olmSessionsData->size() > 500000) {
+                    std::string trimmed = decryptor_.pickleOlmSessions(pickleKey);
+                    store_->saveOlmSessions(trimmed, pickleKey);
+                }
+            }
+        }
+        result.keysPublished = true;
+        // NOTE: the device-keys upload is NOT enqueued here — the caller owns
+        // the thread + lifetime (AGENTS.md: enqueue with a lifetime-safe guard).
+        // The UI's session_bootstrap schedules it after initializeE2EE().
+    } catch (const std::exception& e) {
+        LOG(LogChannel::E2EE, "initializeE2EE: exception %s", e.what());
+    }
+    return result;
+}
+
+void SyncEngine::persistCrypto() {
+    if (!client_ || !store_ || !decryptor_.isInitialized() || !decryptor_.isInitialized()) return;
+    std::string pickleKey = client_->account().userId + "/" + client_->account().deviceId;
+    auto megolmPickle = decryptor_.megolm()->pickleAll(pickleKey);
+    if (!megolmPickle.empty()) {
+        store_->saveMegolmSessions(megolmPickle, pickleKey);
+    }
+    auto outboundPickle = decryptor_.pickleOutboundSessions(pickleKey);
+    if (!outboundPickle.empty() && outboundPickle != "[]") {
+        store_->saveOutboundSessions(outboundPickle, pickleKey);
+    }
+    auto olmSessionsPickle = decryptor_.pickleOlmSessions(pickleKey);
+    if (!olmSessionsPickle.empty()) store_->saveOlmSessions(olmSessionsPickle, pickleKey);
 }
 
 bool SyncEngine::resetCrossSigning() {

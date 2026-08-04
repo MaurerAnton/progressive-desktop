@@ -3,6 +3,9 @@
 // applies it (dedup, thread counts, group markers, cap-200 eviction).
 #include "core/engine/sync_applier.hpp"
 #include "core/engine/timeline_state.hpp"
+#include "core/sync_engine.hpp"
+#include "core/session_store.hpp"
+#include "core/matrix_client.hpp"
 
 #include <iostream>
 #include <string>
@@ -16,7 +19,38 @@ static int failures = 0;
 
 using namespace progressive::desktop;
 
+static void test_initialize_e2ee() {
+    using namespace progressive::desktop;
+    auto client = std::make_shared<MatrixClient>();
+    AccountInfo acct;
+    acct.userId = "@u:test";
+    acct.deviceId = "DEV";
+    acct.homeserverUrl = "http://127.0.0.1:1";  // no server — the enqueued upload just fails fast
+    acct.accessToken = "t";
+    client->setAccount(acct);
+
+    auto store = std::make_shared<SessionStore>();
+    CHECK(store->open("/tmp/pd_x1_e2ee.db"), "e2ee: store open");
+
+    SyncEngine se;
+    se.setClient(client);
+    se.setSessionStore(store);
+    auto r = se.initializeE2EE();
+    CHECK(r.e2eeOk, "e2ee: account initialized");
+    CHECK(se.decryptor()->isInitialized(), "e2ee: decryptor initialized");
+    CHECK(store->loadOlmAccount("@u:test/DEV").has_value(), "e2ee: account pickle saved");
+
+    // Reload from the saved pickle.
+    SyncEngine se2;
+    se2.setClient(client);
+    se2.setSessionStore(store);
+    auto r2 = se2.initializeE2EE();
+    CHECK(r2.e2eeOk, "e2ee: reload from pickle");
+    CHECK(se2.decryptor()->isInitialized(), "e2ee: reloaded decryptor initialized");
+}
+
 int main() {
+    test_initialize_e2ee();
     auto owned = std::make_shared<std::deque<std::string>>();
     owned->push_back("!room1:test");   // 0 room id
     owned->push_back("$msg1");         // 1

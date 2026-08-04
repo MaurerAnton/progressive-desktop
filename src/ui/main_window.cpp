@@ -4,7 +4,6 @@
 #include "handlers/toolbar_handler.hpp"
 #include "handlers/room_handler.hpp"
 #include "handlers/thread_handler.hpp"
-#include "handlers/e2ee_init_handler.hpp"
 #include "handlers/verification_handler.hpp"
 #include "ui_layout_builder.hpp"
 #include "dialogs/login_dialog.hpp"
@@ -335,7 +334,7 @@ void MainWindow::startWithSavedSession() {
 }
 
 void MainWindow::closeEvent(QCloseEvent* e) {
-    E2eeInitHandler::persistCrypto(client_.get(), store_.get(), &sync_);
+    sync_.persistCrypto();
     sync_.stop();
     QMainWindow::closeEvent(e);
     QApplication::quit();

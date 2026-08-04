@@ -1,5 +1,6 @@
 #include "session_bootstrap.hpp"
 #include "core/matrix_client.hpp"
+#include "core/thread_pool.hpp"
 #include "core/session_store.hpp"
 #include "core/sync_engine.hpp"
 #include "core/memory_stats.hpp"
@@ -8,7 +9,6 @@
 #include "../dialogs/prefs_dialog.hpp"
 #include "../shared/image_loader.hpp"
 #include "../timeline/timeline_delegate.hpp"
-#include "e2ee_init_handler.hpp"
 #include "../notifications.hpp"
 #include <QComboBox>
 #include <QLabel>
@@ -60,10 +60,12 @@ void SessionBootstrap::start(const std::shared_ptr<MatrixClient>& client, const 
 
     sync->setClient(client);
     sync->setSessionStore(store);
-    E2eeInitHandler::init(client.get(), store.get(), sync,
-        [=](bool ok, bool keysPublished) {
-            LOG(LogChannel::E2EE, "E2eeInit: ok=%d decryptor isInitialized=%d",
-                ok ? 1 : 0, sync->decryptor()->isInitialized() ? 1 : 0);
+    auto e2eeResult = sync->initializeE2EE();
+    {
+        bool ok = e2eeResult.e2eeOk;
+        bool keysPublished = e2eeResult.keysPublished;
+        LOG(LogChannel::E2EE, "E2eeInit: ok=%d decryptor isInitialized=%d",
+            ok ? 1 : 0, sync->decryptor()->isInitialized() ? 1 : 0);
             if (!ok) {
                 std::cerr << "[e2ee] init failed — continuing without E2EE\n";
             }
@@ -99,7 +101,12 @@ void SessionBootstrap::start(const std::shared_ptr<MatrixClient>& client, const 
             notifier->init();
             logMemorySnapshot("before-first-sync");
             sync->start();
-        });
+    }
+    if (e2eeResult.keysPublished) {
+        // Device-keys upload on a worker (sync outlives the app — raw pointer
+        // is safe here, matching the original e2ee_init_handler behavior).
+        ThreadPool::instance().enqueue([sync]() { sync->uploadDeviceKeys(); });
+    }
 }
 
 } // namespace progressive::desktop

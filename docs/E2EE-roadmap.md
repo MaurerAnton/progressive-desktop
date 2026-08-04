@@ -84,6 +84,20 @@ Scenario coverage: 3 members, alice on 2 devices (login helper), both alice devi
 decrypt the sender's messages, device2 sends + device1 decrypts, late joiner invited +
 decrypts, cross-signing publishing verified across devices.
 
+## Phase 7 — SSSS + key backup — 🔄 IN PROGRESS (Aug 4)
+- [x] Slice 1: base58 + recovery key (32B entropy + 2B parity) + backup keypair
+      (the seed IS the curve25519 secret) + crypto_box_seal session_data +
+      roundtrip unit test; 2 AArch64 libsodium quirks documented
+- [x] Slice 2: /room_keys API (create/upload/get/delete + httpDelete),
+      BackupInfo store registry, KeyBackup manager, importSingleSession,
+      real-export roundtrip test
+- [x] Slice 3: sync integration (megolm-store dirty flag + maybeUploadBackup
+      in the sync loop), PrefsDialog Key backup UI (create/backup-now/restore),
+      live-Synapse backup API roundtrip (create -> upload -> restore -> decrypt)
+- [ ] Spec-exact session_data KDF (curve25519-aes-sha2) for Element interop —
+      currently crypto_box_seal (self-consistent; server stores opaquely)
+- [ ] SSSS secret sharing (cross-device key distribution)
+
 ## Phase 6 — Cross-signing (3-4 sessions) — ✅ COMPLETE (Aug 3)
 
 ### Phase 6 tail (Aug 3):

@@ -153,9 +153,6 @@ int restoreKeyBackup(MatrixClient& client, Decryptor& decryptor,
             if (sKey.error() != simdjson::SUCCESS || exp.error() != simdjson::SUCCESS) continue;
             std::string realId = decryptor.importSingleSession(
                 roomId, std::string(sKey.value()), std::string(exp.value()));
-            std::fprintf(stderr, "[key-backup] import room=%s sk=%.16s realId=%s\n",
-                roomId.c_str(), std::string(sKey.value()).c_str(),
-                realId.empty() ? "EMPTY" : "ok");
             if (!realId.empty()) imported++;
         }
     }

@@ -12,18 +12,10 @@ completed items are removed.
 
 ## Phase 7 (SSSS + key backup) — remaining slices
 
-- [ ] **`/room_keys` API** — `MatrixClient`: POST /room_keys/version (create,
-      auth_data.public_key), PUT /room_keys/keys (all sessions, batched),
-      GET /room_keys/version/{v} + GET /room_keys/keys, DELETE /room_keys/version/{v}
-- [ ] **Real-export roundtrip test** — real megolm export -> backup encrypt ->
-      restore decrypt -> `addImportedSession` -> decrypt an old message
-      (pending-replay path)
-- [ ] **Sync integration** — backup creation/upload from the sync thread; a
-      backup-version registry in the store (version id + key material,
-      re-encrypt on megolm rotation)
-- [ ] **UI** — PrefsDialog "Key backup": Create (show the recovery key ONCE +
-      "I wrote it down" confirmation), Backup now, Restore (paste key -> fetch ->
-      import), status label
+- [x] **`/room_keys` API** + store registry + sync integration + UI + live test —
+      ALL DONE (Aug 4): create/upload/get/delete, BackupInfo registry,
+      dirty-flag auto-upload in the sync loop, PrefsDialog backup section,
+      live-Synapse roundtrip green.
 - [ ] **Spec-exact session_data KDF for Element interop** — the current
       crypto_box_seal session_data is self-consistent but NOT
       curve25519-aes-sha2-spec (ECDH + AES-256-CBC + HMAC-SHA256 with the spec
@@ -32,9 +24,6 @@ completed items are removed.
 - [ ] **Secret sharing (SSSS account-data)** — after the backup slice: devices
       can decrypt the backup private key from account-data -> device2 gets the
       SSK -> the mm test's `!a2SskSig` assertion must be REMOVED then.
-- [ ] **Roadmap update** — docs/E2EE-roadmap.md has no Phase 7 section yet;
-      slice 1 (base58, recovery key, backup crypto, roundtrip test, the 2
-      libsodium AArch64 quirks) is undocumented there.
 
 ## Testing / validation
 

@@ -86,11 +86,9 @@ std::string decryptBackupSessionData(const std::string& sessionDataJson,
 }
 
 std::string buildBackupSessionEntry(const std::string& sessionDataJson,
-                                    int firstMessageIndex,
-                                    const std::string& senderKeyB64) {
+                                    int firstMessageIndex) {
     return "{\"first_message_index\":" + std::to_string(firstMessageIndex)
         + ",\"forwarded_count\":0,\"is_verified\":false"
-        + ",\"sender_key\":\"" + senderKeyB64 + "\""
         + ",\"session_data\":" + sessionDataJson + "}";
 }
 

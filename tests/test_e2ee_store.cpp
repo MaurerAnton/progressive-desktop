@@ -293,7 +293,7 @@ static void test_key_backup_crypto() {
     CHECK(body.find("\"algorithm\":\"m.megolm_backup.v1.curve25519-aes-sha2\"") != std::string::npos
           && body.find(pair.publicKeyB64) != std::string::npos,
           "bk: version body structure");
-    std::string entry = buildBackupSessionEntry(sd, 0, "senderKeyB64");
+    std::string entry = buildBackupSessionEntry(sd, 0);
     CHECK(entry.find("\"first_message_index\":0") != std::string::npos
           && entry.find(sd) != std::string::npos,
           "bk: session entry structure");

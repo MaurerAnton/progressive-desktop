@@ -29,11 +29,11 @@ std::string decryptBackupSessionData(const std::string& sessionDataJson,
 
 // A full backup-key entry (the /room_keys/keys body item):
 // {"first_message_index":0,"forwarded_count":0,"is_verified":false,
-//  "sender_key":"...", "session_data":{...}}
-// The sender_key rides IN the entry: libolm's v1 megolm export embeds only
-// [version][message_index][ratchet][signing_pub] — no sender key.
+//  "session_data":{...}}
+// NOTE: the entry can NOT carry extra fields — Synapse strips non-spec keys.
+// The sender_key therefore rides INSIDE the encrypted session_data (see
+// key_backup.cpp): the plaintext is {"sender_key":...,"export":...}.
 std::string buildBackupSessionEntry(const std::string& sessionDataJson,
-                                    int firstMessageIndex,
-                                    const std::string& senderKeyB64);
+                                    int firstMessageIndex);
 
 } // namespace progressive::desktop

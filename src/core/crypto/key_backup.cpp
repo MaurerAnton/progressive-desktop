@@ -73,17 +73,19 @@ bool uploadKeyBackup(MatrixClient& client, Decryptor& decryptor,
         for (auto sess : sessions.value()) {
             auto sid = sess["session_id"].get_string();
             auto skey = sess["session_key"].get_string();
-            if (sid.error() != simdjson::SUCCESS || skey.error() != simdjson::SUCCESS) continue;
-            std::string sd = encryptBackupSessionData(
-                std::string(skey.value()), info.publicKey);
+            auto sKey = sess["sender_key"].get_string();
+            if (sid.error() != simdjson::SUCCESS || skey.error() != simdjson::SUCCESS ||
+                sKey.error() != simdjson::SUCCESS) continue;
+            // Synapse strips non-spec entry fields — the sender_key rides INSIDE
+            // the encrypted payload: {"sender_key":...,"export":<megolm export>}.
+            std::string payload = "{\"sender_key\":\"" + std::string(sKey.value())
+                + "\",\"export\":\"" + std::string(skey.value()) + "\"}";
+            std::string sd = encryptBackupSessionData(payload, info.publicKey);
             if (sd.empty()) continue;
             if (!firstSess) roomJson += ",";
             firstSess = false;
-            auto sKey = sess["sender_key"].get_string();
-            std::string sKeyStr = (sKey.error() == simdjson::SUCCESS)
-                ? std::string(sKey.value()) : "";
             roomJson += "\"" + std::string(sid.value()) + "\":"
-                + buildBackupSessionEntry(sd, 0, sKeyStr);
+                + buildBackupSessionEntry(sd, 0);
         }
         if (firstSess) continue;  // no usable sessions in this room
         roomJson += "}}";
@@ -108,8 +110,7 @@ int restoreKeyBackup(MatrixClient& client, Decryptor& decryptor,
         std::fprintf(stderr, "[key-backup] getRoomKeys FAILED http=%d\n", resp.httpStatus);
         return 0;
     }
-    std::fprintf(stderr, "[key-backup] getRoomKeys ok, has sender_key=%d\n",
-        resp.data.find("\"sender_key\"") != std::string::npos ? 1 : 0);
+
 
     simdjson::dom::parser p;
     auto doc = p.parse(resp.data);
@@ -124,14 +125,18 @@ int restoreKeyBackup(MatrixClient& client, Decryptor& decryptor,
         if (sessions.error() != simdjson::SUCCESS) continue;
         for (auto sess : sessions.value()) {
             auto sd = sess.value["session_data"].get_string();
-            auto sKey = sess.value["sender_key"].get_string();
-            if (sd.error() != simdjson::SUCCESS || sKey.error() != simdjson::SUCCESS)
-                continue;
-            std::string exportB64 = decryptBackupSessionData(
+            if (sd.error() != simdjson::SUCCESS) continue;
+            std::string payload = decryptBackupSessionData(
                 std::string(sd.value()), pair.privateKeyB64);
-            if (exportB64.empty()) continue;
+            if (payload.empty()) continue;
+            simdjson::dom::parser wp;
+            auto wdoc = wp.parse(payload);
+            if (wdoc.error() != simdjson::SUCCESS) continue;
+            auto sKey = wdoc.value()["sender_key"].get_string();
+            auto exp = wdoc.value()["export"].get_string();
+            if (sKey.error() != simdjson::SUCCESS || exp.error() != simdjson::SUCCESS) continue;
             std::string realId = decryptor.importSingleSession(
-                roomId, std::string(sKey.value()), exportB64);
+                roomId, std::string(sKey.value()), std::string(exp.value()));
             if (!realId.empty()) imported++;
         }
     }

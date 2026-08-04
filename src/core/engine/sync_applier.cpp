@@ -266,8 +266,10 @@ void SyncApplier::fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
                 }
             }
             auto msgStr = val["msgtype"].get_string();
+            std::fprintf(stderr, "[fast-cp] msgtype err=%d\n", (int)msgStr.error());
             if (msgStr.error() == simdjson::SUCCESS)
                 de.msgtype = std::string(msgStr.value());
+            std::fprintf(stderr, "[fast-cp] msgtype assigned=%s\n", de.msgtype.c_str());
             if (de.msgtype == "m.image" || de.msgtype == "m.video") {
                 auto url = val["url"].get_string();
                 if (url.error() == simdjson::SUCCESS)

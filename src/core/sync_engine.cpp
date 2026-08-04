@@ -720,6 +720,10 @@ bool SyncEngine::uploadSsssSecrets(const std::string& recoveryKey) {
 
     if (!client_->setAccountData("m.secret_storage.key." + keyId,
             buildSsssKeyMetadata(aesKey, hmacKey)).ok) return false;
+    // The spec's discovery: m.secret_storage.default_key names the key id
+    // (Synapse does NOT implement the global account-data listing endpoint).
+    if (!client_->setAccountData("m.secret_storage.default_key",
+            "{\"key\":\"" + keyId + "\"}").ok) return false;
     if (!client_->setAccountData("m.cross_signing.master",
             encryptSsssSecret(masterPriv, aesKey, hmacKey)).ok) return false;
     if (!client_->setAccountData("m.cross_signing.self_signing",
@@ -755,29 +759,17 @@ int SyncEngine::retrieveSsssSecrets(const std::string& recoveryKey) {
     if (seed.size() != 32) return 0;
     auto userId = client_->account().userId;
 
-    // Discover the SSSS key from the account-data listing.
-    auto all = client_->getAccountDataAll();
-    if (!all.ok) return 0;
+    // Discover the SSSS key id via m.secret_storage.default_key.
+    auto defKey = client_->getAccountData("m.secret_storage.default_key");
+    if (!defKey.ok) return 0;
     std::string keyId;
-    std::string metadataJson;
     {
         simdjson::dom::parser p;
-        auto doc = p.parse(all.data);
+        auto doc = p.parse(defKey.data);
         if (doc.error() != simdjson::SUCCESS) return 0;
-        auto obj = doc.value().get_object();
-        if (obj.error() != simdjson::SUCCESS) return 0;
-        for (auto [k, v] : obj.value()) {
-            std::string type(k);
-            if (type.find("m.secret_storage.key.") != 0) continue;
-            keyId = type.substr(std::string("m.secret_storage.key.").size());
-            auto ivS = v["iv"].get_string();
-            auto macS = v["mac"].get_string();
-            if (ivS.error() != simdjson::SUCCESS || macS.error() != simdjson::SUCCESS)
-                return 0;
-            metadataJson = "{\"iv\":\"" + std::string(ivS.value())
-                + "\",\"mac\":\"" + std::string(macS.value()) + "\"}";
-            break;
-        }
+        auto k = doc.value()["key"].get_string();
+        if (k.error() != simdjson::SUCCESS) return 0;
+        keyId = std::string(k.value());
     }
     if (keyId.empty()) return 0;
 

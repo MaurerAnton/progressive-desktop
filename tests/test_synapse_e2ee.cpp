@@ -686,6 +686,8 @@ static bool test_ssss_api(const std::string& hs, TestUser& alice) {
           "ssss-api: keys derived");
     CHECK(alice.client.setAccountData("m.secret_storage.key." + keyId,
             buildSsssKeyMetadata(aesKey, hmacKey)).ok, "ssss-api: key metadata uploaded");
+    CHECK(alice.client.setAccountData("m.secret_storage.default_key",
+            "{\"key\":\"" + keyId + "\"}").ok, "ssss-api: default_key uploaded");
     CHECK(alice.client.setAccountData("m.cross_signing.master",
             encryptSsssSecret(keys.masterPriv, aesKey, hmacKey)).ok,
           "ssss-api: master secret uploaded");
@@ -697,29 +699,31 @@ static bool test_ssss_api(const std::string& hs, TestUser& alice) {
           "ssss-api: user_signing secret uploaded");
 
     // Retrieve (replicate SyncEngine::retrieveSsssSecrets).
-    auto all = alice.client.getAccountDataAll();
-    CHECK(all.ok, "ssss-api: account-data listing fetched");
+    auto defKey = alice.client.getAccountData("m.secret_storage.default_key");
+    CHECK(defKey.ok, "ssss-api: default_key fetched");
     std::string foundKeyId, metadataJson;
     {
         simdjson::dom::parser p;
-        auto doc = p.parse(all.data);
+        auto doc = p.parse(defKey.data);
         if (doc.error() == simdjson::SUCCESS) {
-            auto obj = doc.value().get_object();
-            if (obj.error() == simdjson::SUCCESS) {
-                for (auto [k, v] : obj.value()) {
-                    std::string type(k);
-                    if (type.find("m.secret_storage.key.") != 0) continue;
-                    foundKeyId = type.substr(std::string("m.secret_storage.key.").size());
-                    auto ivS = v["iv"].get_string();
-                    auto macS = v["mac"].get_string();
-                    if (ivS.error() == simdjson::SUCCESS && macS.error() == simdjson::SUCCESS)
-                        metadataJson = "{\"iv\":\"" + std::string(ivS.value())
-                            + "\",\"mac\":\"" + std::string(macS.value()) + "\"}";
-                }
-            }
+            auto k = doc.value()["key"].get_string();
+            if (k.error() == simdjson::SUCCESS) foundKeyId = std::string(k.value());
         }
     }
-    CHECK(foundKeyId == keyId, "ssss-api: key id discovered from the listing");
+    CHECK(foundKeyId == keyId, "ssss-api: key id discovered via default_key");
+    auto meta = alice.client.getAccountData("m.secret_storage.key." + foundKeyId);
+    CHECK(meta.ok, "ssss-api: key metadata fetched");
+    {
+        simdjson::dom::parser p;
+        auto doc = p.parse(meta.data);
+        if (doc.error() == simdjson::SUCCESS) {
+            auto ivS = doc.value()["iv"].get_string();
+            auto macS = doc.value()["mac"].get_string();
+            if (ivS.error() == simdjson::SUCCESS && macS.error() == simdjson::SUCCESS)
+                metadataJson = "{\"iv\":\"" + std::string(ivS.value())
+                    + "\",\"mac\":\"" + std::string(macS.value()) + "\"}";
+        }
+    }
 
     std::vector<uint8_t> rAes, rHmac;
     CHECK(deriveSsssKeys(recoveryKeySeed(rk), foundKeyId, rAes, rHmac),

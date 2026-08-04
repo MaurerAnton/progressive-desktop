@@ -7,6 +7,7 @@
 
 #include <QAbstractListModel>
 #include "core/engine/engine_types.hpp"
+#include "core/engine/room_state.hpp"
 #include <QIcon>
 #include <QLabel>
 #include <string>
@@ -43,18 +44,10 @@ public:
         if (chatsHeader_ && inviteHeader_) updateHeader(chatsHeader_, inviteHeader_);
     }
 
-    bool isHidden(const std::string& roomId) const {
-        return hiddenRoomIds_.count(roomId) > 0;
-    }
-    void setHiddenRooms(std::unordered_set<std::string> ids) {
-        hiddenRoomIds_ = std::move(ids);
-    }
-    void addHiddenRoom(const std::string& roomId) {
-        hiddenRoomIds_.insert(roomId);
-    }
-    void clearHiddenRoom(const std::string& roomId) {
-        hiddenRoomIds_.erase(roomId);
-    }
+    bool isHidden(const std::string& roomId) const { return state_.isHidden(roomId); }
+    void setHiddenRooms(std::unordered_set<std::string> ids) { state_.setHiddenRooms(std::move(ids)); }
+    void addHiddenRoom(const std::string& roomId) { state_.hideRoom(roomId); }
+    void clearHiddenRoom(const std::string& roomId) { state_.unhideRoom(roomId); }
 
     enum Roles {
         NameRole = Qt::DisplayRole,
@@ -73,11 +66,11 @@ public:
     };
 
 private:
-    std::vector<RoomData> rooms_;
-    std::unordered_map<std::string, int> index_;  // roomId → row, O(1) lookup
+    // The UI-thread copy of the engine's room list (X1 pinned contract).
+    RoomState state_;
     QLabel* chatsHeader_ = nullptr;
     QLabel* inviteHeader_ = nullptr;
-    std::unordered_set<std::string> hiddenRoomIds_;
+
 };
 
 } // namespace progressive::desktop

@@ -5,6 +5,7 @@
 #pragma once
 #include <QAbstractListModel>
 #include "core/engine/engine_types.hpp"
+#include "core/engine/timeline_state.hpp"
 #include <QImage>
 #include <QMovie>
 #include <QPointer>
@@ -101,10 +102,10 @@ public:
     void setView(QListView* view);
 
 private:
-    std::vector<DisplayedEvent> events_;
-    std::unordered_set<std::string> seenIds_;
+    // The UI-thread copy of the engine's timeline (the pinned X1 contract:
+    // the model NEVER reads the engine's live vector — data() serves this copy).
+    TimelineState state_;
     ImageLoader* loader_ = nullptr;  // owned by MainWindow; parent-scoped connects
-    std::unordered_map<std::string, int> rowIndex_;
     QPointer<QListView> view_;
 };
 

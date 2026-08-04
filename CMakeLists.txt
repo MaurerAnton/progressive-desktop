@@ -81,6 +81,8 @@ add_library(progressive_core STATIC
     src/core/crypto/key_backup.cpp
     src/core/crypto/recovery_key.cpp
     src/core/crypto/ssss.cpp
+    src/core/engine/room_state.cpp
+    src/core/engine/timeline_state.cpp
     src/core/crypto/backup_crypto.cpp
     src/core/crypto/decryptor.cpp
 )

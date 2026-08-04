@@ -12,21 +12,17 @@ RoomListModel::RoomListModel(QObject* parent)
 
 int RoomListModel::rowCount(const QModelIndex& parent) const {
     if (parent.isValid()) return 0;
-    return static_cast<int>(rooms_.size());
+    return state_.size();
 }
 
 int RoomListModel::joinedCount() const {
-    int count = 0;
-    for (const auto& r : rooms_) {
-        if (!r.isInvite) count++;
-    }
-    return count;
+    return state_.joinedCount();
 }
 
 QVariant RoomListModel::data(const QModelIndex& index, int role) const {
-    if (!index.isValid() || index.row() < 0 || index.row() >= (int)rooms_.size())
-        return {};
-    const auto& r = rooms_[index.row()];
+    const RoomData* rp = state_.at(index.row());
+    if (!index.isValid() || !rp) return {};
+    const auto& r = *rp;
 
     switch (role) {
         case NameRole:         return QString::fromStdString(r.name);
@@ -58,114 +54,51 @@ QVariant RoomListModel::data(const QModelIndex& index, int role) const {
 }
 
 bool RoomListModel::upsertRoom(const RoomData& room) {
-    if (isHidden(room.roomId)) return false;
-    int row = findRowByRoomId(room.roomId);
-    if (row >= 0) {
-        // Update existing
-        bool changed = false;
-        auto& existing = rooms_[row];
-        if (existing.name != room.name && !room.name.empty()) {
-            existing.name = room.name;
-            changed = true;
-        }
-        if (existing.lastActivityTs != room.lastActivityTs) {
-            existing.lastActivityTs = room.lastActivityTs;
-            existing.lastMessage = room.lastMessage;
-            existing.lastSender = room.lastSender;
-            changed = true;
-        }
-        if (existing.unreadCount != room.unreadCount) {
-            existing.unreadCount = room.unreadCount;
-            changed = true;
-        }
-        if (existing.avatarUrl != room.avatarUrl && !room.avatarUrl.empty()) {
-            existing.avatarUrl = room.avatarUrl;
-            changed = true;
-        }
-        if (existing.isEncrypted != room.isEncrypted) {
-            existing.isEncrypted = room.isEncrypted;
-            changed = true;
-        }
-        if (existing.isInvite != room.isInvite) {
-            existing.isInvite = room.isInvite;
-            changed = true;
-        }
-        if (existing.inviterId != room.inviterId && !room.inviterId.empty()) {
-            existing.inviterId = room.inviterId;
-            changed = true;
-        }
-        if (existing.memberCount != room.memberCount && room.memberCount > 0) {
-            existing.memberCount = room.memberCount;
-            changed = true;
-        }
-        if (existing.stateLoaded != room.stateLoaded && room.stateLoaded)
-            existing.stateLoaded = true;
-        if (changed) {
+    auto result = state_.upsertRoom(room);
+    int row = state_.upsertRow();
+    switch (result) {
+        case RoomState::UpsertResult::Updated:
             emit dataChanged(index(row), index(row));
-        }
-        return changed;
+            return true;
+        case RoomState::UpsertResult::Inserted:
+            beginInsertRows(QModelIndex(), row, row);
+            endInsertRows();
+            return true;
+        default:
+            return false;
     }
-
-    // Insert new — sorted by lastActivity descending
-    auto it = std::upper_bound(rooms_.begin(), rooms_.end(), room,
-        [](const RoomData& a, const RoomData& b) {
-            return a.lastActivityTs > b.lastActivityTs;
-        });
-    int newRow = static_cast<int>(std::distance(rooms_.begin(), it));
-    beginInsertRows(QModelIndex(), newRow, newRow);
-    rooms_.insert(it, room);
-    // Rebuild index from newRow onwards (insertion shifted later rows)
-    for (int i = newRow; i < (int)rooms_.size(); ++i) {
-        index_[rooms_[i].roomId] = i;
-    }
-    endInsertRows();
-    return true;
 }
 
 void RoomListModel::clear() {
-    if (rooms_.empty()) return;
+    if (state_.empty()) return;
     beginResetModel();
-    rooms_.clear();
-    index_.clear();
+    state_.clear();
     endResetModel();
 }
 
 bool RoomListModel::removeRoom(const std::string& roomId) {
-    int row = findRowByRoomId(roomId);
-    if (row < 0) return false;
+    if (!state_.removeRoom(roomId)) return false;
+    int row = state_.removeRow();
     beginRemoveRows(QModelIndex(), row, row);
-    rooms_.erase(rooms_.begin() + row);
-    index_.erase(roomId);
-    hiddenRoomIds_.erase(roomId);
-    // Rebuild index for rows after the removed one
-    for (int i = row; i < (int)rooms_.size(); ++i) {
-        index_[rooms_[i].roomId] = i;
-    }
     endRemoveRows();
     return true;
 }
 
 const RoomData* RoomListModel::at(int row) const {
-    if (row < 0 || row >= (int)rooms_.size()) return nullptr;
-    return &rooms_[row];
+    return state_.at(row);
 }
 
 int RoomListModel::findRowByRoomId(const std::string& roomId) const {
-    auto it = index_.find(roomId);
-    if (it == index_.end()) return -1;
-    // Validate index still in sync (defensive)
-    if (it->second < 0 || it->second >= (int)rooms_.size() ||
-        rooms_[it->second].roomId != roomId) {
-        return -1;
-    }
-    return it->second;
+    return state_.findRowByRoomId(roomId);
 }
 
 void RoomListModel::updateHeader(QLabel* header, QLabel* inviteHeader) const {
     int inviteCount = 0;
     int joinedCount = 0;
-    for (const auto& r : rooms_) {
-        if (r.isInvite) inviteCount++;
+    for (int i = 0; i < state_.size(); ++i) {
+        const auto* r = state_.at(i);
+        if (!r) continue;
+        if (r->isInvite) inviteCount++;
         else joinedCount++;
     }
     header->setText(QString(" Chats (%1) ").arg(joinedCount));

@@ -1436,6 +1436,14 @@ int Decryptor::importKeys(const std::string& json) {
 
 
 
+std::string Decryptor::importSingleSession(const std::string& roomId,
+                                           const std::string& senderKey,
+                                           const std::string& exportBase64) {
+    std::string realId = megolm_->addImportedSession(roomId, senderKey, exportBase64);
+    if (!realId.empty()) processPending(roomId, senderKey, realId);
+    return realId;
+}
+
 // Send an Olm-encrypted to-device event to a single device: query keys ->
 // claim OTK -> create outbound session -> encrypt inner event -> PUT
 // /sendToDevice/m.room.encrypted. Matches shareRoomKey's envelope format.

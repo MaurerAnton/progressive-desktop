@@ -78,6 +78,7 @@ add_library(progressive_core STATIC
     src/core/crypto/verify_controller.cpp
     src/core/crypto/megolm_store.cpp
     src/core/crypto/cross_sign.cpp
+    src/core/crypto/key_backup.cpp
     src/core/crypto/recovery_key.cpp
     src/core/crypto/backup_crypto.cpp
     src/core/crypto/decryptor.cpp

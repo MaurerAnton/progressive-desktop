@@ -1073,6 +1073,60 @@ ApiResult<std::string> MatrixClient::uploadSignatures(const std::string& body) {
     return r;
 }
 
+ApiResult<std::string> MatrixClient::createRoomKeysVersion(const std::string& body) {
+    ApiResult<std::string> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    auto resp = httpPost(account().homeserverUrl + "/_matrix/client/v3/room_keys/version",
+                         body, authHeaders(), 15000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) { r.ok = true; r.data = resp.body; }
+    else { r.error = progressive::parseMatrixErrorJson(resp.body); }
+    return r;
+}
+
+ApiResult<std::string> MatrixClient::uploadRoomKeys(const std::string& body) {
+    ApiResult<std::string> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    auto resp = httpPut(account().homeserverUrl + "/_matrix/client/v3/room_keys/keys",
+                        body, authHeaders(), 30000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) { r.ok = true; r.data = resp.body; }
+    else { r.error = progressive::parseMatrixErrorJson(resp.body); }
+    return r;
+}
+
+ApiResult<std::string> MatrixClient::getRoomKeysVersion(const std::string& version) {
+    ApiResult<std::string> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    auto resp = httpGet(account().homeserverUrl + "/_matrix/client/v3/room_keys/version/"
+                        + urlEncodePath(version), authHeaders(), 15000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) { r.ok = true; r.data = resp.body; }
+    else { r.error = progressive::parseMatrixErrorJson(resp.body); }
+    return r;
+}
+
+ApiResult<std::string> MatrixClient::getRoomKeys(const std::string& version) {
+    ApiResult<std::string> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    auto resp = httpGet(account().homeserverUrl + "/_matrix/client/v3/room_keys/keys?version="
+                        + urlEncodePath(version), authHeaders(), 30000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) { r.ok = true; r.data = resp.body; }
+    else { r.error = progressive::parseMatrixErrorJson(resp.body); }
+    return r;
+}
+
+ApiResult<bool> MatrixClient::deleteRoomKeysVersion(const std::string& version) {
+    ApiResult<bool> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    auto resp = httpDelete(account().homeserverUrl + "/_matrix/client/v3/room_keys/version/"
+                           + urlEncodePath(version), authHeaders(), 15000);
+    r.httpStatus = resp.statusCode; r.ok = resp.success; r.data = resp.success;
+    if (!resp.success && !resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
+    return r;
+}
+
 ApiResult<std::string> MatrixClient::queryKeys(const std::string& body) {
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }

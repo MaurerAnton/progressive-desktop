@@ -6,6 +6,7 @@
 #include "core/crypto/backup_crypto.hpp"
 #include "core/session_store.hpp"
 #include <iostream>
+#include <simdjson.h>
 #include <string>
 #include <vector>
 
@@ -292,16 +293,95 @@ static void test_key_backup_crypto() {
     CHECK(body.find("\"algorithm\":\"m.megolm_backup.v1.curve25519-aes-sha2\"") != std::string::npos
           && body.find(pair.publicKeyB64) != std::string::npos,
           "bk: version body structure");
-    std::string entry = buildBackupSessionEntry(sd, 0);
+    std::string entry = buildBackupSessionEntry(sd, 0, "senderKeyB64");
     CHECK(entry.find("\"first_message_index\":0") != std::string::npos
           && entry.find(sd) != std::string::npos,
           "bk: session entry structure");
+}
+
+// Phase 7: REAL megolm export -> backup encrypt -> restore decrypt -> import
+// into a second decryptor -> decrypt a real message. Plus the store registry.
+static void test_key_backup_full_roundtrip() {
+    using namespace progressive::desktop;
+
+    // Sender decryptor with a real session + message.
+    Decryptor sender;
+    CHECK(sender.init(), "bkrt: sender init");
+    std::string sessId = sender.getOrCreateOutboundSession("!bk:test");
+    CHECK(!sessId.empty(), "bkrt: outbound session created");
+    std::string encContent = sender.encryptMessage("!bk:test", "DEV",
+        "{\"msg\":\"backup-roundtrip\"}");
+    CHECK(!encContent.empty(), "bkrt: encrypted a message");
+    std::string envelope = sender.exportAllKeys();
+    CHECK(envelope.find("!bk:test") != std::string::npos, "bkrt: envelope has the room");
+
+    // Extract the first session entry (room_id, session_id, sender_key, session_key).
+    std::string roomId, sessionId, senderKey, sessionKey;
+    {
+        simdjson::dom::parser p;
+        auto doc = p.parse(envelope);
+        if (doc.error() == simdjson::SUCCESS) {
+            auto rooms = doc.value()["rooms"].get_object();
+            if (rooms.error() == simdjson::SUCCESS) {
+                for (auto room : rooms.value()) {
+                    roomId = std::string(room.key);
+                    auto sessions = room.value["sessions"].get_array();
+                    if (sessions.error() != simdjson::SUCCESS) continue;
+                    for (auto sess : sessions.value()) {
+                        auto sid = sess["session_id"].get_string();
+                        auto sk = sess["session_key"].get_string();
+                        auto skey = sess["sender_key"].get_string();
+                        if (sid.error() == simdjson::SUCCESS) sessionId = std::string(sid.value());
+                        if (sk.error() == simdjson::SUCCESS) sessionKey = std::string(sk.value());
+                        if (skey.error() == simdjson::SUCCESS) senderKey = std::string(skey.value());
+                    }
+                }
+            }
+        }
+    }
+    CHECK(!roomId.empty() && !sessionId.empty() && !sessionKey.empty(),
+          "bkrt: parsed session fields");
+    CHECK(!senderKey.empty(), "bkrt: parsed sender_key");
+
+    // Backup encrypt -> restore decrypt -> the same raw export.
+    std::string rk = generateRecoveryKey();
+    auto pair = deriveBackupKey(recoveryKeySeed(rk));
+    std::string sd = encryptBackupSessionData(sessionKey, pair.publicKeyB64);
+    CHECK(!sd.empty(), "bkrt: real export encrypted");
+    std::string restored = decryptBackupSessionData(sd, pair.privateKeyB64);
+    CHECK(restored == sessionKey, "bkrt: real export restored");
+
+    // Import into a second decryptor and decrypt the real message.
+    Decryptor receiver;
+    CHECK(receiver.init(), "bkrt: receiver init");
+    std::string realId = receiver.importSingleSession(roomId, senderKey, restored);
+    CHECK(!realId.empty(), "bkrt: imported the restored session");
+    auto res = receiver.decryptMegolmEvent(roomId, "@alice:test", encContent, "eidB", 0);
+    CHECK(res.ok && res.plaintext.find("backup-roundtrip") != std::string::npos,
+          "bkrt: receiver decrypts the backed-up session's message");
+
+    // Store registry roundtrip.
+    SessionStore store;
+    CHECK(store.open("/tmp/pd_test_backup.db"), "bkrt: store open");
+    BackupInfo bi;
+    bi.version = "1";
+    bi.recoveryKey = rk;
+    bi.publicKey = pair.publicKeyB64;
+    bi.algorithm = "m.megolm_backup.v1.curve25519-aes-sha2";
+    CHECK(store.saveBackupInfo("@alice:test", bi), "bkrt: backup info saved");
+    auto loaded = store.loadBackupInfo("@alice:test");
+    CHECK(loaded.has_value() && loaded->version == "1" && loaded->recoveryKey == rk,
+          "bkrt: backup info loaded");
+    CHECK(store.clearBackupInfo("@alice:test"), "bkrt: backup info cleared");
+    CHECK(!store.loadBackupInfo("@alice:test").has_value(), "bkrt: backup info gone");
+    store.close();
 }
 
 int main() {    test_cross_signing();
     test_trust_computation();
     test_verified_devices_clear();
     test_key_backup_crypto();
+    test_key_backup_full_roundtrip();
 
     test_megolm_rotation();
     test_key_export_import();

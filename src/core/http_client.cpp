@@ -220,4 +220,10 @@ HttpResponse httpPut(const std::string& url, const std::string& body,
     return httpExecute({"PUT", url, body, headers, timeoutMs, true});
 }
 
+HttpResponse httpDelete(const std::string& url,
+                        const std::unordered_map<std::string, std::string>& headers,
+                        int timeoutMs) {
+    return httpExecute({"DELETE", url, "", headers, timeoutMs, true});
+}
+
 } // namespace progressive::desktop

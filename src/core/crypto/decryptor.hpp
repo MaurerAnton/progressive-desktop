@@ -202,6 +202,12 @@ public:
     // Import a MegolmSessionData envelope. Returns number imported (>0 = ok).
     int importKeys(const std::string& json);
 
+    // Import ONE raw v1 megolm export + replay pending events. Returns the
+    // real session id ("" on failure).
+    std::string importSingleSession(const std::string& roomId,
+                                    const std::string& senderKey,
+                                    const std::string& exportBase64);
+
     // Handle an incoming m.room_key_request (another device asks us to
     // re-share a megolm room key). Sends m.forwarded_room_key (Olm-encrypted)
     // on success. Verified-only policy checked internally via the checker.

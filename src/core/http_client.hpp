@@ -92,4 +92,8 @@ HttpResponse httpPut(const std::string& url,
                      const std::unordered_map<std::string, std::string>& headers = {},
                      int timeoutMs = 30000);
 
+HttpResponse httpDelete(const std::string& url,
+                        const std::unordered_map<std::string, std::string>& headers = {},
+                        int timeoutMs = 30000);
+
 } // namespace progressive::desktop

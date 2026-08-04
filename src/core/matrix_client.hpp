@@ -316,6 +316,20 @@ public:
     // POST /_matrix/client/v3/keys/signatures/upload — cross-sign another
     // user's keys (master key signed by our user-signing key).
     ApiResult<std::string> uploadSignatures(const std::string& body);
+    // ---- Key backup (Phase 7): /room_keys ----
+    // POST /room_keys/version — create a backup version. Body:
+    // {"algorithm":"m.megolm_backup.v1.curve25519-aes-sha2",
+    //  "auth_data":{"public_key":...,"signatures":{}}}. Returns {"version":..}.
+    ApiResult<std::string> createRoomKeysVersion(const std::string& body);
+    // PUT /room_keys/keys — upload all sessions. Body: {"rooms":{...}}.
+    // Returns {"count":N}.
+    ApiResult<std::string> uploadRoomKeys(const std::string& body);
+    // GET /room_keys/version/{version} — the backup version info.
+    ApiResult<std::string> getRoomKeysVersion(const std::string& version);
+    // GET /room_keys/keys?version={version} — all backed-up sessions.
+    ApiResult<std::string> getRoomKeys(const std::string& version);
+    // DELETE /room_keys/version/{version} — delete the backup.
+    ApiResult<bool> deleteRoomKeysVersion(const std::string& version);
 
     // POST /_matrix/client/v3/keys/query
     // Query device keys for a list of users. Body:

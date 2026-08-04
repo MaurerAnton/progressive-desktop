@@ -82,6 +82,13 @@ bool SessionStore::createSchema() {
         "  user_id TEXT NOT NULL,"
         "  device_id TEXT NOT NULL,"
         "  PRIMARY KEY(user_id, device_id)"
+        ");"
+        "CREATE TABLE IF NOT EXISTS key_backup ("
+        "  user_id TEXT PRIMARY KEY,"
+        "  version TEXT NOT NULL,"
+        "  recovery_key TEXT NOT NULL,"
+        "  public_key TEXT NOT NULL,"
+        "  algorithm TEXT NOT NULL"
         ");";
     char* err = nullptr;
     int rc = sqlite3_exec(db_, sql, nullptr, nullptr, &err);
@@ -452,6 +459,62 @@ bool SessionStore::saveVerifiedDevice(const std::string& userId,
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_text(stmt, 1, userId.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, deviceId.c_str(), -1, SQLITE_TRANSIENT);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
+bool SessionStore::saveBackupInfo(const std::string& userId, const BackupInfo& info) {
+    if (!db_) return false;
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
+    const char* sql = "INSERT INTO key_backup(user_id, version, recovery_key, public_key, algorithm) "
+                      "VALUES(?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET "
+                      "version=excluded.version, recovery_key=excluded.recovery_key, "
+                      "public_key=excluded.public_key, algorithm=excluded.algorithm;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, userId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, info.version.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, info.recoveryKey.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, info.publicKey.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 5, info.algorithm.c_str(), -1, SQLITE_TRANSIENT);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
+std::optional<BackupInfo> SessionStore::loadBackupInfo(const std::string& userId) {
+    std::optional<BackupInfo> result;
+    if (!db_) return result;
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
+    const char* sql = "SELECT version, recovery_key, public_key, algorithm "
+                      "FROM key_backup WHERE user_id=? LIMIT 1;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return result;
+    sqlite3_bind_text(stmt, 1, userId.c_str(), -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        BackupInfo info;
+        auto v = sqlite3_column_text(stmt, 0);
+        auto rk = sqlite3_column_text(stmt, 1);
+        auto pk = sqlite3_column_text(stmt, 2);
+        auto al = sqlite3_column_text(stmt, 3);
+        if (v) info.version = reinterpret_cast<const char*>(v);
+        if (rk) info.recoveryKey = reinterpret_cast<const char*>(rk);
+        if (pk) info.publicKey = reinterpret_cast<const char*>(pk);
+        if (al) info.algorithm = reinterpret_cast<const char*>(al);
+        result = std::move(info);
+    }
+    sqlite3_finalize(stmt);
+    return result;
+}
+
+bool SessionStore::clearBackupInfo(const std::string& userId) {
+    if (!db_) return false;
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
+    const char* sql = "DELETE FROM key_backup WHERE user_id=?;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, userId.c_str(), -1, SQLITE_TRANSIENT);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;

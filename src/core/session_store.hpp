@@ -23,6 +23,14 @@ struct OlmAccountRecord {
     int uploadedKeyCount = 0;
 };
 
+// The current key-backup registry entry (Phase 7).
+struct BackupInfo {
+    std::string version;
+    std::string recoveryKey;
+    std::string publicKey;
+    std::string algorithm;
+};
+
 class SessionStore {
 public:
     SessionStore();
@@ -78,6 +86,10 @@ public:
     // The user-signing pubkey from the stored cross-signing keys ("" if none) —
     // used by the trust computation for the cross-user USK check.
     std::string loadUserSigningPub(const std::string& userId);
+    // Key-backup registry: the current backup version + key material.
+    bool saveBackupInfo(const std::string& userId, const BackupInfo& info);
+    std::optional<BackupInfo> loadBackupInfo(const std::string& userId);
+    bool clearBackupInfo(const std::string& userId);
 
     // ---- Verified devices (SAS-verified for key-sharing policy) ----
     bool saveVerifiedDevice(const std::string& userId, const std::string& deviceId);

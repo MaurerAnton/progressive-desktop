@@ -78,9 +78,12 @@ bool uploadKeyBackup(MatrixClient& client, Decryptor& decryptor,
                 sKey.error() != simdjson::SUCCESS) continue;
             // Synapse strips non-spec entry fields — the sender_key rides INSIDE
             // the encrypted payload: {"sender_key":...,"export":<megolm export>}.
+            // encryptBackupSessionData expects a BASE64 input (it decodes it) —
+            // the plain JSON wrapper must be base64-encoded first.
             std::string payload = "{\"sender_key\":\"" + std::string(sKey.value())
                 + "\",\"export\":\"" + std::string(skey.value()) + "\"}";
-            std::string sd = encryptBackupSessionData(payload, info.publicKey);
+            std::string sd = encryptBackupSessionData(
+                base64Encode(payload), info.publicKey);
             if (sd.empty()) continue;
             if (!firstSess) roomJson += ",";
             firstSess = false;

@@ -6,7 +6,6 @@
 #include "core/debug_log.hpp"
 #include "core/json_utils.hpp"
 
-#include <regex>
 #include <simdjson.h>
 
 namespace progressive::desktop {
@@ -209,7 +208,6 @@ RoomSyncUpdate SyncApplier::prepareRoomSyncUpdate(const FastSyncResponse& resp,
 void SyncApplier::fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
                                        const std::string& currentRoomId,
                                        Decryptor* decryptor) {
-    std::fprintf(stderr, "[fast-cp] enter type=%.20s\n", std::string(e.type).c_str());
     de.eventId = std::string(e.eventId);
     de.senderId = std::string(e.senderId);
     de.type = std::string(e.type);
@@ -234,69 +232,37 @@ void SyncApplier::fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
         LOG(LogChannel::E2EE, "fastEventToDisplayed: SKIP decryptor=%p init=%d",
             (void*)decryptor, decryptor ? decryptor->isInitialized() : 0);
     }
-    std::fprintf(stderr, "[fast-cp] before message branch\n");
     if (de.type == "m.room.message") {
-        // Parse content with simdjson for correct extraction (works for ALL clients)
-        std::fprintf(stderr, "[fast-cp] parsing content\n");
-        simdjson::dom::parser p;
-        auto doc = p.parse(de.contentJson);
-        std::fprintf(stderr, "[fast-cp] parsed err=%d\n", (int)doc.error());
-        if (doc.error() == simdjson::SUCCESS) {
-            std::fprintf(stderr, "[fast-cp] doc value access\n");
-            auto val = doc.value();
-            std::fprintf(stderr, "[fast-cp] val obtained\n");
-            auto objRes = val.get_object();
-            std::fprintf(stderr, "[fast-cp] get_object err=%d\n", (int)objRes.error());
-            std::string keys;
-            for (auto [k, v] : objRes.value()) {
-                keys += std::string(k) + ",";
-            }
-            std::fprintf(stderr, "[fast-cp] keys done len=%zu\n", keys.size());
-            LOG(LogChannel::DBG, "sync-fluffy: content keys=[%s] content=[%.200s]",
-                keys.c_str(), de.contentJson.c_str());
-            auto bodyStr = val["body"].get_string();
-            if (bodyStr.error() == simdjson::SUCCESS) {
-                de.body = jsonUnescape(std::string(bodyStr.value()));
-            } else {
-                auto fb = val["formatted_body"].get_string();
-                if (fb.error() == simdjson::SUCCESS) {
-                    std::string fbBody = jsonUnescape(std::string(fb.value()));
-                    de.body = std::regex_replace(fbBody, std::regex("<[^>]*>"), "");
-                } else {
-                    auto fbBody = val["formatted_body"]["body"].get_string();
-                    if (fbBody.error() == simdjson::SUCCESS) {
-                        std::string fbBodyStr = jsonUnescape(std::string(fbBody.value()));
-                        de.body = std::regex_replace(fbBodyStr, std::regex("<[^>]*>"), "");
-                    }
+        // String-based extraction (no simdjson DOM + no std::regex in the hot
+        // per-event path — a Release-mode-only crash was observed in the DOM
+        // region on CI; the extractors are equivalent and simpler).
+        de.body = jsonUnescape(extractStringDec(de.contentJson, "body"));
+        if (de.body.empty()) {
+            std::string fb = jsonUnescape(extractStringDec(de.contentJson, "formatted_body"));
+            if (!fb.empty()) {
+                // Strip HTML tags without std::regex.
+                std::string out;
+                bool inTag = false;
+                for (char c : fb) {
+                    if (c == '<') inTag = true;
+                    else if (c == '>') inTag = false;
+                    else if (!inTag) out += c;
                 }
-            }
-            auto msgStr = val["msgtype"].get_string();
-            std::fprintf(stderr, "[fast-cp] msgtype err=%d\n", (int)msgStr.error());
-            if (msgStr.error() == simdjson::SUCCESS)
-                de.msgtype = std::string(msgStr.value());
-            std::fprintf(stderr, "[fast-cp] msgtype assigned=%s\n", de.msgtype.c_str());
-            if (de.msgtype == "m.image" || de.msgtype == "m.video") {
-                auto url = val["url"].get_string();
-                if (url.error() == simdjson::SUCCESS)
-                    de.mxcUrl = jsonUnescape(std::string(url.value()));
-                auto mime = val["mimetype"].get_string();
-                if (mime.error() == simdjson::SUCCESS)
-                    de.mimetype = std::string(mime.value());
+                de.body = std::move(out);
             }
         }
-        if (de.body.empty() && !de.contentJson.empty()) {
-            LOG(LogChannel::DBG, "sync-empty-body: m.room.message sender=%s content=[%.300s]",
-                de.senderId.c_str(), de.contentJson.c_str());
+        de.msgtype = extractStringDec(de.contentJson, "msgtype");
+        if (de.msgtype == "m.image" || de.msgtype == "m.video") {
+            de.mxcUrl = jsonUnescape(extractStringDec(de.contentJson, "url"));
+            de.mimetype = extractStringDec(de.contentJson, "mimetype");
         }
         auto thRoot = SyncApplier::extractThreadRootId(de.contentJson);
         if (!thRoot.empty()) { de.isThreadReply = true; de.threadRootId = thRoot; }
-        std::fprintf(stderr, "[fast-cp] message branch done\n");
     }
     if (de.type == "m.room.encrypted") {
         LOG(LogChannel::DBG, "sync-encrypted: sender=%s content=[%.300s]",
             de.senderId.c_str(), de.contentJson.c_str());
     }
-    std::fprintf(stderr, "[fast-cp] end\n");
     // Catch-all: log every event that passes through sync path
     LOG(LogChannel::DBG, "sync-event: type=%s bodyEmpty=%d contentEmpty=%d sender=%.30s body=[%.100s]",
         de.type.c_str(), (int)de.body.empty(), (int)de.contentJson.empty(),

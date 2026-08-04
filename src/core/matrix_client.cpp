@@ -28,6 +28,7 @@ std::string urlEncodePath(const std::string& s) {
     for (char c : s) {
         if (c == '#') out += "%23";
         else if (c == ' ') out += "%20";
+        else if (c == '/') out += "%2F";  // SSSS key ids (base64) can contain '/'
         else out += c;
     }
     return out;

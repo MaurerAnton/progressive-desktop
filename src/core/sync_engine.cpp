@@ -773,6 +773,20 @@ int SyncEngine::retrieveSsssSecrets(const std::string& recoveryKey) {
     }
     if (keyId.empty()) return 0;
 
+    auto meta = client_->getAccountData("m.secret_storage.key." + keyId);
+    if (!meta.ok) return 0;
+    std::string metadataJson;
+    {
+        simdjson::dom::parser p;
+        auto doc = p.parse(meta.data);
+        if (doc.error() != simdjson::SUCCESS) return 0;
+        auto ivS = doc.value()["iv"].get_string();
+        auto macS = doc.value()["mac"].get_string();
+        if (ivS.error() != simdjson::SUCCESS || macS.error() != simdjson::SUCCESS) return 0;
+        metadataJson = "{\"iv\":\"" + std::string(ivS.value())
+            + "\",\"mac\":\"" + std::string(macS.value()) + "\"}";
+    }
+
     std::vector<uint8_t> aesKey, hmacKey;
     if (!deriveSsssKeys(seed, keyId, aesKey, hmacKey)) return 0;
     if (!verifySsssRecoveryKey(metadataJson, aesKey, hmacKey)) {

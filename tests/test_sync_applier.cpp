@@ -95,10 +95,13 @@ int main() {
         SyncApplier::fastEventToDisplayed(fe, de, u.currentRoomId, nullptr);
         events.push_back(std::move(de));
     }
+    std::cerr << "[applier-checkpoint] converted " << events.size() << " events\n";
     TimelineState st;
     auto r1 = st.appendBackBatch(events);
+    std::cerr << "[applier-checkpoint] appendBackBatch changed=" << r1.changed << "\n";
     CHECK(r1.changed && r1.firstRow == 0 && r1.lastRow == 1, "applier: batch appended");
     CHECK(st.size() == 2, "applier: two events");
+    std::cerr << "[applier-checkpoint] size=" << st.size() << "\n";
     CHECK(st.at(1)->isThreadReply && st.at(1)->threadRootId == "$msg1",
           "applier: thread reply parsed");
     CHECK(st.at(0)->threadReplyCount == 1, "applier: thread root count incremented");

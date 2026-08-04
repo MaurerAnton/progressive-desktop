@@ -137,15 +137,26 @@ int restoreKeyBackup(MatrixClient& client, Decryptor& decryptor,
                 + "\",\"ciphertext\":\"" + std::string(ct.value())
                 + "\",\"mac\":\"\"}";
             std::string payload = decryptBackupSessionData(sdJson, pair.privateKeyB64);
-            if (payload.empty()) continue;
+            if (payload.empty()) {
+                std::fprintf(stderr, "[key-backup] decrypt FAILED room=%s sd=%.80s\n",
+                    roomId.c_str(), sdJson.c_str());
+                continue;
+            }
             simdjson::dom::parser wp;
             auto wdoc = wp.parse(payload);
-            if (wdoc.error() != simdjson::SUCCESS) continue;
+            if (wdoc.error() != simdjson::SUCCESS) {
+                std::fprintf(stderr, "[key-backup] wrapper parse FAILED room=%s payload=%.80s\n",
+                    roomId.c_str(), payload.c_str());
+                continue;
+            }
             auto sKey = wdoc.value()["sender_key"].get_string();
             auto exp = wdoc.value()["export"].get_string();
             if (sKey.error() != simdjson::SUCCESS || exp.error() != simdjson::SUCCESS) continue;
             std::string realId = decryptor.importSingleSession(
                 roomId, std::string(sKey.value()), std::string(exp.value()));
+            std::fprintf(stderr, "[key-backup] import room=%s sk=%.16s realId=%s\n",
+                roomId.c_str(), std::string(sKey.value()).c_str(),
+                realId.empty() ? "EMPTY" : "ok");
             if (!realId.empty()) imported++;
         }
     }

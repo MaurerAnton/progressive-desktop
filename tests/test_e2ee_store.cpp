@@ -214,6 +214,28 @@ static void test_trust_computation() {
     // No self_signing_keys -> empty (user has no cross-signing).
     std::string noXs = "{\"device_keys\":{},\"master_keys\":{},\"self_signing_keys\":{}}";
     CHECK(computeDeviceTrust(noXs, "@alice:test").empty(), "trust: no cross-signing -> empty");
+
+    // Cross-user: bob's master key signed by OUR USK -> all bob's devices Verified.
+    auto usk = generateCrossSigningKeys();
+    std::string bobMaster = "bobMasterPub";
+    std::string bobMasterSig = signEd25519(usk.userPriv,
+        crossSigningKeyCanonical(bobMaster, "master", "@bob:test"));
+    std::string crossJson =
+        "{\"device_keys\":{\"@bob:test\":{"
+        "\"DEVB\":{\"user_id\":\"@bob:test\",\"device_id\":\"DEVB\","
+        "\"algorithms\":[\"m.olm.v1.curve25519-aes-sha2\"],"
+        "\"keys\":{\"curve25519:DEVB\":\"cB\",\"ed25519:DEVB\":\"eB\"},"
+        "\"signatures\":{\"@bob:test\":{\"ed25519:sbPub\":\"sigB\"}}}"
+        "}},\"master_keys\":{\"@bob:test\":{\"keys\":{\"ed25519:" + bobMaster + "\":\"" + bobMaster + "\"},"
+        "\"signatures\":{\"@alice:test\":{\"ed25519:" + usk.userPub + "\":\"" + bobMasterSig + "\"}}}},"
+        "\"self_signing_keys\":{\"@bob:test\":{\"keys\":{\"ed25519:sbPub\":\"sbPub\"}}}}";
+    auto trustCross = computeDeviceTrust(crossJson, "@bob:test", "@alice:test", usk.userPub);
+    CHECK(trustCross.size() == 1 && trustCross[0].trust == DeviceTrust::Verified,
+          "trust: USK-signed master upgrades bob's device to Verified");
+    // Without our USK params the same data stays Unverified (the SSK sig is bogus).
+    auto trustNoUsk = computeDeviceTrust(crossJson, "@bob:test");
+    CHECK(trustNoUsk.size() == 1 && trustNoUsk[0].trust == DeviceTrust::Unverified,
+          "trust: without our USK the device stays Unverified");
 }
 
 // Verified-devices lifecycle: save -> clear -> gone.

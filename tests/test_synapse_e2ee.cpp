@@ -602,6 +602,13 @@ static bool test_sas_verified_policy(const std::string& hs, TestUser& alice, Tes
     auto qBob = alice.client.queryKeys("{\"device_keys\":{\"" + bob.userId + "\":[]}}");
     CHECK(qBob.ok && qBob.data.find("ed25519:" + a1Keys.userPub) != std::string::npos,
           "sas: bob's master key carries A1's USK signature");
+    // The trust computation must upgrade bob's devices to Verified via our USK.
+    bool bobIdentityVerified = false;
+    for (const auto& tr : progressive::desktop::computeDeviceTrust(
+            qBob.data, bob.userId, alice.userId, a1Keys.userPub)) {
+        if (tr.trust == progressive::desktop::DeviceTrust::Verified) bobIdentityVerified = true;
+    }
+    CHECK(bobIdentityVerified, "sas: bob's devices Verified via our USK cross-signature");
     return true;
 }
 

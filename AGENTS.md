@@ -76,6 +76,12 @@ If build or tests fail → revert. Never push broken code.
 - libsodium (system package) — ed25519 keypair generation + curve25519/AEAD for
   cross-signing (Phase 6) and key backup (Phase 7). Arch/PineTab: `pacman -S libsodium`.
   CI installs `libsodium-dev`. Linked to progressive_core via PkgConfig::SODIUM.
+- **libsodium AArch64 quirks (PineTab-class boxes, found Aug 4)**: (1)
+  `crypto_sign_ed25519_seed_keypair` SEGFAULTS on some AArch64 builds — for the
+  key backup, the recovery seed IS the curve25519 secret (m.megolm_backup.v1),
+  no ed25519 conversion needed; (2) `crypto_box_seal_open` SEGFAULTS with a NULL
+  pk AND uses the pk's VALUE — always derive the recipient pk from the sk
+  (`crypto_scalarmult_curve25519_base`) and pass it.
 
 ## Build & Test
 
@@ -165,6 +171,11 @@ got room keys — the multi-device CI test caught both. Rule:
 - `/keys/query`, `/keys/claim`, and `/sendToDevice` bodies with per-device entries MUST
   group by user: `{"@user":{"dev1":...,"dev2":...}}`.
 - `shareRoomKey` (decryptor.cpp) is the reference implementation.
+- `/keys/signatures/upload` bodies have TWO extra traps: the key under a user
+  must be the target's BARE master pub (`master_key_id.split(":",1)[1]`), and
+  the content's `signatures` map must be keyed by the SIGNER's user id (bob's
+  master signed by alice -> `signatures["@alice"]`) — `buildCrossSigningContent`
+  takes a `signerUserId` param for this.
 - The multi-device CI scenario (`test_multiaccount_multidevice`) is the guard; new
   multi-device JSON endpoints should extend it or be added to it.
 

@@ -149,7 +149,7 @@
     Same gap affects thread flags (extractThreadRootId never called in fastEventToDisplayed). Fix scope
     (deferred): call extractReplyToId/extractThreadRootId in fastEventToDisplayed (and re-run on
     applyDecryptedEvents late-decrypt), strip the "> <@user:...>" fallback from body when isReply.
-    Hold until AI coder's cross-signing lands (no-code-touching rule).
+    **Now fix-ready (Phase 6 landed Aug 3) — queued in CHECKLIST.md section 2.**
 [ ] Invite: reject fails with M_FORBIDDEN "duplicate auth_events for m.room.member" (need diagnostic LOGs)
 [ ] Image: images don't render in timeline or viewer — downloadMedia may fail silently (need diagnostic LOGs)
 [ ] File/audio download dead — CONFIRMED root cause (Aug 2): mxcUrl is only parsed for
@@ -159,6 +159,7 @@
     History path (room_data_loader.cpp parseEventFields :110-122) never sets mxcUrl at all.
     Fix scope (deferred, not now): parse url (+filename) for m.file/m.audio in BOTH room_store.cpp
     sync path and room_data_loader.cpp history path.
+    **Now fix-ready (Phase 6 landed Aug 3) — queued in CHECKLIST.md section 2.**
 [ ] Room creation: no "+ New room" action for group rooms, no encrypted room creation
 [x] Multi-account UI — DONE (account_switcher.cpp addAccount/switchAccount/logout wired via combo in main_window.cpp:285; LoginDialog flow verified Aug 2)
 [ ] Copy messages: cannot copy message text from timeline (no copy-to-clipboard)
@@ -197,11 +198,13 @@
     Fix scope: upsertRoom copy+emit for typingUsers + optionally in-chat indicator.
 ```
 
-> **Next diagnostic pass (one AI-coder task):** three bugs need LOGs-before-fix, all visible only at runtime:
+> **Next diagnostic pass (one AI-coder task) — three bugs need LOGs-before-fix, all visible only at runtime:**
 > (1) ~3s message-delivery delay — log send start on ThreadPool + HTTP elapsed + sync sent/returned;
 > (2) images don't render — log downloadMedia/httpGet for image mxcUrl;
 > (3) thread reply count +1 per reaction in thread view — log eid + eventIdEmpty in appendBackBatch.
 > Per PLANNER #9: add LOGs first, analyze, THEN write the fix. Do NOT guess-fix any of these.
+> Combined with the Reply-from-Element fix + the file/audio fix (both above, root cause already
+> confirmed — these two are fix-ready once cross-signing lands; the three above need LOGs first).
 
 ### Discussed Wishes (not yet prioritized)
 ```
@@ -210,19 +213,15 @@
 [ ] Theme — per-element color customization via token overrides
 [ ] Polls/tables — MSC3381 m.poll.start / m.poll.response (deferred to beta)
 [ ] E2EE file encryption — encrypted room file uploads currently bypass encryption (DEBT at chat_view.cpp:279)
-[ ] Room creation — "+ New room" for groups + "+ New encrypted room" with trust preset
-[ ] Message info panel — view event source JSON (body, sender, type, age, etc.) like Element
-[ ] Copy messages — copy message text from timeline to clipboard
-[ ] Markdown tables + code blocks — cmark-gfm integration
-[ ] AppImage + Flatpak — binary releases for alpha
-[x] Multi-account polish — UI for second account DONE (addAccount via combo → LoginDialog)
+[ ] AppImage + Flatpak — binary releases for alpha (packaging is v1.0 per REFERENCE)
+[ ] Multi-account polish — UI for second account DONE (addAccount via combo → LoginDialog)
 [ ] Multi-account verification — prove it actually works
-[ ] Image preview in timeline — image thumbnails instead of text/file card (need diagnostic LOGs first)
-[ ] Invite — M_FORBIDDEN "duplicate auth_events for m.room.member" on reject (need diagnostic LOGs)
 [ ] Forget room — M_UNKNOWN "user is in room" — user must Leave first, then Forget
-[ ] Error visibility — errors should appear in dialog or log panel, not just status bar
 [ ] W15 — search word (local FTS5 full-text index, cheap since FTS5 already planned)
 ```
+> Duplicates removed Aug 4: Room creation, Message info panel, Copy messages, Markdown tables,
+> Image preview, Invite M_FORBIDDEN, Error visibility, Markdown cmark-gfm — all already tracked
+> in the Active sections above.
 
 ---
 

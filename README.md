@@ -7,7 +7,14 @@ A Matrix client in the making. Built with Qt6 QWidgets, libolm, and a shared `pr
 ## Vision
 
 - **Pure C++ core** — no Electron, no JVM, no Rust SDK.
-- **One shared core** with the Android side — `progressive_native` is built from the same source.
+- **Shared core with the Android side** — `progressive_native` is built from the
+  `progressive-android-experiments` submodule source. Honest scope (verified Aug 4):
+  what's genuinely shared is the **Tier A/B utility layer** (JSON parsing, auth/account
+  models, sync models, markdown, login flow, `well_known`). The desktop's HTTP/TLS,
+  sync engine, session store, and **all E2EE crypto are hand-written desktop code**
+  (libcurl-vs-JNI, verified E2EE stack) — NOT the Android repo's crypto, much of which
+  is stub/boilerplate. The mobile-frontend plan (reuse desktop core via X1; Kotlin/JNI
+  vs Qt-for-Android — undecided) lives in `memory/DREAM.md`.
 - **Clean, snappy UI** that respects your attention.
 - **Full Matrix compatibility** — no compromises on federation.
 - **Open source** — AGPLv3.
@@ -16,14 +23,17 @@ A Matrix client in the making. Built with Qt6 QWidgets, libolm, and a shared `pr
 
 **⚠️ NOT USABLE for daily use. Under active development. Do not rely on it.**
 
-E2EE works for a basic 2-user, 1-device flow (verified in CI against a live Synapse).
-Multi-account and multi-device E2EE are NOT yet verified. Several critical bugs remain
+E2EE works for a basic 2-user, 1-device flow (verified in CI against a live Synapse),
+and the CI suite also exercises a 3-member multi-account/multi-device scenario
+(alice on 2 devices, late joiner, room-key delivery). Cross-signing device trust is
+in progress (Phase 6 tail); SSSS key backup is Phase 7. Several critical bugs remain
 (thread replies, image rendering).
 
-Current phase: bug fixing toward v0.5 (see `memory/PROGRESS.md` for the live tracker).
+Current phase: E2EE (cross-signing) + bug fixing toward v0.5 (see `memory/PROGRESS.md`
+for the live tracker).
 
-CI test coverage today: **2 users × 1 device each.** Untested: multiple accounts in one
-client, multiple devices per account, 3+ member rooms.
+CI test coverage today: 2 users × 1 device each, plus a multi-account/multi-device
+scenario (3 members, alice on 2 devices). Untested: full device-management UI flows.
 
 What works:
 - Login/logout with homeserver discovery + password login
@@ -41,13 +51,15 @@ What works:
 - Account switcher dropdown in toolbar
 - E2EE: outbound encryption (Megolm) + inbound decryption (Olm/Megolm recovery chain)
 - E2EE: cross-account key sharing (2 users, 1 device each) — verified in CI against a
-  live Synapse server (`test_synapse_e2ee.cpp`). Multi-account / multi-device NOT yet tested.
+  live Synapse server (`test_synapse_e2ee.cpp`). Multi-account / multi-device scenario
+  (3 members, alice on 2 devices) also exercised in CI.
 - E2EE: SAS device verification (m.sas.v1) — 7-emoji match dialog, device verification
+- E2EE: cross-signing (Phase 6) — key upload/signatures + device trust shields (in progress)
 - Ctrl+K room switcher, date dividers, keyboard navigation
 
 Not yet implemented:
 - Read receipts, typing indicators (sending)
-- Cross-signing device trust chain
+- Cross-signing device trust chain — full (partially in, Phase 6 tail)
 - SSSS key backup / history recovery after re-login
 
 ## Build
@@ -126,7 +138,7 @@ The binary also runs headless for testing:
 
 ## Module audit
 
-`progressive_native` is built from the [`progressive-android-experiments`](https://github.com/MaurerAnton/progressive-android-experiments) submodule. Of the 878 `.cpp` files, not all are real implementations; Tier filtering drops 283 stubs + 8 JNI files — **595 sources** actually compiled. Run the audit:
+`progressive_native` is built from the [`progressive-android-experiments`](https://github.com/MaurerAnton/progressive-android-experiments) submodule. Of the 889 `.cpp` files, not all are real implementations; Tier filtering keeps 521 A + 36 B = **557 sources** actually compiled (drops 324 C stubs + 8 D JNI files). Run the audit:
 
 ```bash
 ./scripts/audit_modules.py            # summary

@@ -2,6 +2,8 @@
 #include "core/crypto/decryptor.hpp"
 #include "core/crypto/cross_sign.hpp"
 #include "core/crypto/sig_verify.hpp"
+#include "core/crypto/recovery_key.hpp"
+#include "core/crypto/backup_crypto.hpp"
 #include "core/session_store.hpp"
 #include <iostream>
 #include <string>
@@ -250,9 +252,56 @@ static void test_verified_devices_clear() {
     store.close();
 }
 
+// Phase 7: recovery key + backup crypto roundtrip.
+static void test_key_backup_crypto() {
+    using namespace progressive::desktop;
+
+    // base58 roundtrip.
+    std::vector<uint8_t> bytes = {0x00, 0x01, 0x02, 0xFE, 0xFF};
+    CHECK(base58Decode(base58Encode(bytes)) == bytes, "bk: base58 roundtrip");
+
+    // Recovery key: valid + parity-protected.
+    std::string rk = generateRecoveryKey();
+    CHECK(!rk.empty(), "bk: recovery key generated");
+    CHECK(isValidRecoveryKey(rk), "bk: recovery key valid");
+    std::string bad = rk;
+    if (bad.size() > 3) {
+        bad[bad.size() / 2] = (bad[bad.size() / 2] == 'A') ? 'B' : 'A';
+        CHECK(!isValidRecoveryKey(bad), "bk: tampered recovery key rejected");
+    }
+
+    // Backup keypair derivation from the seed.
+    auto seed = recoveryKeySeed(rk);
+    auto pair = deriveBackupKey(seed);
+    CHECK(!pair.publicKeyB64.empty() && !pair.privateKeyB64.empty(),
+          "bk: backup keypair derived");
+
+    // Encrypt a payload (a megolm export is opaque to the backup crypto) ->
+    // decrypt with the private key -> identical.
+    std::string exportB64 = "AgAAAABQb2bFnRxmdVHpOjJpZ5y0NTVhTkZVRnBha1NlY3JldEV4cG9ydERhdGE=";
+    std::string sd = encryptBackupSessionData(exportB64, pair.publicKeyB64);
+    CHECK(!sd.empty(), "bk: session_data encrypted");
+    std::string restored = decryptBackupSessionData(sd, pair.privateKeyB64);
+    CHECK(restored == exportB64, "bk: session_data roundtrip");
+
+    // Structure builders.
+    BackupVersionInfo info;
+    info.algorithm = "m.megolm_backup.v1.curve25519-aes-sha2";
+    info.publicKey = pair.publicKeyB64;
+    std::string body = buildBackupVersionBody(info);
+    CHECK(body.find("\"algorithm\":\"m.megolm_backup.v1.curve25519-aes-sha2\"") != std::string::npos
+          && body.find(pair.publicKeyB64) != std::string::npos,
+          "bk: version body structure");
+    std::string entry = buildBackupSessionEntry(sd, 0);
+    CHECK(entry.find("\"first_message_index\":0") != std::string::npos
+          && entry.find(sd) != std::string::npos,
+          "bk: session entry structure");
+}
+
 int main() {    test_cross_signing();
     test_trust_computation();
     test_verified_devices_clear();
+    test_key_backup_crypto();
 
     test_megolm_rotation();
     test_key_export_import();

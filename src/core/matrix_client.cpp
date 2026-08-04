@@ -1026,8 +1026,10 @@ ApiResult<bool> MatrixClient::setAccountData(const std::string& type,
                                              const std::string& contentJson) {
     ApiResult<bool> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    // The type is URL-encoded: SSSS key ids are base64 and can contain '/'
+    // (a literal '/' would break the path — the live SSSS test caught this).
     auto resp = httpPut(account().homeserverUrl + "/_matrix/client/v3/user/"
-                        + account().userId + "/account_data/" + type,
+                        + account().userId + "/account_data/" + urlEncodePath(type),
                         contentJson, authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
     if (resp.success) { r.ok = true; }
@@ -1039,7 +1041,7 @@ ApiResult<std::string> MatrixClient::getAccountData(const std::string& type) {
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
     auto resp = httpGet(account().homeserverUrl + "/_matrix/client/v3/user/"
-                        + account().userId + "/account_data/" + type,
+                        + account().userId + "/account_data/" + urlEncodePath(type),
                         authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
     if (resp.success) { r.ok = true; r.data = resp.body; }

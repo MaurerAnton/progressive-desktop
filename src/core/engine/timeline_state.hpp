@@ -1,8 +1,9 @@
 // src/core/engine/timeline_state.hpp — Qt-free timeline state (X1 phase 2).
 // Owns the canonical timeline events + the pure mutation logic (dedup,
 // cap-200 eviction, thread counts, group markers, reactions). The Qt
-// TimelineModel wraps this: it applies the returned deltas with
-// beginInsertRows/beginRemoveRows/dataChanged + the scroll preservation.
+// TimelineModel wraps this and applies the returned deltas with the
+// QAbstractItemModel notifications (insert/remove/dataChanged) + scroll
+// preservation — no model ops happen in this file.
 //
 // Thread model: mutated + read only on the worker thread today (the sync
 // applier). If any future frontend touches this from another thread, add a

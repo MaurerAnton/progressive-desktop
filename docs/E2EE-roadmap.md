@@ -103,6 +103,22 @@ decrypts, cross-signing publishing verified across devices.
       derivation (libsodium seed_keypair segfaults on AArch64), PrefsDialog
       sync/retrieve buttons, unit + live roundtrip tests
 
+## X1 — Qt-free progressive_engine extraction ✅ (Aug 4)
+- [x] Phase 1: engine_types.hpp (DisplayedEvent/ReactionData/RoomData, QImage out)
+- [x] Phase 2: TimelineState + RoomState; models are thin wrappers (UI-thread copies)
+- [x] Phase 3: SyncApplier (prepareRoomSyncUpdate + helpers) + sync_applier unit test
+- [x] Phase 4: E2EE bootstrap → SyncEngine::initializeE2EE/persistCrypto (e2ee_init_handler deleted) + core unit test
+- [x] Phase 5 assessment: room_handler's "orchestration" is widget manipulation
+      (chatView/threadBanner/statusLabel/window title), not Qt-free logic — the
+      pure parts are a handful of lines woven into widget calls; extracting them
+      would split flows + risk regressions for zero frontend-reuse value.
+      Deliberately NOT moved ("NOT a rewrite" per the task).
+- [x] Phase 6: engine Qt-free verified; 13/13 ctest; image re-layout via the
+      ImageLoader cache (dataChanged on ImageRole/ImageLoadedRole)
+- [ ] Follow-up: the engine callbacks (onRoomListChanged/onTimelineChanged) are
+      not wired yet — the sync handler still drives the models directly
+      (a UI-only simplification; wiring them is trivial when a 2nd frontend lands)
+
 ## Phase 6 — Cross-signing (3-4 sessions) — ✅ COMPLETE (Aug 3)
 
 ### Phase 6 tail (Aug 3):

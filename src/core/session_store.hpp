@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 #include <optional>
+#include <mutex>
 
 struct sqlite3;
 
@@ -74,6 +75,9 @@ public:
     // ---- Cross-signing keys (MSC1756) ----
     bool saveCrossSigningKeys(const std::string& userId, const std::string& json);
     std::optional<std::string> loadCrossSigningKeys(const std::string& userId);
+    // The user-signing pubkey from the stored cross-signing keys ("" if none) —
+    // used by the trust computation for the cross-user USK check.
+    std::string loadUserSigningPub(const std::string& userId);
 
     // ---- Verified devices (SAS-verified for key-sharing policy) ----
     bool saveVerifiedDevice(const std::string& userId, const std::string& deviceId);
@@ -93,6 +97,13 @@ public:
 private:
     sqlite3* db_ = nullptr;
     bool createSchema();
+
+private:
+    // Serializes all db_ access — the store is now touched from the sync
+    // thread AND the UI (device-shield queries on a worker thread).
+    // Recursive: open() -> createSchema(), loadUserSigningPub() ->
+    // loadCrossSigningKeys() re-enter the lock on the same thread.
+    mutable std::recursive_mutex mtx_;
 };
 
 } // namespace progressive::desktop

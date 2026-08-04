@@ -40,6 +40,9 @@ jobs:
       with:
         submodules: recursive
 
+    - name: Check no Qt in core
+      run: ./scripts/check_no_qt_in_core.sh
+
     - name: Install dependencies
       run: |
         sudo apt-get update

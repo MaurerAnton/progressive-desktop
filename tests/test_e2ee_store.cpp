@@ -2,6 +2,7 @@
 #include "core/crypto/decryptor.hpp"
 #include "core/crypto/cross_sign.hpp"
 #include "core/crypto/sig_verify.hpp"
+#include "core/session_store.hpp"
 #include <iostream>
 #include <string>
 #include <vector>
@@ -215,8 +216,21 @@ static void test_trust_computation() {
     CHECK(computeDeviceTrust(noXs, "@alice:test").empty(), "trust: no cross-signing -> empty");
 }
 
+// Verified-devices lifecycle: save -> clear -> gone.
+static void test_verified_devices_clear() {
+    progressive::desktop::SessionStore store;
+    if (!store.open("/tmp/pd_test_verified.db")) { CHECK(false, "vd: open store"); return; }
+    CHECK(store.saveVerifiedDevice("@alice:test", "DEVA"), "vd: save verified device");
+    CHECK(store.isDeviceVerified("@alice:test", "DEVA"), "vd: device verified");
+    CHECK(!store.isDeviceVerified("@bob:test", "DEVB"), "vd: other device not verified");
+    CHECK(store.clearVerifiedDevices(), "vd: clear all");
+    CHECK(!store.isDeviceVerified("@alice:test", "DEVA"), "vd: cleared device no longer verified");
+    store.close();
+}
+
 int main() {    test_cross_signing();
     test_trust_computation();
+    test_verified_devices_clear();
 
     test_megolm_rotation();
     test_key_export_import();

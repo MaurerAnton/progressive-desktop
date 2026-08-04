@@ -416,8 +416,12 @@ void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
                 LOG(LogChannel::E2EE, "processToDevice: recorded verified device %s/%s",
                     vtxn->otherUserId.c_str(), vtxn->otherDeviceId.c_str());
                 // Cross-sign their master key with our USK — the SAS mac covered
-                // both MSKs, so their master key is now SAS-verified.
-                if (!vtxn->theirMasterKey.empty() && client_) {
+                // both MSKs, so their master key is now SAS-verified. Skipped for
+                // self-verifications: the same-user master sig goes through the
+                // server's device-signed self path and is rejected (the MSK
+                // exchange is meaningless within one account anyway).
+                if (!vtxn->theirMasterKey.empty() && client_ &&
+                    vtxn->otherUserId != client_->account().userId) {
                     auto xs = store_->loadCrossSigningKeys(client_->account().userId);
                     if (xs.has_value()) {
                         simdjson::dom::parser p;

@@ -247,6 +247,19 @@ static void test_expired_sweep() {
 }
 
 
+// Negative MSK: if the OTHER side's view of our master key is wrong, the mac
+// verification must fail (the flow must NOT reach Done).
+static void test_msk_mismatch_cancels() {
+    Harness h;
+    h.a.setOurMasterKeyFn([]() { return std::string("mskA"); });
+    h.a.setTheirMasterKeyFn([](const std::string&) { return std::string("mskB"); });
+    h.b.setOurMasterKeyFn([]() { return std::string("mskB"); });
+    // B's view of A's master is WRONG — the macs must mismatch.
+    h.b.setTheirMasterKeyFn([](const std::string&) { return std::string("mskWrong"); });
+    bool done = driveToDone(h, false);
+    CHECK(!done, "msk-neg: mismatched master key prevents Done");
+}
+
 // MSK exchange: when both sides provide their cross-signing master pubkeys,
 // the mac must include the "ed25519:<masterPub>" pseudo-devices and the flow
 // must still reach Done (the MSK entries verify on both sides).
@@ -275,6 +288,7 @@ static void test_msk_exchange() {
 }
 
 int main() {
+    test_msk_mismatch_cancels();
     test_msk_exchange();
 
     test_happy_path();

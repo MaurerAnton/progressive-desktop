@@ -1,6 +1,7 @@
 // src/core/session_store.cpp
 
 #include "session_store.hpp"
+#include <simdjson.h>
 #include "debug_log.hpp"
 
 #include <sqlite3.h>
@@ -16,6 +17,7 @@ SessionStore::~SessionStore() {
 }
 
 bool SessionStore::open(const std::string& dbPath) {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (db_) close();
     int rc = sqlite3_open(dbPath.c_str(), &db_);
     if (rc != SQLITE_OK) {
@@ -38,6 +40,7 @@ bool SessionStore::open(const std::string& dbPath) {
 }
 
 void SessionStore::close() {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (db_) {
         checkpoint();
         sqlite3_close(db_);
@@ -98,6 +101,7 @@ bool SessionStore::createSchema() {
 }
 
 void SessionStore::checkpoint() {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return;
     sqlite3_wal_checkpoint_v2(db_, "main", SQLITE_CHECKPOINT_TRUNCATE,
                               nullptr, nullptr);
@@ -132,6 +136,7 @@ bool SessionStore::saveAccount(const AccountInfo& a) {
 }
 
 std::optional<AccountInfo> SessionStore::loadAccount() {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return std::nullopt;
     const char* sql = "SELECT user_id, device_id, homeserver_url, access_token, refresh_token FROM account ORDER BY rowid DESC LIMIT 1;";
     sqlite3_stmt* stmt = nullptr;
@@ -154,6 +159,7 @@ std::optional<AccountInfo> SessionStore::loadAccount() {
 
 std::vector<AccountInfo> SessionStore::listAccounts() {
     std::vector<AccountInfo> result;
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return result;
     const char* sql = "SELECT user_id, device_id, homeserver_url, access_token, refresh_token FROM account;";
     sqlite3_stmt* stmt = nullptr;
@@ -173,6 +179,7 @@ std::vector<AccountInfo> SessionStore::listAccounts() {
 }
 
 bool SessionStore::clearAccount(const std::string& userId) {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return false;
     if (userId.empty()) return false;
     const char* sql = "DELETE FROM account WHERE user_id = ?;";
@@ -187,6 +194,7 @@ bool SessionStore::clearAccount(const std::string& userId) {
 }
 
 bool SessionStore::saveSyncToken(const std::string& token) {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return false;
     const char* sql =
         "INSERT INTO sync_state (id, since_token) VALUES (1, ?) "
@@ -202,6 +210,7 @@ bool SessionStore::saveSyncToken(const std::string& token) {
 }
 
 std::optional<std::string> SessionStore::loadSyncToken() {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return std::nullopt;
     const char* sql = "SELECT since_token FROM sync_state WHERE id=1;";
     sqlite3_stmt* stmt = nullptr;
@@ -215,6 +224,7 @@ std::optional<std::string> SessionStore::loadSyncToken() {
 }
 
 bool SessionStore::clearSyncToken() {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return false;
     int rc = sqlite3_exec(db_, "DELETE FROM sync_state WHERE id=1;", nullptr, nullptr, nullptr);
     if (rc != SQLITE_OK) return false;
@@ -226,6 +236,7 @@ bool SessionStore::clearSyncToken() {
 
 bool SessionStore::saveOlmAccount(const std::string& pickle, const std::string& pickleKey,
                                    bool shared, int uploadedKeyCount) {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return false;
     const char* sql =
         "INSERT OR REPLACE INTO olm_account (pickle_key, pickle, shared, uploaded_key_count) VALUES (?, ?, ?, ?);";
@@ -243,6 +254,7 @@ bool SessionStore::saveOlmAccount(const std::string& pickle, const std::string& 
 }
 
 std::optional<OlmAccountRecord> SessionStore::loadOlmAccount(const std::string& pickleKey) {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return std::nullopt;
     const char* sql = "SELECT pickle, pickle_key, shared, uploaded_key_count FROM olm_account WHERE pickle_key=?;";
     sqlite3_stmt* stmt = nullptr;
@@ -264,6 +276,7 @@ std::optional<OlmAccountRecord> SessionStore::loadOlmAccount(const std::string& 
 // ---- E2EE data store (key-value) ----
 
 bool SessionStore::saveMegolmSessions(const std::string& data, const std::string& pickleKey) {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return false;
     std::string key = "megolm:" + pickleKey;
     const char* sql = "INSERT INTO e2ee_data(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value;";
@@ -279,6 +292,7 @@ bool SessionStore::saveMegolmSessions(const std::string& data, const std::string
 }
 
 std::optional<std::string> SessionStore::loadMegolmSessions(const std::string& pickleKey) {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return std::nullopt;
     std::string key = "megolm:" + pickleKey;
     const char* sql = "SELECT value FROM e2ee_data WHERE key=?;";
@@ -293,6 +307,7 @@ std::optional<std::string> SessionStore::loadMegolmSessions(const std::string& p
 }
 
 bool SessionStore::saveOlmSessions(const std::string& data, const std::string& pickleKey) {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return false;
     std::string key = "olm_sessions:" + pickleKey;
     const char* sql = "INSERT INTO e2ee_data(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value;";
@@ -308,6 +323,7 @@ bool SessionStore::saveOlmSessions(const std::string& data, const std::string& p
 }
 
 std::optional<std::string> SessionStore::loadOlmSessions(const std::string& pickleKey) {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return std::nullopt;
     std::string key = "olm_sessions:" + pickleKey;
     const char* sql = "SELECT value FROM e2ee_data WHERE key=?;";
@@ -322,6 +338,7 @@ std::optional<std::string> SessionStore::loadOlmSessions(const std::string& pick
 }
 
 bool SessionStore::saveOutboundSessions(const std::string& data, const std::string& pickleKey) {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return false;
     std::string key = "outbound_megolm:" + pickleKey;
     const char* sql = "INSERT INTO e2ee_data(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value;";
@@ -337,6 +354,7 @@ bool SessionStore::saveOutboundSessions(const std::string& data, const std::stri
 }
 
 std::optional<std::string> SessionStore::loadOutboundSessions(const std::string& pickleKey) {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return std::nullopt;
     std::string key = "outbound_megolm:" + pickleKey;
     const char* sql = "SELECT value FROM e2ee_data WHERE key=?;";
@@ -351,6 +369,7 @@ std::optional<std::string> SessionStore::loadOutboundSessions(const std::string&
 }
 
 bool SessionStore::saveE2eeFlag(const std::string& key, bool value) {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return false;
     const char* sql = "INSERT INTO e2ee_data(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value;";
     sqlite3_stmt* stmt = nullptr;
@@ -365,6 +384,7 @@ bool SessionStore::saveE2eeFlag(const std::string& key, bool value) {
 }
 
 std::optional<bool> SessionStore::loadE2eeFlag(const std::string& key) {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return std::nullopt;
     const char* sql = "SELECT value FROM e2ee_data WHERE key=?1;";
     sqlite3_stmt* stmt = nullptr;
@@ -380,6 +400,7 @@ std::optional<bool> SessionStore::loadE2eeFlag(const std::string& key) {
 
 bool SessionStore::saveCrossSigningKeys(const std::string& userId,
     const std::string& json) {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return false;
     const char* sql = "INSERT INTO cross_signing(user_id, data) VALUES(?,?) "
                       "ON CONFLICT(user_id) DO UPDATE SET data=excluded.data;";
@@ -394,6 +415,7 @@ bool SessionStore::saveCrossSigningKeys(const std::string& userId,
 
 std::optional<std::string> SessionStore::loadCrossSigningKeys(const std::string& userId) {
     std::optional<std::string> result;
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return result;
     const char* sql = "SELECT data FROM cross_signing WHERE user_id=? LIMIT 1;";
     sqlite3_stmt* stmt = nullptr;
@@ -407,8 +429,22 @@ std::optional<std::string> SessionStore::loadCrossSigningKeys(const std::string&
     return result;
 }
 
+std::string SessionStore::loadUserSigningPub(const std::string& userId) {
+    std::string pub;
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
+    auto xs = loadCrossSigningKeys(userId);
+    if (!xs.has_value()) return pub;
+    simdjson::dom::parser p;
+    auto d = p.parse(*xs);
+    if (d.error() != simdjson::SUCCESS) return pub;
+    auto up = d.value()["user"]["pub"].get_string();
+    if (up.error() == simdjson::SUCCESS) pub = std::string(up.value());
+    return pub;
+}
+
 bool SessionStore::saveVerifiedDevice(const std::string& userId,
     const std::string& deviceId) {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return false;
     const char* sql = "INSERT INTO verified_devices(user_id, device_id) "
                       "VALUES(?,?) ON CONFLICT DO NOTHING;";
@@ -422,6 +458,7 @@ bool SessionStore::saveVerifiedDevice(const std::string& userId,
 }
 
 bool SessionStore::clearVerifiedDevices() {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return false;
     const char* sql = "DELETE FROM verified_devices;";
     sqlite3_stmt* stmt = nullptr;
@@ -433,6 +470,7 @@ bool SessionStore::clearVerifiedDevices() {
 
 bool SessionStore::isDeviceVerified(const std::string& userId,
     const std::string& deviceId) {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return false;
     const char* sql = "SELECT 1 FROM verified_devices WHERE user_id=? AND device_id=? LIMIT 1;";
     sqlite3_stmt* stmt = nullptr;
@@ -445,6 +483,7 @@ bool SessionStore::isDeviceVerified(const std::string& userId,
 }
 
 bool SessionStore::saveHiddenRoom(const std::string& roomId) {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return false;
     const char* sql = "INSERT INTO hidden_rooms(room_id) VALUES(?) ON CONFLICT(room_id) DO NOTHING;";
     sqlite3_stmt* stmt = nullptr;
@@ -458,6 +497,7 @@ bool SessionStore::saveHiddenRoom(const std::string& roomId) {
 }
 
 bool SessionStore::removeHiddenRoom(const std::string& roomId) {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return false;
     const char* sql = "DELETE FROM hidden_rooms WHERE room_id=?;";
     sqlite3_stmt* stmt = nullptr;
@@ -472,6 +512,7 @@ bool SessionStore::removeHiddenRoom(const std::string& roomId) {
 
 std::vector<std::string> SessionStore::loadHiddenRooms() {
     std::vector<std::string> result;
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return result;
     const char* sql = "SELECT room_id FROM hidden_rooms;";
     sqlite3_stmt* stmt = nullptr;

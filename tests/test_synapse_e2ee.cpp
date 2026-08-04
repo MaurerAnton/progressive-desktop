@@ -1005,6 +1005,9 @@ int main() {
     if (!test_cross_signing_setup(hs, alice)) failures++;
     std::cout << "--- cross-signing setup done ---\n";
 
+    // NOTE: scenario ORDER matters — the sas test re-publishes alice's
+    // cross-signing keys (invalidating the mm test's SSK sigs), so it must
+    // stay LAST.
     // Multi-account + multi-device: 3 members, 2-device account, late joiner.
     std::cout << "\n--- multiaccount multidevice test ---\n";
     if (!test_multiaccount_multidevice(hs, alice, bob)) failures++;

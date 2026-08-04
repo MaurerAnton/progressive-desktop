@@ -130,11 +130,14 @@ void RoomMembersDialog::loadMembers() {
             queryBody += "}}";
             auto q = client_->queryKeys(queryBody);
             if (q.ok) {
+                std::string ourUsk = store_ ? store_->loadUserSigningPub(client_->account().userId) : "";
+                std::string ourUid = client_->account().userId;
                 for (const auto& mbr : members) {
                     int level = 0;
-                    auto trustRes = computeDeviceTrust(q.data, mbr.userId);
+                    auto trustRes = computeDeviceTrust(q.data, mbr.userId, ourUid, ourUsk);
                     for (const auto& r : trustRes) {
-                        if (r.trust == DeviceTrust::Trusted) level = 1;
+                        if (r.trust == DeviceTrust::Verified) level = 2;
+                        else if (r.trust == DeviceTrust::Trusted && level < 2) level = 1;
                         if (store_ && store_->isDeviceVerified(mbr.userId, r.deviceId)) level = 2;
                     }
                     trust[mbr.userId] = level;

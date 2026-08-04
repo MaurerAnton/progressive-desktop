@@ -247,8 +247,12 @@ void PrefsDialog::loadDevices(QVBoxLayout* sectionLayout) {
     }
 
     // Trust shields: green = SAS-verified, grey = SSK cross-signed, red = unverified.
+    // A user whose master carries OUR USK signature (we SAS-verified the identity)
+    // upgrades all their devices to Verified.
+    std::string ourUsk = store_ ? store_->loadUserSigningPub(ourUserId) : "";
     std::map<std::string, progressive::desktop::DeviceTrust> trustByDev;
-    for (const auto& r : progressive::desktop::computeDeviceTrust(resp.data, ourUserId))
+    for (const auto& r : progressive::desktop::computeDeviceTrust(
+            resp.data, ourUserId, ourUserId, ourUsk))
         trustByDev[r.deviceId] = r.trust;
     int count = 0;
     for (auto dev : userObj.value().get_object().value()) {

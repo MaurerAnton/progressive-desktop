@@ -61,8 +61,13 @@ struct DeviceTrustResult {
 // Trusted = valid SSK signature (cross-signed); Unverified otherwise. SAS-verified
 // devices (Verified) are NOT computed here — the caller overlays the verified_devices
 // table (SAS verification is the stronger level).
+// When ourUserId/ourUskPub are given (we have cross-signing), a user whose master
+// key carries OUR user-signing signature is one we SAS-verified as an identity —
+// ALL their devices are upgraded to Verified.
 // Returns empty if the user has no published cross-signing keys.
 std::vector<DeviceTrustResult> computeDeviceTrust(const std::string& keysQueryJson,
-                                                  const std::string& userId);
+                                                  const std::string& userId,
+                                                  const std::string& ourUserId = "",
+                                                  const std::string& ourUskPub = "");
 
 } // namespace progressive::desktop

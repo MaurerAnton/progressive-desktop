@@ -135,12 +135,38 @@ std::string buildCrossSigningContent(const std::string& type,
 // ===== Phase 6 trust computation =====
 
 std::vector<DeviceTrustResult> computeDeviceTrust(const std::string& keysQueryJson,
-                                                  const std::string& userId) {
+                                                  const std::string& userId,
+                                                  const std::string& ourUserId,
+                                                  const std::string& ourUskPub) {
     std::vector<DeviceTrustResult> results;
 
     simdjson::dom::parser p;
     auto doc = p.parse(keysQueryJson);
     if (doc.error() != simdjson::SUCCESS) return results;
+
+    // Cross-user: a user whose master key carries OUR user-signing signature was
+    // SAS-verified by us as an identity — all their devices are Verified.
+    bool identityVerified = false;
+    if (!ourUserId.empty() && !ourUskPub.empty()) {
+        auto masterKeys = doc.value()["master_keys"][userId]["keys"].get_object();
+        if (masterKeys.error() == simdjson::SUCCESS) {
+            for (auto [k, v] : masterKeys.value()) {
+                std::string kStr(k);
+                if (kStr.find("ed25519:") != 0) continue;
+                auto vs = v.get_string();
+                if (vs.error() != simdjson::SUCCESS) continue;
+                std::string masterPub = std::string(vs.value());
+                auto sig = doc.value()["master_keys"][userId]
+                    ["signatures"][ourUserId]["ed25519:" + ourUskPub].get_string();
+                if (sig.error() != simdjson::SUCCESS) continue;
+                if (verifyEd25519(ourUskPub,
+                        crossSigningKeyCanonical(masterPub, "master", userId),
+                        std::string(sig.value()))) {
+                    identityVerified = true;
+                }
+            }
+        }
+    }
 
     // The user's published self-signing key.
     std::string sskPub;
@@ -186,7 +212,9 @@ std::vector<DeviceTrustResult> computeDeviceTrust(const std::string& keysQueryJs
         r.userId = userId;
         r.deviceId = devId;
         r.trust = DeviceTrust::Unverified;
-        if (!sskSig.empty() &&
+        if (identityVerified) {
+            r.trust = DeviceTrust::Verified;
+        } else if (!sskSig.empty() &&
             verifyEd25519(sskPub, buildDeviceKeysCanonical(userId, devId, curve, ed), sskSig)) {
             r.trust = DeviceTrust::Trusted;
         }

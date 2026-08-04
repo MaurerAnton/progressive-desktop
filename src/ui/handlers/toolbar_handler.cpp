@@ -182,7 +182,9 @@ void ToolbarHandler::onRoomSettings() {
 
 void ToolbarHandler::onRoomMembers() {
     if (!client_) { QMessageBox::information(parentWidget_, "Members", "Select a room first."); return; }
-    RoomMembersDialog dlg(client_.get(), "", parentWidget_);
+    RoomMembersDialog dlg(client_.get(),
+                          roomHandler_ ? roomHandler_->currentRoomId() : "",
+                          parentWidget_);
     if (sync_) dlg.setSessionStore(sync_->sessionStore());
     connect(&dlg, &RoomMembersDialog::verifyRequested, this,
         [this](const QString& userId, const QString& deviceId) {

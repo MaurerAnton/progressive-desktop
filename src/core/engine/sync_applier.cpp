@@ -239,8 +239,8 @@ void SyncApplier::fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
         de.body = jsonUnescape(extractStringDec(de.contentJson, "body"));
         if (de.body.empty()) {
             std::string fb = jsonUnescape(extractStringDec(de.contentJson, "formatted_body"));
-            if (!fb.empty()) {
-                // Strip HTML tags without std::regex.
+            if (!fb.empty() && fb.find("\"body\":") == std::string::npos) {
+                // Plain formatted_body string — strip HTML tags without std::regex.
                 std::string out;
                 bool inTag = false;
                 for (char c : fb) {
@@ -249,6 +249,9 @@ void SyncApplier::fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
                     else if (!inTag) out += c;
                 }
                 de.body = std::move(out);
+            } else if (!fb.empty()) {
+                // Nested formatted_body object: {"formatted_body":{"body":"..."}}
+                de.body = jsonUnescape(extractStringDec(de.contentJson, "body"));
             }
         }
         de.msgtype = extractStringDec(de.contentJson, "msgtype");

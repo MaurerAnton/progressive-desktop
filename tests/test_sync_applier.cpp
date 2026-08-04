@@ -31,15 +31,11 @@ static void test_initialize_e2ee() {
 
     auto store = std::make_shared<SessionStore>();
     CHECK(store->open("/tmp/pd_x1_e2ee.db"), "e2ee: store open");
-    std::cerr << "[e2ee-checkpoint] store open\n";
 
     SyncEngine se;
     se.setClient(client);
-    std::cerr << "[e2ee-checkpoint] se setClient\n";
     se.setSessionStore(store);
-    std::cerr << "[e2ee-checkpoint] se setSessionStore\n";
     auto r = se.initializeE2EE();
-    std::cerr << "[e2ee-checkpoint] initializeE2EE done e2eeOk=" << r.e2eeOk << "\n";
     CHECK(r.e2eeOk, "e2ee: account initialized");
     CHECK(se.decryptor()->isInitialized(), "e2ee: decryptor initialized");
     CHECK(store->loadOlmAccount("@u:test/DEV").has_value(), "e2ee: account pickle saved");
@@ -47,14 +43,10 @@ static void test_initialize_e2ee() {
     // Reload from the saved pickle.
     SyncEngine se2;
     se2.setClient(client);
-    std::cerr << "[e2ee-checkpoint] se2 setClient\n";
     se2.setSessionStore(store);
-    std::cerr << "[e2ee-checkpoint] se2 setSessionStore\n";
     auto r2 = se2.initializeE2EE();
-    std::cerr << "[e2ee-checkpoint] se2 initializeE2EE done e2eeOk=" << r2.e2eeOk << "\n";
     CHECK(r2.e2eeOk, "e2ee: reload from pickle");
     CHECK(se2.decryptor()->isInitialized(), "e2ee: reloaded decryptor initialized");
-    std::cerr << "[e2ee-checkpoint] test done\n";
 }
 
 int main() {
@@ -80,10 +72,7 @@ int main() {
     e2.contentJson = (*owned)[7]; e2.originServerTs = 2000;
     room.timeline.events = {e1, e2};
     resp.joinedRooms.push_back({(*owned)[0], std::move(room)});
-
-    std::cerr << "[applier-checkpoint] response built\n";
     auto u = SyncApplier::prepareRoomSyncUpdate(resp, "!room1:test", "@me:test");
-    std::cerr << "[applier-checkpoint] prepareRoomSyncUpdate done\n";
     CHECK(u.roomsToUpsert.size() == 1, "applier: one room upserted");
     CHECK(u.currentRoomUpdated && u.currentRoomEvents.size() == 2,
           "applier: current room events captured");
@@ -92,21 +81,15 @@ int main() {
     std::vector<DisplayedEvent> events;
     int convIdx = 0;
     for (const auto& fe : u.currentRoomEvents) {
-        std::cerr << "[applier-checkpoint] converting event " << convIdx
-                  << " type=" << std::string(fe.type) << "\n";
         DisplayedEvent de;
         SyncApplier::fastEventToDisplayed(fe, de, u.currentRoomId, nullptr);
-        std::cerr << "[applier-checkpoint] converted event " << convIdx << " ok\n";
         events.push_back(std::move(de));
         convIdx++;
     }
-    std::cerr << "[applier-checkpoint] converted " << events.size() << " events\n";
     TimelineState st;
     auto r1 = st.appendBackBatch(events);
-    std::cerr << "[applier-checkpoint] appendBackBatch changed=" << r1.changed << "\n";
     CHECK(r1.changed && r1.firstRow == 0 && r1.lastRow == 1, "applier: batch appended");
     CHECK(st.size() == 2, "applier: two events");
-    std::cerr << "[applier-checkpoint] size=" << st.size() << "\n";
     CHECK(st.at(1)->isThreadReply && st.at(1)->threadRootId == "$msg1",
           "applier: thread reply parsed");
     CHECK(st.at(0)->threadReplyCount == 1, "applier: thread root count incremented");
@@ -130,10 +113,8 @@ int main() {
     CHECK(big.size() <= static_cast<size_t>(TimelineState::MAX_TIMELINE_EVENTS),
           "applier: cap-200 enforced");
     CHECK(big.at(0)->eventId == "$cap50", "applier: oldest evicted");
-    std::cerr << "[applier-checkpoint] all applier checks done\n";
 
     if (failures) { std::cerr << failures << " TEST(S) FAILED\n"; return 1; }
-    std::cerr << "[applier-checkpoint] main returning 0\n";
     std::cout << "All sync_applier tests passed\n";
     return 0;
 }

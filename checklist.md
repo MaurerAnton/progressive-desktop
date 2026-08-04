@@ -21,9 +21,12 @@ completed items are removed.
       curve25519-aes-sha2-spec (ECDH + AES-256-CBC + HMAC-SHA256 with the spec
       KDF); swap the primitive when Element interop is pursued. The structure
       (version/auth_data/session entries) is already spec-shaped.
-- [ ] **Secret sharing (SSSS account-data)** — after the backup slice: devices
-      can decrypt the backup private key from account-data -> device2 gets the
-      SSK -> the mm test's `!a2SskSig` assertion must be REMOVED then.
+- [x] **Secret sharing (SSSS account-data)** — DONE (Aug 4): cross-signing
+      private keys encrypted to account-data (m.secret_storage), recovery-key
+      unlock, default_key discovery, PrefsDialog sync/retrieve, live-Synapse
+      roundtrip green. NOTE: the mm test's `!a2SskSig` assertion stays (device2
+      never runs the retrieve flow in CI); the assertion must be re-evaluated
+      when the app's cross-device retrieve path is manually verified.
 
 ## Testing / validation
 

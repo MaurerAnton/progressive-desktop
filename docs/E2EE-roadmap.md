@@ -96,7 +96,12 @@ decrypts, cross-signing publishing verified across devices.
       live-Synapse backup API roundtrip (create -> upload -> restore -> decrypt)
 - [ ] Spec-exact session_data KDF (curve25519-aes-sha2) for Element interop —
       currently crypto_box_seal (self-consistent; server stores opaquely)
-- [ ] SSSS secret sharing (cross-device key distribution)
+- [x] SSSS secret sharing (m.secret_storage.v1.aes-hmac-sha2): HKDF key
+      derivation + AES-256-CBC + HMAC (8-byte mac), key-metadata
+      self-encryption verification, key discovery via m.secret_storage.default_key
+      (Synapse lacks the global listing endpoint), OpenSSL EVP ed25519 pub
+      derivation (libsodium seed_keypair segfaults on AArch64), PrefsDialog
+      sync/retrieve buttons, unit + live roundtrip tests
 
 ## Phase 6 — Cross-signing (3-4 sessions) — ✅ COMPLETE (Aug 3)
 

@@ -164,12 +164,18 @@ PrefsDialog::PrefsDialog(QWidget* parent) : QDialog(parent) {
                                 "encrypted backup of your room keys.");
     auto* backupNowBtn = new QPushButton("Backup now", this);
     auto* restoreBtn = new QPushButton("Restore from recovery key…", this);
+    auto* ssssUploadBtn = new QPushButton("Sync secrets to my other devices…", this);
+    ssssUploadBtn->setToolTip("Encrypt the cross-signing keys to account-data, "
+                              "unlockable with the recovery key.");
+    auto* ssssRetrieveBtn = new QPushButton("Retrieve secrets with recovery key…", this);
     auto* exportBtn = new QPushButton("Export room keys to file…", this);
     auto* importBtn = new QPushButton("Import room keys from file…", this);
     backupLayout->addWidget(backupStatus);
     backupLayout->addWidget(createBackupBtn);
     backupLayout->addWidget(backupNowBtn);
     backupLayout->addWidget(restoreBtn);
+    backupLayout->addWidget(ssssUploadBtn);
+    backupLayout->addWidget(ssssRetrieveBtn);
     backupLayout->addWidget(exportBtn);
     backupLayout->addWidget(importBtn);
     root->addWidget(backupGroup);
@@ -203,6 +209,32 @@ PrefsDialog::PrefsDialog(QWidget* parent) : QDialog(parent) {
         else
             QMessageBox::warning(this, "Key backup",
                 "Upload failed (no backup configured, or the server rejected it).");
+    });
+    connect(ssssUploadBtn, &QPushButton::clicked, this, [this, backupStatus]() {
+        if (!uploadSsssFn_) return;
+        QInputDialog dlg(this);
+        dlg.setWindowTitle("Sync secrets to other devices");
+        dlg.setLabelText("Enter (or paste) the recovery key used to encrypt the "
+                         "cross-signing secrets:");
+        dlg.setTextEchoMode(QLineEdit::Normal);
+        if (dlg.exec() != QDialog::Accepted || dlg.textValue().isEmpty()) return;
+        if (uploadSsssFn_(dlg.textValue().toStdString()))
+            backupStatus->setText("Secrets synced to account-data");
+        else
+            QMessageBox::warning(this, "Secrets sync",
+                "Failed (no cross-signing keys, or the upload was rejected).");
+    });
+    connect(ssssRetrieveBtn, &QPushButton::clicked, this, [this, backupStatus]() {
+        if (!retrieveSsssFn_) return;
+        QInputDialog dlg(this);
+        dlg.setWindowTitle("Retrieve secrets");
+        dlg.setLabelText("Enter the recovery key:");
+        dlg.setTextEchoMode(QLineEdit::Normal);
+        if (dlg.exec() != QDialog::Accepted || dlg.textValue().isEmpty()) return;
+        int n = retrieveSsssFn_(dlg.textValue().toStdString());
+        backupStatus->setText(n > 0
+            ? "Secrets retrieved — device keys re-signed"
+            : "Retrieve failed (wrong key or no synced secrets)");
     });
     connect(restoreBtn, &QPushButton::clicked, this, [this, backupStatus]() {
         if (!restoreKeyBackupFn_) return;

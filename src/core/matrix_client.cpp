@@ -1035,6 +1035,18 @@ ApiResult<bool> MatrixClient::setAccountData(const std::string& type,
     return r;
 }
 
+ApiResult<std::string> MatrixClient::getAccountDataAll() {
+    ApiResult<std::string> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    auto resp = httpGet(account().homeserverUrl + "/_matrix/client/v3/user/"
+                        + account().userId + "/account_data",
+                        authHeaders(), 15000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) { r.ok = true; r.data = resp.body; }
+    else { r.error = progressive::parseMatrixErrorJson(resp.body); }
+    return r;
+}
+
 ApiResult<std::string> MatrixClient::getAccountData(const std::string& type) {
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }

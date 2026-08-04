@@ -80,6 +80,7 @@ add_library(progressive_core STATIC
     src/core/crypto/cross_sign.cpp
     src/core/crypto/key_backup.cpp
     src/core/crypto/recovery_key.cpp
+    src/core/crypto/ssss.cpp
     src/core/crypto/backup_crypto.cpp
     src/core/crypto/decryptor.cpp
 )
@@ -87,12 +88,15 @@ target_include_directories(progressive_core PUBLIC
     src
     ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
+find_package(OpenSSL REQUIRED)
+
 target_link_libraries(progressive_core PUBLIC
     progressive_native
     CURL::libcurl
     SQLite::SQLite3
     simdjson::simdjson
     PkgConfig::SODIUM
+    OpenSSL::Crypto
 )
 
 # --- UI widget layer (no deps on other UI libs) ---

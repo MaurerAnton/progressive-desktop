@@ -113,6 +113,15 @@ public:
     int restoreKeyBackupNow(const std::string& recoveryKey);
     // Called by the sync loop: re-upload when new sessions arrived.
     void maybeUploadBackup();
+
+    // ---- SSSS (cross-device secret sharing, Phase 7) ----
+    // Encrypt the cross-signing private keys to account-data, unlockable with
+    // the recovery key (m.secret_storage.v1.aes-hmac-sha2). True on success.
+    bool uploadSsssSecrets(const std::string& recoveryKey);
+    // Retrieve + decrypt the cross-signing secrets with the recovery key,
+    // store them locally, and re-upload THIS device's keys SSK-signed.
+    // Returns 0 on failure (missing secrets/wrong key), 1 on success.
+    int retrieveSsssSecrets(const std::string& recoveryKey);
     std::string uiaSession() const { return uiaSession_; }
 
     const SyncEngineStats& stats() const { return stats_; }

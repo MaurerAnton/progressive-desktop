@@ -241,6 +241,12 @@ void ToolbarHandler::onSettings() {
         dlg.setRestoreKeyBackupFn([this](const std::string& key) {
             return sync_ ? sync_->restoreKeyBackupNow(key) : 0;
         });
+        dlg.setUploadSsssFn([this](const std::string& key) {
+            return sync_ ? sync_->uploadSsssSecrets(key) : false;
+        });
+        dlg.setRetrieveSsssFn([this](const std::string& key) {
+            return sync_ ? sync_->retrieveSsssSecrets(key) > 0 : false;
+        });
         connect(&dlg, &PrefsDialog::settingsChanged, this, &ToolbarHandler::prefsChanged);
         dlg.exec();
     } else if (selected == shortcutsAction) {

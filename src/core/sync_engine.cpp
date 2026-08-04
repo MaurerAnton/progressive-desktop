@@ -12,6 +12,8 @@
 #include "core/crypto/cross_sign.hpp"
 #include "core/crypto/key_backup.hpp"
 #include "core/crypto/recovery_key.hpp"
+#include "core/crypto/ssss.hpp"
+#include <openssl/evp.h>
 #include <simdjson.h>
 
 namespace progressive::desktop {
@@ -687,6 +689,130 @@ void SyncEngine::maybeUploadBackup() {
     if (!client_ || !client_->isLoggedIn() || !store_) return;
     if (!decryptor_.backupDirty()) return;
     uploadKeyBackupNow();
+}
+
+bool SyncEngine::uploadSsssSecrets(const std::string& recoveryKey) {
+    if (!client_ || !client_->isLoggedIn() || !store_) return false;
+    auto seed = recoveryKeySeed(recoveryKey);
+    if (seed.size() != 32) return false;
+    auto userId = client_->account().userId;
+
+    auto xs = store_->loadCrossSigningKeys(userId);
+    if (!xs.has_value()) return false;
+    std::string masterPriv, selfPriv, userPriv;
+    {
+        simdjson::dom::parser p;
+        auto d = p.parse(*xs);
+        if (d.error() != simdjson::SUCCESS) return false;
+        auto g = [&](const char* which, std::string& priv) {
+            auto pr = d.value()[which]["priv"].get_string();
+            if (pr.error() == simdjson::SUCCESS) priv = std::string(pr.value());
+        };
+        g("master", masterPriv);
+        g("self", selfPriv);
+        g("user", userPriv);
+    }
+    if (masterPriv.empty() || selfPriv.empty() || userPriv.empty()) return false;
+
+    std::string keyId = generateSsssKeyId();
+    std::vector<uint8_t> aesKey, hmacKey;
+    if (!deriveSsssKeys(seed, keyId, aesKey, hmacKey)) return false;
+
+    if (!client_->setAccountData("m.secret_storage.key." + keyId,
+            buildSsssKeyMetadata(aesKey, hmacKey)).ok) return false;
+    if (!client_->setAccountData("m.cross_signing.master",
+            encryptSsssSecret(masterPriv, aesKey, hmacKey)).ok) return false;
+    if (!client_->setAccountData("m.cross_signing.self_signing",
+            encryptSsssSecret(selfPriv, aesKey, hmacKey)).ok) return false;
+    if (!client_->setAccountData("m.cross_signing.user_signing",
+            encryptSsssSecret(userPriv, aesKey, hmacKey)).ok) return false;
+    LOG(LogChannel::E2EE, "uploadSsssSecrets: cross-signing secrets encrypted "
+        "to account-data (keyId=%s)", keyId.c_str());
+    return true;
+}
+
+// ed25519 public key from a 32-byte seed via OpenSSL (libsodium's
+// crypto_sign_ed25519_seed_keypair SEGFAULTS on some AArch64 builds).
+static std::string ed25519PubFromSeed(const std::string& seedB64) {
+    auto seed = base64Decode(seedB64);
+    if (seed.size() != 32) return "";
+    EVP_PKEY* pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, nullptr,
+        reinterpret_cast<const uint8_t*>(seed.data()), 32);
+    if (!pkey) return "";
+    std::vector<uint8_t> pub(32);
+    size_t len = pub.size();
+    if (EVP_PKEY_get_raw_public_key(pkey, pub.data(), &len) != 1 || len != 32) {
+        EVP_PKEY_free(pkey);
+        return "";
+    }
+    EVP_PKEY_free(pkey);
+    return base64Encode(std::string(pub.begin(), pub.end()));
+}
+
+int SyncEngine::retrieveSsssSecrets(const std::string& recoveryKey) {
+    if (!client_ || !client_->isLoggedIn() || !store_) return 0;
+    auto seed = recoveryKeySeed(recoveryKey);
+    if (seed.size() != 32) return 0;
+    auto userId = client_->account().userId;
+
+    // Discover the SSSS key from the account-data listing.
+    auto all = client_->getAccountDataAll();
+    if (!all.ok) return 0;
+    std::string keyId;
+    std::string metadataJson;
+    {
+        simdjson::dom::parser p;
+        auto doc = p.parse(all.data);
+        if (doc.error() != simdjson::SUCCESS) return 0;
+        auto obj = doc.value().get_object();
+        if (obj.error() != simdjson::SUCCESS) return 0;
+        for (auto [k, v] : obj.value()) {
+            std::string type(k);
+            if (type.find("m.secret_storage.key.") != 0) continue;
+            keyId = type.substr(std::string("m.secret_storage.key.").size());
+            auto ivS = v["iv"].get_string();
+            auto macS = v["mac"].get_string();
+            if (ivS.error() != simdjson::SUCCESS || macS.error() != simdjson::SUCCESS)
+                return 0;
+            metadataJson = "{\"iv\":\"" + std::string(ivS.value())
+                + "\",\"mac\":\"" + std::string(macS.value()) + "\"}";
+            break;
+        }
+    }
+    if (keyId.empty()) return 0;
+
+    std::vector<uint8_t> aesKey, hmacKey;
+    if (!deriveSsssKeys(seed, keyId, aesKey, hmacKey)) return 0;
+    if (!verifySsssRecoveryKey(metadataJson, aesKey, hmacKey)) {
+        LOG(LogChannel::E2EE, "retrieveSsssSecrets: recovery key does not match "
+            "the stored SSSS key metadata");
+        return 0;
+    }
+
+    auto master = client_->getAccountData("m.cross_signing.master");
+    auto self = client_->getAccountData("m.cross_signing.self_signing");
+    auto user = client_->getAccountData("m.cross_signing.user_signing");
+    if (!master.ok || !self.ok || !user.ok) return 0;
+
+    std::string masterPriv = decryptSsssSecret(master.data, aesKey, hmacKey);
+    std::string selfPriv = decryptSsssSecret(self.data, aesKey, hmacKey);
+    std::string userPriv = decryptSsssSecret(user.data, aesKey, hmacKey);
+    if (masterPriv.empty() || selfPriv.empty() || userPriv.empty()) return 0;
+
+    CrossSigningKeys keys;
+    keys.masterPriv = masterPriv;
+    keys.selfPriv = selfPriv;
+    keys.userPriv = userPriv;
+    keys.masterPub = ed25519PubFromSeed(masterPriv);
+    keys.selfPub = ed25519PubFromSeed(selfPriv);
+    keys.userPub = ed25519PubFromSeed(userPriv);
+    if (keys.masterPub.empty() || keys.selfPub.empty() || keys.userPub.empty()) return 0;
+
+    saveCrossSigningKeysJson(userId, keys);
+    reuploadDeviceKeys(userId, keys);
+    LOG(LogChannel::E2EE, "retrieveSsssSecrets: cross-signing secrets restored "
+        "for %s — device keys re-signed with the SSK", userId.c_str());
+    return 1;
 }
 
 bool SyncEngine::resetCrossSigning() {

@@ -24,6 +24,7 @@
 #include "core/crypto/recovery_key.hpp"
 #include "core/crypto/backup_crypto.hpp"
 #include "core/crypto/key_backup.hpp"
+#include "core/crypto/ssss.hpp"
 
 #include <iostream>
 #include <string>
@@ -669,6 +670,75 @@ static bool test_key_backup_api(const std::string& hs, TestUser& alice) {
     return true;
 }
 
+// Live SSSS: encrypt the cross-signing secrets to account-data with a
+// recovery key, then retrieve + verify them (the sync engine's upload/
+// retrieve logic replicated — it needs a full SyncEngine otherwise).
+static bool test_ssss_api(const std::string& hs, TestUser& alice) {
+    using namespace progressive::desktop;
+
+    auto keys = publishCrossSigning(alice);  // alice's current cross-signing keys
+    CHECK(!keys.masterPriv.empty(), "ssss-api: cross-signing keys present");
+
+    std::string rk = generateRecoveryKey();
+    std::string keyId = generateSsssKeyId();
+    std::vector<uint8_t> aesKey, hmacKey;
+    CHECK(deriveSsssKeys(recoveryKeySeed(rk), keyId, aesKey, hmacKey),
+          "ssss-api: keys derived");
+    CHECK(alice.client.setAccountData("m.secret_storage.key." + keyId,
+            buildSsssKeyMetadata(aesKey, hmacKey)).ok, "ssss-api: key metadata uploaded");
+    CHECK(alice.client.setAccountData("m.cross_signing.master",
+            encryptSsssSecret(keys.masterPriv, aesKey, hmacKey)).ok,
+          "ssss-api: master secret uploaded");
+    CHECK(alice.client.setAccountData("m.cross_signing.self_signing",
+            encryptSsssSecret(keys.selfPriv, aesKey, hmacKey)).ok,
+          "ssss-api: self_signing secret uploaded");
+    CHECK(alice.client.setAccountData("m.cross_signing.user_signing",
+            encryptSsssSecret(keys.userPriv, aesKey, hmacKey)).ok,
+          "ssss-api: user_signing secret uploaded");
+
+    // Retrieve (replicate SyncEngine::retrieveSsssSecrets).
+    auto all = alice.client.getAccountDataAll();
+    CHECK(all.ok, "ssss-api: account-data listing fetched");
+    std::string foundKeyId, metadataJson;
+    {
+        simdjson::dom::parser p;
+        auto doc = p.parse(all.data);
+        if (doc.error() == simdjson::SUCCESS) {
+            auto obj = doc.value().get_object();
+            if (obj.error() == simdjson::SUCCESS) {
+                for (auto [k, v] : obj.value()) {
+                    std::string type(k);
+                    if (type.find("m.secret_storage.key.") != 0) continue;
+                    foundKeyId = type.substr(std::string("m.secret_storage.key.").size());
+                    auto ivS = v["iv"].get_string();
+                    auto macS = v["mac"].get_string();
+                    if (ivS.error() == simdjson::SUCCESS && macS.error() == simdjson::SUCCESS)
+                        metadataJson = "{\"iv\":\"" + std::string(ivS.value())
+                            + "\",\"mac\":\"" + std::string(macS.value()) + "\"}";
+                }
+            }
+        }
+    }
+    CHECK(foundKeyId == keyId, "ssss-api: key id discovered from the listing");
+
+    std::vector<uint8_t> rAes, rHmac;
+    CHECK(deriveSsssKeys(recoveryKeySeed(rk), foundKeyId, rAes, rHmac),
+          "ssss-api: retrieve keys derived");
+    CHECK(verifySsssRecoveryKey(metadataJson, rAes, rHmac),
+          "ssss-api: recovery key verifies the metadata");
+    auto master = alice.client.getAccountData("m.cross_signing.master");
+    auto self = alice.client.getAccountData("m.cross_signing.self_signing");
+    auto user = alice.client.getAccountData("m.cross_signing.user_signing");
+    CHECK(master.ok && self.ok && user.ok, "ssss-api: secrets fetched");
+    CHECK(decryptSsssSecret(master.data, rAes, rHmac) == keys.masterPriv,
+          "ssss-api: master secret roundtrip");
+    CHECK(decryptSsssSecret(self.data, rAes, rHmac) == keys.selfPriv,
+          "ssss-api: self_signing secret roundtrip");
+    CHECK(decryptSsssSecret(user.data, rAes, rHmac) == keys.userPriv,
+          "ssss-api: user_signing secret roundtrip");
+    return true;
+}
+
 // Cross-signing setup end-to-end (mirrors SyncEngine::setupCrossSigning):
 // generate -> upload account_data + m.signing.key.upload -> device_keys-only
 // re-upload with SSK signature -> GET account_data + device_keys -> verify
@@ -1087,6 +1157,11 @@ int main() {
     std::cout << "\n--- key-backup api test ---\n";
     if (!test_key_backup_api(hs, alice)) failures++;
     std::cout << "--- key-backup api done ---\n";
+
+    // Live SSSS secret-sharing roundtrip (LAST — it re-publishes alice's keys).
+    std::cout << "\n--- ssss api test ---\n";
+    if (!test_ssss_api(hs, alice)) failures++;
+    std::cout << "--- ssss api done ---\n";
 
     std::cout << "\n";
     std::cout << "\n--- fallback claim test ---\n";

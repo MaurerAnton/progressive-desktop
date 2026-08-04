@@ -4,6 +4,7 @@
 #include "core/crypto/sig_verify.hpp"
 #include "core/crypto/recovery_key.hpp"
 #include "core/crypto/backup_crypto.hpp"
+#include "core/crypto/ssss.hpp"
 #include "core/session_store.hpp"
 #include <iostream>
 #include <simdjson.h>
@@ -377,11 +378,51 @@ static void test_key_backup_full_roundtrip() {
     store.close();
 }
 
+// SSSS: key derivation + secret encrypt/decrypt roundtrip + verification.
+static void test_ssss_crypto() {
+    using namespace progressive::desktop;
+
+    auto seed = recoveryKeySeed(generateRecoveryKey());
+    std::string keyId = generateSsssKeyId();
+    CHECK(keyId.size() == 32, "ssss: key id is 32 chars");
+
+    std::vector<uint8_t> aesKey, hmacKey;
+    CHECK(deriveSsssKeys(seed, keyId, aesKey, hmacKey), "ssss: keys derived");
+    CHECK(aesKey.size() == 32 && hmacKey.size() == 32, "ssss: 32-byte keys");
+
+    std::string secret = "TheCrossSigningPrivateKeyB64";
+    std::string enc = encryptSsssSecret(secret, aesKey, hmacKey);
+    CHECK(!enc.empty() && enc.find("\"iv\"") != std::string::npos, "ssss: secret encrypted");
+    CHECK(decryptSsssSecret(enc, aesKey, hmacKey) == secret, "ssss: secret roundtrip");
+
+    // Tampered mac -> rejected.
+    std::string bad = enc;
+    auto macPos = bad.find("\"mac\":\"");
+    if (macPos != std::string::npos) {
+        auto valStart = macPos + 8;
+        if (bad[valStart] == 'A') bad[valStart] = 'B'; else bad[valStart] = 'A';
+        CHECK(decryptSsssSecret(bad, aesKey, hmacKey).empty(), "ssss: tampered mac rejected");
+    }
+
+    // Wrong key -> rejected.
+    std::vector<uint8_t> otherAes, otherHmac;
+    auto otherSeed = recoveryKeySeed(generateRecoveryKey());
+    deriveSsssKeys(otherSeed, keyId, otherAes, otherHmac);
+    CHECK(decryptSsssSecret(enc, otherAes, otherHmac).empty(), "ssss: wrong key rejected");
+
+    // Key metadata: verify with the right keys, reject with wrong ones.
+    std::string meta = buildSsssKeyMetadata(aesKey, hmacKey);
+    CHECK(!meta.empty(), "ssss: metadata built");
+    CHECK(verifySsssRecoveryKey(meta, aesKey, hmacKey), "ssss: metadata verifies");
+    CHECK(!verifySsssRecoveryKey(meta, otherAes, otherHmac), "ssss: wrong keys fail verification");
+}
+
 int main() {    test_cross_signing();
     test_trust_computation();
     test_verified_devices_clear();
     test_key_backup_crypto();
     test_key_backup_full_roundtrip();
+    test_ssss_crypto();
 
     test_megolm_rotation();
     test_key_export_import();

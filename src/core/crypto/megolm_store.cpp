@@ -23,6 +23,7 @@ struct SessionParams {
 struct MegolmStore::Impl {
     progressive::MegolmSessionManager mgr;
     std::vector<SessionParams> params;  // for persistence
+    bool backupDirty = false;
 };
 
 MegolmStore::MegolmStore() : impl_(std::make_unique<Impl>()) {}
@@ -34,7 +35,8 @@ bool MegolmStore::addInboundSession(const std::string& roomId,
                                        const std::string& sessionKeyBase64) {
     std::lock_guard<std::mutex> lk(mtx_);
     bool ok = impl_->mgr.addSession(roomId, senderKey, sessionId, sessionKeyBase64);
-    if (ok) impl_->params.push_back({roomId, senderKey, sessionId, sessionKeyBase64});
+    if (ok) { impl_->params.push_back({roomId, senderKey, sessionId, sessionKeyBase64});
+              impl_->backupDirty = true; }
     return ok;
 }
 
@@ -51,7 +53,24 @@ std::string MegolmStore::decrypt(const std::string& roomId,
 std::string MegolmStore::addImportedSession(const std::string& roomId,
     const std::string& senderKey, const std::string& sessionKeyExportBase64) {
     std::lock_guard<std::mutex> lk(mtx_);
-    return impl_->mgr.addImportedSession(roomId, senderKey, sessionKeyExportBase64);
+    std::string id = impl_->mgr.addImportedSession(roomId, senderKey, sessionKeyExportBase64);
+    if (!id.empty()) impl_->backupDirty = true;
+    return id;
+}
+
+bool MegolmStore::backupDirty() const {
+    std::lock_guard<std::mutex> lk(mtx_);
+    return impl_->backupDirty;
+}
+
+void MegolmStore::markBackupClean() {
+    std::lock_guard<std::mutex> lk(mtx_);
+    impl_->backupDirty = false;
+}
+
+void MegolmStore::markBackupDirty() {
+    std::lock_guard<std::mutex> lk(mtx_);
+    impl_->backupDirty = true;
 }
 
 std::string MegolmStore::exportAllJson() {

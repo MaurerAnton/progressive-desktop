@@ -100,6 +100,19 @@ public:
     // Regenerate + re-publish cross-signing keys (overwrites the identity;
     // UIA-aware — the password retry reuses setupCrossSigningWithPassword).
     bool resetCrossSigning();
+
+    // ---- Key backup (Phase 7) ----
+    // Create a backup version; returns the recovery key ("" on failure) —
+    // the caller shows it ONCE.
+    std::string createKeyBackupNow();
+    // Upload the current backup (all exported sessions). Returns false on
+    // HTTP failure.
+    bool uploadKeyBackupNow();
+    // Restore from a recovery key (fetch + decrypt + import). Returns the
+    // number of sessions imported.
+    int restoreKeyBackupNow(const std::string& recoveryKey);
+    // Called by the sync loop: re-upload when new sessions arrived.
+    void maybeUploadBackup();
     std::string uiaSession() const { return uiaSession_; }
 
     const SyncEngineStats& stats() const { return stats_; }

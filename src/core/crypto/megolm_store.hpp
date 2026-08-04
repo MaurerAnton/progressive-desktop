@@ -61,6 +61,12 @@ public:
                                  const std::string& sessionId);
 
     // Check if we have a session for this (room, sender, sessionId).
+    // Backup-dirty flag: set when a session is added/imported (the sync
+    // engine re-uploads the key backup when it's set).
+    bool backupDirty() const;
+    void markBackupClean();
+    void markBackupDirty();
+
     bool hasSession(const std::string& roomId,
                      const std::string& senderKey,
                      const std::string& sessionId);

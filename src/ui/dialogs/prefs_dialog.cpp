@@ -158,11 +158,64 @@ PrefsDialog::PrefsDialog(QWidget* parent) : QDialog(parent) {
 
     auto* backupGroup = new QGroupBox("Key backup", this);
     auto* backupLayout = new QVBoxLayout(backupGroup);
+    auto* backupStatus = new QLabel("No backup configured", this);
+    auto* createBackupBtn = new QPushButton("Create backup…", this);
+    createBackupBtn->setToolTip("Generate a recovery key and create a server-side "
+                                "encrypted backup of your room keys.");
+    auto* backupNowBtn = new QPushButton("Backup now", this);
+    auto* restoreBtn = new QPushButton("Restore from recovery key…", this);
     auto* exportBtn = new QPushButton("Export room keys to file…", this);
     auto* importBtn = new QPushButton("Import room keys from file…", this);
+    backupLayout->addWidget(backupStatus);
+    backupLayout->addWidget(createBackupBtn);
+    backupLayout->addWidget(backupNowBtn);
+    backupLayout->addWidget(restoreBtn);
     backupLayout->addWidget(exportBtn);
     backupLayout->addWidget(importBtn);
     root->addWidget(backupGroup);
+
+    connect(createBackupBtn, &QPushButton::clicked, this, [this, backupStatus]() {
+        if (!createKeyBackupFn_) return;
+        std::string rk = createKeyBackupFn_();
+        if (rk.empty()) {
+            QMessageBox::warning(this, "Key backup",
+                "Could not create the backup (server rejected the version).");
+            return;
+        }
+        backupStatus->setText("Backup configured");
+        // Show the recovery key ONCE with a confirmation.
+        QInputDialog dlg(this);
+        dlg.setWindowTitle("Recovery key — write it down");
+        dlg.setLabelText("Store this recovery key somewhere safe. It is shown "
+                         "only once and can restore your room keys on any device:");
+        dlg.setTextValue(QString::fromStdString(rk));
+        dlg.exec();
+        if (QMessageBox::question(this, "Recovery key",
+                "Did you write down the recovery key? The backup is NOT usable "
+                "without it.") == QMessageBox::Yes) {
+            if (uploadKeyBackupFn_ && uploadKeyBackupFn_())
+                backupStatus->setText("Backup configured and uploaded");
+        }
+    });
+    connect(backupNowBtn, &QPushButton::clicked, this, [this, backupStatus]() {
+        if (uploadKeyBackupFn_ && uploadKeyBackupFn_())
+            backupStatus->setText("Backup uploaded");
+        else
+            QMessageBox::warning(this, "Key backup",
+                "Upload failed (no backup configured, or the server rejected it).");
+    });
+    connect(restoreBtn, &QPushButton::clicked, this, [this, backupStatus]() {
+        if (!restoreKeyBackupFn_) return;
+        QInputDialog dlg(this);
+        dlg.setWindowTitle("Restore from recovery key");
+        dlg.setLabelText("Enter the recovery key:");
+        dlg.setTextEchoMode(QLineEdit::Normal);
+        if (dlg.exec() != QDialog::Accepted || dlg.textValue().isEmpty()) return;
+        int n = restoreKeyBackupFn_(dlg.textValue().toStdString());
+        backupStatus->setText(n > 0
+            ? QString("Restored %1 sessions").arg(n)
+            : "Nothing restored (wrong key or no backup found)");
+    });
 
     connect(exportBtn, &QPushButton::clicked, this, [this]() {
         if (!decryptor_) { QMessageBox::information(this, "Key backup", "E2EE not initialized."); return; }

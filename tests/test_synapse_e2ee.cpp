@@ -21,6 +21,9 @@
 #include "core/crypto/cross_sign.hpp"
 #include "core/crypto/verification.hpp"
 #include "core/crypto/sas.hpp"
+#include "core/crypto/recovery_key.hpp"
+#include "core/crypto/backup_crypto.hpp"
+#include "core/crypto/key_backup.hpp"
 
 #include <iostream>
 #include <string>
@@ -612,6 +615,60 @@ static bool test_sas_verified_policy(const std::string& hs, TestUser& alice, Tes
     return true;
 }
 
+// Live key-backup API roundtrip: create version -> upload -> restore into a
+// fresh decryptor -> decrypt a real message.
+static bool test_key_backup_api(const std::string& hs, TestUser& alice) {
+    using namespace progressive::desktop;
+
+    // A room with a real outbound session + one encrypted message.
+    auto roomRes = alice.client.createRoom("bk-room", "", false, {}, true);
+    CHECK(roomRes.ok, "bk-api: room created");
+    std::string roomId = roomRes.data;
+    alice.decryptor.getOrCreateOutboundSession(roomId);
+    std::string msg = "backup-live-" + std::to_string(std::time(nullptr));
+    std::string inner = "{\"type\":\"m.room.message\",\"content\":{\"msgtype\":\"m.text\","
+        "\"body\":\"" + msg + "\"},\"room_id\":\"" + roomId + "\"}";
+    std::string enc = alice.decryptor.encryptMessage(roomId, alice.deviceId, inner);
+    CHECK(!enc.empty(), "bk-api: message encrypted");
+
+    std::string rk = generateRecoveryKey();
+    auto pair = deriveBackupKey(recoveryKeySeed(rk));
+    CHECK(!pair.publicKeyB64.empty(), "bk-api: backup key derived");
+
+    BackupVersionInfo vi;
+    vi.algorithm = "m.megolm_backup.v1.curve25519-aes-sha2";
+    vi.publicKey = pair.publicKeyB64;
+    auto created = alice.client.createRoomKeysVersion(buildBackupVersionBody(vi));
+    CHECK(created.ok, "bk-api: backup version created");
+    std::string version;
+    {
+        simdjson::dom::parser p;
+        auto doc = p.parse(created.data);
+        if (doc.error() == simdjson::SUCCESS) {
+            auto v = doc.value()["version"].get_string();
+            if (v.error() == simdjson::SUCCESS) version = std::string(v.value());
+        }
+    }
+    CHECK(!version.empty(), "bk-api: version id parsed");
+
+    BackupInfo info;
+    info.version = version;
+    info.recoveryKey = rk;
+    info.publicKey = pair.publicKeyB64;
+    info.algorithm = vi.algorithm;
+    CHECK(uploadKeyBackup(alice.client, alice.decryptor, info), "bk-api: backup uploaded");
+
+    // Fresh decryptor restores + decrypts the real message.
+    Decryptor dec2;
+    CHECK(dec2.init(), "bk-api: fresh decryptor init");
+    int n = restoreKeyBackup(alice.client, dec2, info);
+    CHECK(n > 0, "bk-api: backup restored");
+    auto res = dec2.decryptMegolmEvent(roomId, alice.userId, enc, "bkEid", 0);
+    CHECK(res.ok && res.plaintext.find(msg) != std::string::npos,
+          "bk-api: restored session decrypts the message");
+    return true;
+}
+
 // Cross-signing setup end-to-end (mirrors SyncEngine::setupCrossSigning):
 // generate -> upload account_data + m.signing.key.upload -> device_keys-only
 // re-upload with SSK signature -> GET account_data + device_keys -> verify
@@ -1024,6 +1081,12 @@ int main() {
     std::cout << "\n--- sas verified-policy test ---\n";
     if (!test_sas_verified_policy(hs, alice, bob)) failures++;
     std::cout << "--- sas verified-policy done ---\n";
+
+    // Live key-backup API roundtrip (must stay AFTER the sas test — it uses
+    // alice's account state).
+    std::cout << "\n--- key-backup api test ---\n";
+    if (!test_key_backup_api(hs, alice)) failures++;
+    std::cout << "--- key-backup api done ---\n";
 
     std::cout << "\n";
     std::cout << "\n--- fallback claim test ---\n";

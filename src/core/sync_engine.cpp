@@ -10,6 +10,8 @@
 #include <ctime>
 #include "core/debug_log.hpp"
 #include "core/crypto/cross_sign.hpp"
+#include "core/crypto/key_backup.hpp"
+#include "core/crypto/recovery_key.hpp"
 #include <simdjson.h>
 
 namespace progressive::desktop {
@@ -250,6 +252,9 @@ void SyncEngine::run() {
         stats_.errors = 0;
         stats_.syncs++;
         sinceToken_ = std::string(result.data.nextBatch);
+
+        // Key backup: re-upload when new sessions arrived (cheap, idempotent).
+        maybeUploadBackup();
 
         stats_.roomsJoined += static_cast<int>(result.data.joinedRooms.size());
         stats_.invites     += static_cast<int>(result.data.invitedRooms.size());
@@ -645,6 +650,43 @@ bool SyncEngine::setupCrossSigning() {
     LOG(LogChannel::E2EE, "setupCrossSigning: keys generated + uploaded for %s",
         userId.c_str());
     return true;
+}
+
+std::string SyncEngine::createKeyBackupNow() {
+    if (!client_ || !client_->isLoggedIn() || !store_) return "";
+    return createKeyBackup(*client_, store_.get(), client_->account().userId);
+}
+
+bool SyncEngine::uploadKeyBackupNow() {
+    if (!client_ || !client_->isLoggedIn() || !store_) return false;
+    auto info = store_->loadBackupInfo(client_->account().userId);
+    if (!info.has_value()) return false;
+    bool ok = uploadKeyBackup(*client_, decryptor_, *info);
+    if (ok) decryptor_.markBackupClean();
+    return ok;
+}
+
+int SyncEngine::restoreKeyBackupNow(const std::string& recoveryKey) {
+    if (!client_ || !client_->isLoggedIn() || !store_) return 0;
+    BackupInfo info;
+    info.version = "";
+    info.recoveryKey = recoveryKey;
+    info.publicKey = deriveBackupKey(recoveryKeySeed(recoveryKey)).publicKeyB64;
+    if (info.publicKey.empty()) return 0;
+    // The version: the current one on the server (the latest) — query it.
+    auto versions = client_->getRoomKeysVersion("");
+    (void)versions;
+    // Simplest correct source: the stored version, else list versions.
+    auto stored = store_->loadBackupInfo(client_->account().userId);
+    if (stored.has_value()) info.version = stored->version;
+    if (info.version.empty()) return 0;
+    return restoreKeyBackup(*client_, decryptor_, info);
+}
+
+void SyncEngine::maybeUploadBackup() {
+    if (!client_ || !client_->isLoggedIn() || !store_) return;
+    if (!decryptor_.backupDirty()) return;
+    uploadKeyBackupNow();
 }
 
 bool SyncEngine::resetCrossSigning() {

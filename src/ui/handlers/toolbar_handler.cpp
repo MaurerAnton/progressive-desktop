@@ -232,6 +232,15 @@ void ToolbarHandler::onSettings() {
         dlg.setResetCrossSigningFn([this]() {
             return sync_ ? sync_->resetCrossSigning() : false;
         });
+        dlg.setCreateKeyBackupFn([this]() {
+            return sync_ ? sync_->createKeyBackupNow() : std::string();
+        });
+        dlg.setUploadKeyBackupFn([this]() {
+            return sync_ ? sync_->uploadKeyBackupNow() : false;
+        });
+        dlg.setRestoreKeyBackupFn([this](const std::string& key) {
+            return sync_ ? sync_->restoreKeyBackupNow(key) : 0;
+        });
         connect(&dlg, &PrefsDialog::settingsChanged, this, &ToolbarHandler::prefsChanged);
         dlg.exec();
     } else if (selected == shortcutsAction) {

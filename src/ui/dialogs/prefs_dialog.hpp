@@ -31,8 +31,14 @@ public:
     using SetupCrossSigningWithPasswordFn = std::function<bool(const std::string&)>;
     using UiaSessionFn = std::function<std::string()>;
     using ResetCrossSigningFn = std::function<bool()>;
+    using CreateKeyBackupFn = std::function<std::string()>;          // returns the recovery key
+    using UploadKeyBackupFn = std::function<bool()>;
+    using RestoreKeyBackupFn = std::function<int(const std::string&)>;
     void setSetupCrossSigningFn(SetupCrossSigningFn fn) { setupCrossSigningFn_ = std::move(fn); }
     void setResetCrossSigningFn(ResetCrossSigningFn fn) { resetCrossSigningFn_ = std::move(fn); }
+    void setCreateKeyBackupFn(CreateKeyBackupFn fn) { createKeyBackupFn_ = std::move(fn); }
+    void setUploadKeyBackupFn(UploadKeyBackupFn fn) { uploadKeyBackupFn_ = std::move(fn); }
+    void setRestoreKeyBackupFn(RestoreKeyBackupFn fn) { restoreKeyBackupFn_ = std::move(fn); }
     void setSetupCrossSigningWithPasswordFn(SetupCrossSigningWithPasswordFn fn) { setupCrossSigningWithPasswordFn_ = std::move(fn); }
     void setUiaSessionFn(UiaSessionFn fn) { uiaSessionFn_ = std::move(fn); }
 
@@ -76,6 +82,9 @@ private:
     Decryptor* decryptor_ = nullptr;
     SetupCrossSigningFn setupCrossSigningFn_;
     ResetCrossSigningFn resetCrossSigningFn_;
+    CreateKeyBackupFn createKeyBackupFn_;
+    UploadKeyBackupFn uploadKeyBackupFn_;
+    RestoreKeyBackupFn restoreKeyBackupFn_;
     SetupCrossSigningWithPasswordFn setupCrossSigningWithPasswordFn_;
     UiaSessionFn uiaSessionFn_;
     QSpinBox* cacheSpin_;

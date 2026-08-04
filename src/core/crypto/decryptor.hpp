@@ -117,6 +117,10 @@ public:
     std::string handleOlmEncryptedToDevice(const std::string& senderId,
                                               const std::string& contentJson);
 
+    bool backupDirty() const { return megolm_ ? megolm_->backupDirty() : false; }
+    void markBackupClean() { if (megolm_) megolm_->markBackupClean(); }
+    void markBackupDirty() { if (megolm_) megolm_->markBackupDirty(); }
+
     // ---- Outbound Megolm (room message encryption) ----
     // Get or create an outbound megolm session for a room.
     // Returns the session ID (used in the m.room.encrypted event).

@@ -25,28 +25,8 @@ struct FastRoom;
 struct FastEvent;
 struct MemberInfo;
 
-struct RoomMeta {
-    std::string name;
-    std::string avatarUrl;
-    std::string dmDisplayName;
-    std::string dmAvatarUrl;
-    std::string canonicalAlias;
-    bool isEncrypted = false;
-};
-
-// Prepared update — computed on worker thread, applied on UI thread
-struct RoomSyncUpdate {
-    std::vector<RoomData> roomsToUpsert;
-    std::vector<std::string> roomsToRemove;
-    std::vector<RoomData> invitedRooms;
-    QString inviteText;
-    int inviteCount = 0;
-    bool currentRoomUpdated = false;
-    std::string currentRoomId;
-    std::vector<FastEvent> currentRoomEvents;
-    std::unordered_map<std::string,std::string> currentRoomAvatars;
-    std::string lastNotificationBody;  // last highlight message body for notifications
-};
+// RoomMeta + RoomSyncUpdate moved to src/core/engine/sync_applier.hpp (X1).
+struct RoomSyncUpdate;
 
 class RoomStore {
 public:
@@ -57,11 +37,7 @@ public:
 
     RoomDataLoader* dataLoader() const { return dataLoader_.get(); }
 
-    // Heavy part — runs on worker thread, no model access
-    static RoomSyncUpdate prepareRoomSyncUpdate(const FastSyncResponse& resp,
-                                                 const std::string& currentRoomId,
-                                                 const std::string& myUserId);
-
+    // Heavy part moved to SyncApplier::prepareRoomSyncUpdate (core/engine).
     // Light part — runs on UI thread, only model operations
     void applyRoomSyncUpdate(RoomSyncUpdate& syncUpdate,
                               RoomListModel* roomList,
@@ -84,13 +60,6 @@ public:
                               LifeToken token);
 
     // Apply re-decrypted E2EE events to the timeline (drains from decryptor).
-    void applyDecryptedEvents(TimelineModel* model, Decryptor* decryptor);
-
-    static RoomMeta extractRoomMeta(const FastRoom& room,
-                                     const std::string& myUserId);
-    static std::string extractLastMessageBody(
-        const std::vector<FastEvent>& events);
-
 private:
     std::shared_ptr<MatrixClient> client_;
     std::shared_ptr<SessionStore> store_;

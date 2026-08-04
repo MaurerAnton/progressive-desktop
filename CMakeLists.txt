@@ -82,6 +82,7 @@ add_library(progressive_core STATIC
     src/core/crypto/recovery_key.cpp
     src/core/crypto/ssss.cpp
     src/core/engine/room_state.cpp
+    src/core/engine/sync_applier.cpp
     src/core/engine/timeline_state.cpp
     src/core/crypto/backup_crypto.cpp
     src/core/crypto/decryptor.cpp
@@ -200,10 +201,13 @@ endif()
 if(PROGRESSIVE_BUILD_TESTS)
     enable_testing()
 
+    add_executable(test_sync_applier tests/test_sync_applier.cpp)
+    target_link_libraries(test_sync_applier PRIVATE progressive_core)
     add_executable(test_phase1 tests/test_phase1.cpp)
     target_link_libraries(test_phase1 PRIVATE progressive_core)
     target_compile_options(test_phase1 PRIVATE
         -include "${CMAKE_CURRENT_SOURCE_DIR}/third_party/android_shim/progressive_compat.h")
+    add_test(NAME sync_applier COMMAND test_sync_applier)
     add_test(NAME phase1 COMMAND test_phase1)
 
     add_executable(test_phase3 tests/bench_sync_parse.cpp)

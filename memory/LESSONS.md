@@ -93,6 +93,45 @@ the brain stays free.
 
 ---
 
+## Lesson 5 — Two loops, one memory: the interlock rules
+
+**Core idea:** The app runs TWO loops at once (the sync worker + the UI). They share the
+same memory. All the "scary" rules (`join`, `shared_ptr`, `setClient`, `atomic`,
+`invokeMethod`) are just **safety interlocks** — like two machines sharing one conveyor:
+only one may touch a shared part at a time, or they fight.
+
+- **What a crash looked like (SIGSEGV on close):** close the app → window gone (UI loop
+  dead) but the sync worker was still mid-scan. Old code used `detach()` ("don't keep
+  track of the worker") → worker touched freed memory → crash.
+- **The fix — `join()`** (`sync_engine.cpp:84`): `stop()` sets `running_ = false`, then
+  `worker_.join()` WAITS until the worker actually finishes its current round and exits.
+  "Don't close the door until the worker has walked out." `detach()` on a long-lived
+  worker is the wrong tool; Nheko uses `detach()` only for a short-lived localhost server
+  that dies on its own (SSOHandler.cpp:38) — that's the safe use.
+- **Same fix in other clients:** Nheko's network engine (coeurl) does the identical
+  `join()` on close (`lib/client.cpp:271-275`), plus a `detach()` guard for the corner
+  case "close called FROM the worker." Element Web is JavaScript = one thread, no worker
+  to join. Element X (Rust) = runtime owns threads and shuts them down itself.
+- **Half-written values:** memory values are BIG (many fields), not one bit. If the UI
+  reads while the worker writes, it can get cards 1-11 old + 12-20 new = a mix that never
+  existed → wrong value/crash. `std::atomic<shared_ptr<AccountInfo>>`
+  (`matrix_client.hpp:417`) fixes it by making the POINTER handover one indivisible step:
+  you see the whole old stack or the whole new stack, never a mix. `shared_ptr` keeps the
+  old stack alive while the UI finishes reading it.
+- **What the model is really called:** your ThreadPool (`thread_pool.cpp:6-22`) is a
+  master-slave model — standing workers grab jobs posted by `enqueue()`, and `~ThreadPool`
+  `join()`s each worker (lines 30-32). Async runtimes (tokio) are the same idea with
+  "smarter slaves": when a task waits on network, the worker swaps in another task instead
+  of idling. Good for thousands of concurrent waits; not needed at our scale.
+
+**Decision (recorded in REFERENCE.md):** keep ThreadPool. Adopt an async runtime ONLY if
+the daemon ever reaches hundreds of concurrent connections — and even then, prefer
+curl-multi/libevent (Nheko's coeurl) over a full async runtime.
+
+**Key words:** join, detach, atomic, half-written, master-slave, async runtime.
+
+---
+
 ## Quizzes
 
 > Ask me any of these when I request a quiz. I answer from the lessons, and you can ask
@@ -117,6 +156,13 @@ the brain stays free.
 1. How many workers does the app have?
 2. What's the "cashier / back room" analogy?
 3. What pattern do workers use to update the UI?
+
+### Quiz 5 — Thread safety (Lesson 5)
+1. What does `join()` do, and what crash does it prevent?
+2. What is a "half-written" value, and how does `std::atomic` fix it?
+3. Are "smart slaves" (async runtimes) better than a ThreadPool? Should we switch?
+4. What's the difference between your ThreadPool and tokio's model?
+5. Why does `stop()` call `join()` and not `detach()` for the sync thread?
 
 ---
 

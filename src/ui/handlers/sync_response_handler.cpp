@@ -1,6 +1,9 @@
 #include "sync_response_handler.hpp"
 #include "core/matrix_client.hpp"
 #include "core/thread_pool.hpp"
+#include "core/engine/sync_applier.hpp"
+#include "core/fast_sync.hpp"
+#include <simdjson.h>
 #include "core/memory_stats.hpp"
 #include "core/crypto/decryptor.hpp"
 #include "../room/room_store.hpp"
@@ -50,15 +53,41 @@ void SyncResponseHandler::handle(FastSyncResponse resp) {
 
     ThreadPool::instance().enqueue([guard, rmh, resp = std::move(resp), myUserId, curRoomId, notifier]() mutable {
         auto keepAlive = std::make_shared<FastSyncResponse>(std::move(resp));
-        auto syncUpdate = RoomStore::prepareRoomSyncUpdate(*keepAlive, curRoomId, myUserId);
+        auto syncUpdate = SyncApplier::prepareRoomSyncUpdate(*keepAlive, curRoomId, myUserId);
 
         QMetaObject::invokeMethod(guard, [guard, rmh, syncUpdate = std::move(syncUpdate), notifier, keepAlive]() mutable {
             if (guard.isNull()) return;
             guard->roomStore_->applyRoomSyncUpdate(syncUpdate,
                 guard->roomModel_, guard->timelineModel_, guard->decryptor_);
 
-            if (guard->decryptor_)
-                guard->roomStore_->applyDecryptedEvents(guard->timelineModel_, guard->decryptor_);
+            if (guard->decryptor_) {
+                // Core conversion (SyncApplier) + the UI-only model op.
+                auto events = guard->decryptor_->takeDecryptedEvents();
+                for (const auto& evt : events) {
+                    simdjson::dom::parser p;
+                    auto doc = p.parse(evt.plaintext);
+                    if (doc.error() != simdjson::SUCCESS) continue;
+                    std::string etype = "m.room.message";
+                    auto t = doc.value()["type"].get_string();
+                    if (t.error() == simdjson::SUCCESS) etype = std::string(t.value());
+                    auto cr = doc.value()["content"];
+                    std::string econtent = evt.plaintext;
+                    if (cr.error() == simdjson::SUCCESS)
+                        econtent = simdjson::to_string(cr.value());
+                    FastEvent fe;
+                    fe.eventId = std::string_view(evt.eventId);
+                    fe.senderId = std::string_view(evt.senderId);
+                    fe.type = etype;
+                    fe.contentJson = econtent;
+                    fe.originServerTs = evt.originServerTs;
+                    DisplayedEvent de;
+                    de.eventId = evt.eventId;
+                    de.senderId = evt.senderId;
+                    de.originServerTs = evt.originServerTs;
+                    SyncApplier::fastEventToDisplayed(fe, de, evt.roomId, nullptr);
+                    guard->timelineModel_->replaceEvent(evt.eventId, de);
+                }
+            }
 
             for (const auto& rid : syncUpdate.roomsToRemove) {
                 if (!rmh.isNull() && rid == rmh->currentRoomId()) {

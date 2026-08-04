@@ -2,6 +2,7 @@
 #include "room_data_loader.hpp"
 #include "core/matrix_client.hpp"
 #include "core/session_store.hpp"
+#include "core/engine/sync_applier.hpp"
 #include "core/crypto/decryptor.hpp"
 #include "core/thread_pool.hpp"
 #include "../room/room_store.hpp"
@@ -45,14 +46,14 @@ void RoomDataLoader::loadHistory(const std::string& roomId, TimelineModel* model
                 DisplayedEvent de;
                 parseEventFields(evt, de);
                 if (de.type == "m.room.member" && !de.contentJson.empty()) {
-                    auto av = extractStringDec(de.contentJson, "avatar_url");
+                    auto av = SyncApplier::extractStringDec(de.contentJson, "avatar_url");
                     std::string stateKey;
                     auto sk = evt["state_key"].get_string();
                     if (sk.error() == simdjson::SUCCESS) stateKey = std::string(sk.value());
                     if (!av.empty() && !stateKey.empty()) localAvatars[stateKey] = av;
                 }
                 if (de.type == "m.room.redaction" && !de.contentJson.empty()) {
-                    auto rid = extractStringDec(de.contentJson, "redacts");
+                    auto rid = SyncApplier::extractStringDec(de.contentJson, "redacts");
                     if (!rid.empty()) model->markDeleted(rid);
                     continue;
                 }
@@ -62,7 +63,7 @@ void RoomDataLoader::loadHistory(const std::string& roomId, TimelineModel* model
                     std::string stateKey;
                     auto sk = evt["state_key"].get_string();
                     if (sk.error() == simdjson::SUCCESS) stateKey = std::string(sk.value());
-                    auto body = makeSystemBody(de.type, de.contentJson, stateKey);
+                    auto body = SyncApplier::makeSystemBody(de.type, de.contentJson, stateKey);
                     if (!body.empty()) {
                         DisplayedEvent sys;
                         sys.type = "progressive.system";
@@ -107,15 +108,15 @@ void RoomDataLoader::loadHistory(const std::string& roomId, TimelineModel* model
                 }
                 if (de.type != "m.room.message" && de.type != "m.room.encrypted") continue;
                 if (de.type == "m.room.message") {
-                    de.msgtype = msgType(de.contentJson);
-                    de.body = msgBody(de.contentJson);
+                    de.msgtype = SyncApplier::msgType(de.contentJson);
+                    de.body = SyncApplier::msgBody(de.contentJson);
                     std::string_view cv(de.contentJson);
-                    std::string threadRoot = extractThreadRootId(cv);
+                    std::string threadRoot = SyncApplier::extractThreadRootId(cv);
                     if (!threadRoot.empty()) {
                         de.isThreadReply = true;
                         de.threadRootId = threadRoot;
                     }
-                    std::string replyTo = extractReplyToId(cv);
+                    std::string replyTo = SyncApplier::extractReplyToId(cv);
                     if (!replyTo.empty()) {
                         de.isReply = true;
                         de.replyToEventId = replyTo;
@@ -129,15 +130,15 @@ void RoomDataLoader::loadHistory(const std::string& roomId, TimelineModel* model
                         result.error.empty() ? "(none)" : result.error.c_str());
                     if (result.ok && !result.plaintext.empty()) {
                         if (parsePlaintextBody(result.plaintext, de.type, de.contentJson)) {
-                            de.msgtype = msgType(de.contentJson);
-                            de.body = msgBody(de.contentJson);
+                            de.msgtype = SyncApplier::msgType(de.contentJson);
+                            de.body = SyncApplier::msgBody(de.contentJson);
                             std::string_view cv(de.contentJson);
-                            std::string threadRoot = extractThreadRootId(cv);
+                            std::string threadRoot = SyncApplier::extractThreadRootId(cv);
                             if (!threadRoot.empty()) {
                                 de.isThreadReply = true;
                                 de.threadRootId = threadRoot;
                             }
-                            std::string replyTo = extractReplyToId(cv);
+                            std::string replyTo = SyncApplier::extractReplyToId(cv);
                             if (!replyTo.empty()) {
                                 de.isReply = true;
                                 de.replyToEventId = replyTo;
@@ -284,13 +285,13 @@ void RoomDataLoader::batchLoadRoomStates(RoomListModel* model, LifeToken token) 
                 if (!rd) return;
                 bool changed = false;
                 if (nameResp.ok && !nameResp.data.empty()) {
-                    auto name = extractStringDec(nameResp.data, "name");
+                    auto name = SyncApplier::extractStringDec(nameResp.data, "name");
                     if (!name.empty() && (rd->name == roomId || rd->name.empty())) {
                         rd->name = name; changed = true;
                     }
                 }
                 if (avatarResp.ok && !avatarResp.data.empty()) {
-                    auto url = extractStringDec(avatarResp.data, "url");
+                    auto url = SyncApplier::extractStringDec(avatarResp.data, "url");
                     if (!url.empty() && rd->avatarUrl.empty()) {
                         rd->avatarUrl = url; changed = true;
                     }

@@ -2,6 +2,7 @@
 #include "thread_handler.hpp"
 #include "core/matrix_client.hpp"
 #include "core/thread_pool.hpp"
+#include "core/engine/sync_applier.hpp"
 #include "core/crypto/decryptor.hpp"
 #include "core/sync_engine.hpp"
 #include "../timeline/timeline_model.hpp"
@@ -85,10 +86,10 @@ void ThreadHandler::openThreadView(const QString& rootEventId, const std::string
                 DisplayedEvent root;
                 parseEventFields(origResult.value(), root);
                 if (root.type == "m.room.message") {
-                    root.msgtype = msgType(root.contentJson);
-                    root.body = msgBody(root.contentJson);
+                    root.msgtype = SyncApplier::msgType(root.contentJson);
+                    root.body = SyncApplier::msgBody(root.contentJson);
                     if (root.msgtype == "m.image" || root.msgtype == "m.video") {
-                        root.mxcUrl = extractStringDec(root.contentJson, "url");
+                        root.mxcUrl = SyncApplier::extractStringDec(root.contentJson, "url");
                     }
                 } else if (root.type == "m.room.encrypted") {
                     // DEBT(B41): pass Decryptor* for full E2EE thread root support
@@ -116,10 +117,10 @@ void ThreadHandler::openThreadView(const QString& rootEventId, const std::string
                 DisplayedEvent de;
                 parseEventFields(evt, de);
                 if (de.type == "m.room.message") {
-                    de.msgtype = msgType(de.contentJson);
-                    de.body = msgBody(de.contentJson);
+                    de.msgtype = SyncApplier::msgType(de.contentJson);
+                    de.body = SyncApplier::msgBody(de.contentJson);
                     if (de.msgtype == "m.image" || de.msgtype == "m.video") {
-                        de.mxcUrl = extractStringDec(de.contentJson, "url");
+                        de.mxcUrl = SyncApplier::extractStringDec(de.contentJson, "url");
                     }
                 }
                 de.isThreadReply = true;

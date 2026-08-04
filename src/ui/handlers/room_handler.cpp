@@ -25,6 +25,7 @@
 #include <QDir>
 #include <QApplication>
 #include "core/thread_pool.hpp"
+#include "core/engine/sync_applier.hpp"
 
 #include <simdjson.h>
 
@@ -212,19 +213,19 @@ void RoomHandler::onLoadMoreClicked() {
                 DisplayedEvent de;
                 parseEventFields(evt, de);
                 if (de.type == "m.room.message") {
-                    de.msgtype = extractStringDec(de.contentJson, "msgtype");
-                    de.body = extractStringDec(de.contentJson, "body");
+                    de.msgtype = SyncApplier::extractStringDec(de.contentJson, "msgtype");
+                    de.body = SyncApplier::extractStringDec(de.contentJson, "body");
                     if (de.msgtype == "m.image" || de.msgtype == "m.video") {
-                        de.mxcUrl = extractStringDec(de.contentJson, "url");
-                        de.mimetype = extractStringDec(de.contentJson, "mimetype");
+                        de.mxcUrl = SyncApplier::extractStringDec(de.contentJson, "url");
+                        de.mimetype = SyncApplier::extractStringDec(de.contentJson, "mimetype");
                     }
                     std::string_view cv(de.contentJson);
-                    std::string threadRoot = extractThreadRootId(cv);
+                    std::string threadRoot = SyncApplier::extractThreadRootId(cv);
                     if (!threadRoot.empty()) {
                         de.isThreadReply = true;
                         de.threadRootId = threadRoot;
                     }
-                    std::string replyTo = extractReplyToId(cv);
+                    std::string replyTo = SyncApplier::extractReplyToId(cv);
                     if (!replyTo.empty()) {
                         de.isReply = true;
                         de.replyToEventId = replyTo;

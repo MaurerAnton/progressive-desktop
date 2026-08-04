@@ -27,6 +27,7 @@
 #include "../src/ui/handlers/attachment_handler.hpp"
 #include "../src/ui/handlers/thread_handler.hpp"
 #include "../src/ui/handlers/verification_handler.hpp"
+#include "../src/core/engine/sync_applier.hpp"
 #include "../src/core/session_store.hpp"
 #include "../src/core/sync_engine.hpp"
 #include "core/debug_log.hpp"
@@ -308,7 +309,7 @@ static void test_roomStore_smoke() {
     store.setSessionStore(nullptr);
 
     FastSyncResponse emptyResp;
-    auto update = RoomStore::prepareRoomSyncUpdate(emptyResp, "", "@user:matrix.org");
+    auto update = SyncApplier::prepareRoomSyncUpdate(emptyResp, "", "@user:matrix.org");
     CHECK(update.roomsToUpsert.empty(), "empty sync gives no rooms");
     CHECK(update.inviteCount == 0, "empty sync gives no invites");
 

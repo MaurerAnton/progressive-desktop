@@ -108,6 +108,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     roomModel_ = new RoomListModel(this);
     timelineModel_ = new TimelineModel(this);
     timelineDelegate_ = new TimelineDelegate(imageLoader_, this);
+    if (timelineModel_) timelineModel_->setImageLoader(imageLoader_);
 
     UILayout ui = buildMainWindowLayout(this, imageLoader_, roomModel_,
         timelineModel_, timelineDelegate_);

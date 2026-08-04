@@ -1,4 +1,5 @@
 #include "timeline_model.hpp"
+#include "../shared/image_loader.hpp"
 
 #include <QVariantList>
 #include <QMetaType>
@@ -54,8 +55,10 @@ QVariant TimelineModel::data(const QModelIndex& index, int role) const {
         case IsThreadReplyRole: return e.isThreadReply;
         case ThreadRootIdRole: return QString::fromStdString(e.threadRootId);
         case IsPinnedRole:     return e.isPinned;
-        case ImageRole:        return e.image;
-        case ImageLoadedRole:  return e.imageLoaded;
+        case ImageRole:
+            return loader_ ? loader_->getCached(e.mxcUrl) : QImage();
+        case ImageLoadedRole:
+            return loader_ ? loader_->hasImage(e.mxcUrl) : false;
         case IsMovieRole:      return e.isMovie;
         case EventIdRole:      return QString::fromStdString(e.eventId);
         case AvatarUrlRole:    return QString::fromStdString(e.avatarUrl);
@@ -204,8 +207,6 @@ bool TimelineModel::replaceEvent(const std::string& eventId, const DisplayedEven
     e.threadReplyCount = newEvent.threadReplyCount;
     e.isThreadReply = newEvent.isThreadReply;
     e.threadRootId = newEvent.threadRootId;
-    e.image = newEvent.image;
-    e.imageLoaded = newEvent.imageLoaded;
     e.isMovie = newEvent.isMovie;
     emit dataChanged(index(row), index(row));
     return true;
@@ -292,12 +293,14 @@ void TimelineModel::clear() {
     endResetModel();
 }
 
-void TimelineModel::setImage(const std::string& eventId, const QImage& img) {
-    int row = findRow(eventId);
-    if (row < 0) return;
-    events_[row].image = img;
-    events_[row].imageLoaded = true;
-    emit dataChanged(index(row), index(row), {ImageRole, ImageLoadedRole});
+void TimelineModel::imageLoaded(const std::string& mxcUrl) {
+    // Re-layout: row HEIGHTS depend on ImageLoadedRole — a bare repaint is
+    // not enough. Emit dataChanged on the image roles for every matching row.
+    // The model's copy is UI-thread-only (engine thread contract) — no lock.
+    for (int row = 0; row < static_cast<int>(events_.size()); ++row) {
+        if (events_[row].mxcUrl != mxcUrl) continue;
+        emit dataChanged(index(row), index(row), {ImageRole, ImageLoadedRole});
+    }
 }
 
 void TimelineModel::addReaction(const std::string& eventId, const std::string& emoji,

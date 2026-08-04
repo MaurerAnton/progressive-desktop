@@ -360,14 +360,13 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
             p->drawText(placeholderRect, Qt::AlignCenter,
                         msgtype == "m.video" ? "🎬 loading..." : "🖼 loading...");
             curY += kImagePlaceholderH + 2;
-            QString eventId = idx.data(TimelineModel::EventIdRole).toString();
             loader->fetchThumbnail(
                 mxcUrl.toStdString(), kMaxImageW, kImageLoadedH,
-                [eventId, model = const_cast<QAbstractItemModel*>(idx.model())]
+                [mxcUrl, model = const_cast<QAbstractItemModel*>(idx.model())]
                 (const QImage& img) {
                     if (!img.isNull() && model) {
                         auto* tm = qobject_cast<TimelineModel*>(model);
-                        if (tm) tm->setImage(eventId.toStdString(), img);
+                        if (tm) tm->imageLoaded(mxcUrl.toStdString());
                     }
                 });
         }

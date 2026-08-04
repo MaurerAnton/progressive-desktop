@@ -4,6 +4,7 @@
 // thread indicators, pinned messages, member events.
 #pragma once
 #include <QAbstractListModel>
+#include "core/engine/engine_types.hpp"
 #include <QImage>
 #include <QMovie>
 #include <QPointer>
@@ -16,44 +17,7 @@ class QListView;
 
 namespace progressive::desktop {
 
-struct ReactionData {
-    std::string emoji;
-    int count = 0;
-    bool addedByMe = false;
-    std::vector<std::string> userIds;
-    std::string reactionEventId;  // event_id of the m.reaction event (for redaction)
-};
-
-struct DisplayedEvent {
-    std::string eventId;
-    std::string senderId;
-    std::string senderName;        // displayname or localpart
-    std::string type;              // m.room.message, m.room.member, etc.
-    std::string msgtype;           // m.text, m.image, m.emote, etc.
-    std::string body;              // text body (for text messages)
-    std::string contentJson;       // raw content JSON (for images, etc.)
-    std::string mxcUrl;            // for images: mxc:// URL
-    std::string mimetype;          // for images: image/gif, image/png, etc.
-    int64_t originServerTs = 0;
-    bool isReply = false;          // has m.relates_to m.reply
-    std::string replyToEventId;    // if isReply
-    bool isThreadRoot = false;     // has m.thread replies
-    int threadReplyCount = 0;
-    bool isThreadReply = false;    // this message is a reply in a thread
-    std::string threadRootId;      // root event_id if isThreadReply
-    bool isDateDivider = false;
-    std::string dividerLabel;
-    bool isPinned = false;
-    bool groupFirst = true;         // first message in same-sender group
-    bool groupLast  = true;         // last message in same-sender group
-    enum Delivery { Sending, Delivered, Failed };
-    Delivery delivery = Delivered;  // delivery state for own messages
-    std::vector<ReactionData> reactions;
-    QImage image;                  // cached thumbnail (empty if not loaded yet)
-    bool imageLoaded = false;
-    bool isMovie = false;          // true for animated GIF
-    std::string avatarUrl;         // sender's avatar mxc URL (from m.room.member)
-};
+class ImageLoader;
 
 class TimelineModel : public QAbstractListModel {
     Q_OBJECT
@@ -109,7 +73,10 @@ public:
     void updateBody(const std::string& eventId, const std::string& newBody);
 
     // Update image for a specific event (when async load completes).
-    void setImage(const std::string& eventId, const QImage& img);
+    void setImageLoader(ImageLoader* l) { loader_ = l; }
+    // Image finished loading in the loader cache: emit dataChanged on every
+    // row whose event carries this mxcUrl (re-layout — heights depend on it).
+    void imageLoaded(const std::string& mxcUrl);
 
     // Add/update a reaction on an event.
     void addReaction(const std::string& eventId, const std::string& emoji,
@@ -136,6 +103,7 @@ public:
 private:
     std::vector<DisplayedEvent> events_;
     std::unordered_set<std::string> seenIds_;
+    ImageLoader* loader_ = nullptr;  // owned by MainWindow; parent-scoped connects
     std::unordered_map<std::string, int> rowIndex_;
     QPointer<QListView> view_;
 };

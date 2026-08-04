@@ -6,6 +6,7 @@
 #pragma once
 
 #include <QAbstractListModel>
+#include "core/engine/engine_types.hpp"
 #include <QIcon>
 #include <QLabel>
 #include <string>
@@ -14,26 +15,6 @@
 #include <unordered_set>
 
 namespace progressive::desktop {
-
-struct RoomData {
-    std::string roomId;
-    std::string name;
-    std::string lastMessage;
-    std::string lastSender;
-    int64_t lastActivityTs = 0;
-    int unreadCount = 0;
-    int highlightCount = 0;
-    bool isDirect = false;
-    bool isEncrypted = false;
-    bool isSpace = false;
-    bool isInvite = false;
-    std::string inviterId;
-    int memberCount = 0;
-    std::string avatarUrl;
-    std::string parentId;
-    std::vector<std::string> typingUsers;  // users currently typing
-    bool stateLoaded = false;  // m.room.encryption state already fetched for this room
-};
 
 class RoomListModel : public QAbstractListModel {
     Q_OBJECT

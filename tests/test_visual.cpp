@@ -109,7 +109,7 @@ static void test_widgetProperties() {
     DisplayedEvent evt2;
     evt2.eventId = "evt2"; evt2.senderId = "@bob:matrix.org"; evt2.senderName = "Bob";
     evt2.type = "m.room.message"; evt2.msgtype = "m.image"; evt2.body = "cat.png";
-    evt2.mxcUrl = "mxc://test/cat"; evt2.originServerTs = 1234567891; evt2.imageLoaded = true;
+    evt2.mxcUrl = "mxc://test/cat"; evt2.originServerTs = 1234567891;
     timeline.appendBack(evt2);
     DisplayedEvent evt3;
     evt3.eventId = "evt3"; evt3.senderId = "@alice:matrix.org"; evt3.senderName = "Alice";

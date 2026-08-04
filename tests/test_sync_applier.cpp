@@ -31,11 +31,15 @@ static void test_initialize_e2ee() {
 
     auto store = std::make_shared<SessionStore>();
     CHECK(store->open("/tmp/pd_x1_e2ee.db"), "e2ee: store open");
+    std::cerr << "[e2ee-checkpoint] store open\n";
 
     SyncEngine se;
     se.setClient(client);
+    std::cerr << "[e2ee-checkpoint] se setClient\n";
     se.setSessionStore(store);
+    std::cerr << "[e2ee-checkpoint] se setSessionStore\n";
     auto r = se.initializeE2EE();
+    std::cerr << "[e2ee-checkpoint] initializeE2EE done e2eeOk=" << r.e2eeOk << "\n";
     CHECK(r.e2eeOk, "e2ee: account initialized");
     CHECK(se.decryptor()->isInitialized(), "e2ee: decryptor initialized");
     CHECK(store->loadOlmAccount("@u:test/DEV").has_value(), "e2ee: account pickle saved");
@@ -43,10 +47,14 @@ static void test_initialize_e2ee() {
     // Reload from the saved pickle.
     SyncEngine se2;
     se2.setClient(client);
+    std::cerr << "[e2ee-checkpoint] se2 setClient\n";
     se2.setSessionStore(store);
+    std::cerr << "[e2ee-checkpoint] se2 setSessionStore\n";
     auto r2 = se2.initializeE2EE();
+    std::cerr << "[e2ee-checkpoint] se2 initializeE2EE done e2eeOk=" << r2.e2eeOk << "\n";
     CHECK(r2.e2eeOk, "e2ee: reload from pickle");
     CHECK(se2.decryptor()->isInitialized(), "e2ee: reloaded decryptor initialized");
+    std::cerr << "[e2ee-checkpoint] test done\n";
 }
 
 int main() {

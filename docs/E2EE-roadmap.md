@@ -114,7 +114,10 @@ decrypts, cross-signing publishing verified across devices.
       would split flows + risk regressions for zero frontend-reuse value.
       Deliberately NOT moved ("NOT a rewrite" per the task).
 - [x] Phase 6: engine Qt-free verified; 13/13 ctest; image re-layout via the
-      ImageLoader cache (dataChanged on ImageRole/ImageLoadedRole)
+      ImageLoader cache (dataChanged on ImageRole/ImageLoadedRole); hardened
+      fastEventToDisplayed's message branch (string-based extraction replaced
+      the simdjson DOM + std::regex — a Release-mode-only segfault was observed
+      on CI in that region)
 - [ ] Follow-up: the engine callbacks (onRoomListChanged/onTimelineChanged) are
       not wired yet — the sync handler still drives the models directly
       (a UI-only simplification; wiring them is trivial when a 2nd frontend lands)

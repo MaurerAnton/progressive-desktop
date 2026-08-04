@@ -126,11 +126,16 @@ int restoreKeyBackup(MatrixClient& client, Decryptor& decryptor,
         for (auto sess : sessions.value()) {
             auto sdVal = sess.value["session_data"];
             if (sdVal.error() != simdjson::SUCCESS) continue;
-            // session_data is a JSON OBJECT — serialize it back to a string
-            // before decrypting (the local tests never round-trip through a
-            // server response; the live test caught this).
-            std::string sdJson;
-            if (simdjson::minify(sdVal.value(), sdJson) != simdjson::SUCCESS) continue;
+            // session_data is a JSON OBJECT (ephemeral/ciphertext/mac) —
+            // rebuild the string from its known fields for the decryptor
+            // (get_string on the object fails; the local tests never
+            // round-trip through a server response — the live test caught it).
+            auto ep = sdVal.value()["ephemeral"].get_string();
+            auto ct = sdVal.value()["ciphertext"].get_string();
+            if (ep.error() != simdjson::SUCCESS || ct.error() != simdjson::SUCCESS) continue;
+            std::string sdJson = "{\"ephemeral\":\"" + std::string(ep.value())
+                + "\",\"ciphertext\":\"" + std::string(ct.value())
+                + "\",\"mac\":\"\"}";
             std::string payload = decryptBackupSessionData(sdJson, pair.privateKeyB64);
             if (payload.empty()) continue;
             simdjson::dom::parser wp;

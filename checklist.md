@@ -3,12 +3,25 @@
 Tracked so nothing found in the audits gets forgotten. Items are small or deferred;
 completed items are removed.
 
+## UI bugs (user-reported Aug 4 — PineTab) — MUST FIX
+- [ ] **Preferences "Your devices" shows "Not logged in."** — loadDevices runs in
+      the constructor (prefs_dialog.cpp:304) before setClient() is called; move
+      the load into setClient().
+- [ ] **Room members cannot load members** — ToolbarHandler::onRoomMembers passes
+      "" as the room id (toolbar_handler.cpp:185); pass the current room id.
+- [ ] **Button text clipped vertically** (create backup/backup now/delete/restore
+      + the 4 following buttons) — the dialog is taller than the PineTab screen,
+      the QVBoxLayout squeezes the buttons; wrap the content in a QScrollArea +
+      compute the min width from the longest label (fontMetrics, +padding).
+- [ ] **Preferences freezes for seconds on "Set up secure messaging" / "Reset
+      cross-signing"** (+ the "Your devices" query blocks on open) — synchronous
+      HTTP on the UI thread; run on a ThreadPool with a busy/disabled button.
+
 ## Refactors / cleanup
 
-- [ ] **Deduplicate base64 implementations** — `backup_crypto.cpp` has its own
-      b64Encode/b64Decode, a third copy alongside `cross_sign.cpp`'s (and the
-      submodule's). Create a shared `src/core/crypto/base64.hpp` util and use it
-      in both. Not urgent (all copies are correct); found Aug 4, Phase 7 slice 1.
+- [x] **Deduplicate base64 implementations** — DONE (Phase 7 slice 1, Aug 4):
+      cross_sign.cpp + backup_crypto.cpp use the canonical string-based base64
+      from olm_account via 4-line byte wrappers; the standalone copy is deleted.
 
 ## Phase 7 (SSSS + key backup) — remaining slices
 

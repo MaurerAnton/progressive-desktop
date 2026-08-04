@@ -1,5 +1,6 @@
 // src/core/engine/timeline_state.cpp
 #include "timeline_state.hpp"
+#include "../debug_log.hpp"
 
 #include <algorithm>
 
@@ -64,13 +65,17 @@ TimelineState::AppendResult TimelineState::appendBack(const DisplayedEvent& evt)
     r.changed = true;
     r.insertedRow = row;
     if (!evt.eventId.empty()) rowIndex_[evt.eventId] = row;
-    if (evt.isThreadReply && !evt.threadRootId.empty()) {
+    // Reactions (incl. decrypted m.reaction events) are never thread replies.
+    if (evt.isThreadReply && !evt.threadRootId.empty() && evt.type != "m.reaction") {
         auto it = rowIndex_.find(evt.threadRootId);
         if (it != rowIndex_.end() && it->second >= 0 && it->second < static_cast<int>(events_.size())) {
             events_[static_cast<size_t>(it->second)].threadReplyCount++;
             r.threadRootRow = it->second;
         }
     }
+    LOG(LogChannel::DBG, "appendBack: eid=%s eventIdEmpty=%d type=%s threadReply=%d",
+        evt.eventId.c_str(), (int)evt.eventId.empty(), evt.type.c_str(),
+        evt.isThreadReply ? (int)!evt.threadRootId.empty() : -1);
     updateGroupMarkers(events_);
 
     if (static_cast<int>(events_.size()) > MAX_TIMELINE_EVENTS) {

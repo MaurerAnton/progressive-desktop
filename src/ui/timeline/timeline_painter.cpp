@@ -115,10 +115,14 @@ void drawBubbleAvatar(QPainter* p, int x, int y,
             QString av = avatarUrl;
             pendingFetches.insert(av.toStdString());
             auto* model = const_cast<QAbstractItemModel*>(idx.model());
+            // The callback outlives this paint pass — capture the pending set
+            // by shared ownership (a per-paint local would be freed early:
+            // use-after-free on erase).
+            auto pendingShared = std::make_shared<std::unordered_set<std::string>>(pendingFetches);
             loader->fetchThumbnail(
                 av.toStdString(), kAvatarSize * 2, kAvatarSize * 2,
-                [&pendingFetches, av, model](const QImage& img) {
-                    pendingFetches.erase(av.toStdString());
+                [pendingShared, av, model](const QImage& img) {
+                    pendingShared->erase(av.toStdString());
                     if (!img.isNull() && model) {
                         for (int i = 0; i < model->rowCount(); ++i) {
                             auto mi = model->index(i, 0);
@@ -232,6 +236,21 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
         p->setPen(colorFromId(senderId));
         p->drawText(bubbleX + kBubblePadding, topY, bubbleW - kBubblePadding, kNameRowH,
                     Qt::AlignLeft | Qt::AlignBottom, senderName);
+    }
+
+    QString decryptError = idx.data(TimelineModel::DecryptErrorRole).toString();
+    if (!decryptError.isEmpty()) {
+        // "Key missing" badge on the bubble — tooltip carries the reason.
+        QRect badgeR(bubbleX + bubbleW - 22, topY - 2, 18, 18);
+        p->setBrush(QColor("#F44336"));
+        p->setPen(Qt::NoPen);
+        p->drawEllipse(badgeR);
+        QFont bf = p->font();
+        bf.setPointSize(ds(kFontSizeSmall));
+        bf.setBold(true);
+        p->setFont(bf);
+        p->setPen(Qt::white);
+        p->drawText(badgeR, Qt::AlignCenter, "!");
     }
 
     int bubbleY = topY + L.nameH;

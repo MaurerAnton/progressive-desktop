@@ -59,7 +59,10 @@ public:
 
     static int pollTimeoutMs() {
         QSettings s;
-        return s.value("sync/pollTimeoutMs", 3000).toInt();
+        // Default 20000: the delivery latency equals the long-poll timeout
+        // (a 3000ms default made every message ~3s late on the receiver).
+        // Element uses 30s+ and delivers near-instantly.
+        return s.value("sync/pollTimeoutMs", 20000).toInt();
     }
 
     static int historyLoadLimit() {
@@ -90,6 +93,9 @@ private:
     void runSecurityAction(std::function<bool()> fn, QPushButton* btn,
                            const QString& busyText, const QString& okLabel,
                            const QString& okMsg, const QString& failMsg);
+    // Generic busy/async/marshal for the backup/SSSS buttons.
+    void runAsyncButton(QPushButton* btn, const QString& busyText, const QString& idleText,
+                        std::function<bool()> fn, std::function<void(bool)> onDone);
 
     std::shared_ptr<MatrixClient> client_;
     SessionStore* store_ = nullptr;

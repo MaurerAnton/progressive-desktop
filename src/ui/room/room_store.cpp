@@ -77,8 +77,12 @@ void RoomStore::applyRoomSyncUpdate(RoomSyncUpdate& syncUpdate,
 
     // Timeline for current room
     if (syncUpdate.currentRoomUpdated && currentTimeline) {
+        // Accumulate member avatars across syncs — Synapse omits the state
+        // block on incremental syncs, so a fresh per-sync map would leave
+        // every new message without an avatar.
+        for (const auto& [uid, av] : syncUpdate.currentRoomAvatars) memberAvatars_[uid] = av;
         appendTimelineForRoom(syncUpdate.currentRoomId, syncUpdate.currentRoomEvents,
-                              currentTimeline, &syncUpdate.currentRoomAvatars,
+                              currentTimeline, &memberAvatars_,
                               "" /* myUserId passed earlier */,
                               decryptor);
     }
@@ -155,6 +159,20 @@ static void appendTimelineForRoom(const std::string& roomId,
         if (e.type != "m.room.message" && e.type != "m.room.encrypted") continue;
         DisplayedEvent de;
         SyncApplier::fastEventToDisplayed(e, de, roomId, decryptor);
+        if (de.type == "m.reaction" && !de.contentJson.empty()) {
+            // Encrypted reactions decrypt to the m.reaction type — extract
+            // them too so they never render as rows or count as replies.
+            simdjson::dom::parser rp2;
+            auto doc2 = rp2.parse(de.contentJson);
+            if (doc2.error() == simdjson::SUCCESS) {
+                auto rel2 = doc2.value()["m.relates_to"];
+                auto te2 = rel2["event_id"].get_string();
+                auto key2 = rel2["key"].get_string();
+                if (te2.error() == simdjson::SUCCESS && key2.error() == simdjson::SUCCESS)
+                    pendingReactions.push_back({std::string(te2.value()), std::string(key2.value()), de.senderId});
+            }
+            continue;
+        }
         if (memberAvatars && !de.senderId.empty()) {
             auto it = memberAvatars->find(de.senderId);
             if (it != memberAvatars->end()) de.avatarUrl = it->second;

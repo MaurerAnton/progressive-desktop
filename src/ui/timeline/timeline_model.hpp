@@ -46,6 +46,7 @@ public:
         ThreadRootIdRole,
         IsPinnedRole,
         ReactionsRole,
+        DecryptErrorRole,
         ImageRole,
         ImageLoadedRole,
         IsMovieRole,

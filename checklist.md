@@ -3,17 +3,17 @@
 Tracked so nothing found in the audits gets forgotten. Items are small or deferred;
 completed items are removed.
 
-## UI bugs (user-reported Aug 4 — PineTab) — MUST FIX
-- [ ] **Preferences "Your devices" shows "Not logged in."** — loadDevices runs in
+## UI bugs (user-reported Aug 4 — PineTab) — FIXED (d875b0b)
+- [x] **Preferences "Your devices" shows "Not logged in."** — loadDevices runs in
       the constructor (prefs_dialog.cpp:304) before setClient() is called; move
       the load into setClient().
-- [ ] **Room members cannot load members** — ToolbarHandler::onRoomMembers passes
+- [x] **Room members cannot load members** — ToolbarHandler::onRoomMembers passes
       "" as the room id (toolbar_handler.cpp:185); pass the current room id.
-- [ ] **Button text clipped vertically** (create backup/backup now/delete/restore
+- [x] **Button text clipped vertically** (create backup/backup now/delete/restore
       + the 4 following buttons) — the dialog is taller than the PineTab screen,
       the QVBoxLayout squeezes the buttons; wrap the content in a QScrollArea +
       compute the min width from the longest label (fontMetrics, +padding).
-- [ ] **Preferences freezes for seconds on "Set up secure messaging" / "Reset
+- [x] **Preferences freezes for seconds on "Set up secure messaging" / "Reset
       cross-signing"** (+ the "Your devices" query blocks on open) — synchronous
       HTTP on the UI thread; run on a ThreadPool with a busy/disabled button.
 
@@ -56,3 +56,26 @@ completed items are removed.
   for very large rooms — degrades gracefully to red shields.
 - SAS verification events are plain (unencrypted) to-device per spec; a client
   that Olm-wrapped them would be dropped (we never do).
+
+## Aug 4 evening batch (all landed + CI green)
+- [x] Reply-from-Element: sync path now extracts m.in_reply_to + strips the
+      fallback quote (sync_applier fastEventToDisplayed)
+- [x] m.file/m.audio mxcUrl in all three paths (sync, load-more, history)
+- [x] formatted_body nested-object case fixed (structural detection + inner
+      escape-aware extraction); top-level "body" no longer grabs the nested one
+- [x] Avatar accumulation: room_store keeps the member-avatar map across syncs
+      (Synapse omits the state block on incremental syncs); state-only syncs
+      still refresh avatars
+- [x] Reactions never count as thread replies; encrypted reactions extracted
+      as reactions (not rows)
+- [x] In-app diagnostics: Log viewer dialog (all channels + filter, menu item
+      next to Network log), decrypt-reason badge + tooltip + "Why is this
+      encrypted?" context entry, members-load failure reason, own-device
+      cross-signing status row, downloadMedia + send + appendBack logs
+- [x] Backup/SSSS buttons async (no more UI freeze); loadDevices error path
+      restored; onRoomMembers no-room guard
+- [x] pendingFetches use-after-free fixed (shared ownership)
+- [x] Sync poll default 3000 -> 20000ms (the ~3s delivery delay was the
+      long-poll timeout)
+- [x] Tests: formatted_body (plain + nested), sync-path reply, m.file/m.audio,
+      member-avatar extraction, reaction-count guard, reset re-signs the device

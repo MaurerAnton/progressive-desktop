@@ -62,6 +62,10 @@ public:
     static std::string msgBody(std::string_view json);
     // Generic JSON string extractors (shared with the UI's appendTimelineForRoom).
     static std::string extractStringDec(std::string_view json, const std::string& key);
+    // Escape-aware string-value extraction starting at an offset (used for the
+    // nested {"formatted_body":{"body":"..."}} shape).
+    static std::string extractStringDecAt(std::string_view json, const std::string& key,
+                                          size_t startPos);
     static std::string extractString(std::string_view json, const std::string& key);
     // Fill the message fields of a DisplayedEvent from a FastEvent.
     static void fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,

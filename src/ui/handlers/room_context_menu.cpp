@@ -221,10 +221,12 @@ void RoomContextMenu::showTimelineContextMenu(const QString& eventId,
     bool canViewThread = false;
     bool hasReactions = false;
     QString threadRootForView;
+    QString decryptError;
     if (row >= 0) {
         auto* evt = timelineModel_->at(row);
         if (evt) {
             isOwnMessage = (evt->senderId == myUserId);
+            decryptError = QString::fromStdString(evt->decryptError);
             isPinned = evt->isPinned;
             isSystemEvent = (evt->type == "progressive.system");
             if (evt->threadReplyCount > 0) { canViewThread = true; threadRootForView = eventId; }
@@ -278,6 +280,9 @@ void RoomContextMenu::showTimelineContextMenu(const QString& eventId,
     if (!isPinned) unpinAction->setEnabled(false);
     if (isPinned) pinAction->setEnabled(false);
     auto* copyLinkAction = menu.addAction("Copy permalink");
+    auto* whyEncryptedAction = decryptError.isEmpty()
+        ? nullptr
+        : menu.addAction("Why is this encrypted?");
     menu.addSeparator();
     auto* editAction = menu.addAction("Edit");
     auto* deleteAction = menu.addAction("Delete");
@@ -289,7 +294,13 @@ void RoomContextMenu::showTimelineContextMenu(const QString& eventId,
     std::string roomIdStr = roomId;
     std::string eidStrVal = eventId.toStdString();
 
-    if (selected == reactAction) {
+    if (selected == whyEncryptedAction && whyEncryptedAction) {
+        QMessageBox::information(mw_.data(), "Why is this encrypted?",
+            "This message could not be decrypted.\n\n" + decryptError +
+            "\n\nA room-key request was sent to the sender. If it stays "
+            "encrypted, the sender's client may be withholding the key "
+            "(verified-device policy) — check the Log viewer (E2EE channel).");
+    } else if (selected == reactAction) {
         handleReaction(mw_.data(), client_, roomIdStr, eidStrVal, timelineModel_, statusLabel_);
     } else if (selected == pinAction) {
         handlePin(mw_.data(), client_, roomIdStr, eidStrVal, timelineModel_, statusLabel_);

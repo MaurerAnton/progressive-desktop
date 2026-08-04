@@ -918,6 +918,8 @@ ApiResult<std::vector<uint8_t>> MatrixClient::downloadMedia(const std::string& m
         r.error.message = "invalid mxc URL";
         return r;
     }
+    LOG(LogChannel::NET, "downloadMedia: mxc=%.120s -> http=%d ok=%d size=%zu err=%.120s",
+        mxcUrl.c_str(), 0, 0, (size_t)0, httpUrl.c_str());
     auto resp = httpGet(httpUrl, authHeaders(), 30000);
     r.httpStatus = resp.statusCode;
     if (resp.success) {
@@ -927,6 +929,8 @@ ApiResult<std::vector<uint8_t>> MatrixClient::downloadMedia(const std::string& m
         if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
         r.error.message = resp.errorMessage.empty() ? r.error.message : resp.errorMessage;
     }
+    LOG(LogChannel::NET, "downloadMedia: DONE mxc=%.120s status=%d ok=%d size=%zu err=%.120s",
+        mxcUrl.c_str(), r.httpStatus, r.ok ? 1 : 0, r.data.size(), r.error.message.c_str());
     return r;
 }
 

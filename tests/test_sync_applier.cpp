@@ -114,6 +114,79 @@ int main() {
           "applier: cap-200 enforced");
     CHECK(big.at(0)->eventId == "$cap50", "applier: oldest evicted");
 
+    // --- formatted_body variants + reply + m.file/m.audio (sync path) ---
+    {
+        auto testMsg = [](const std::string& content, const std::string& wantBody) {
+            FastEvent fe;
+            fe.type = "m.room.message";
+            fe.eventId = "$f1";
+            fe.senderId = "@alice:test";
+            fe.contentJson = content;
+            fe.originServerTs = 1;
+            DisplayedEvent de;
+            SyncApplier::fastEventToDisplayed(fe, de, "!r:test", nullptr);
+            CHECK(de.body == wantBody, "applier: body extraction (" + content.substr(0, 30) + ")");
+            return de;
+        };
+        // Plain formatted_body HTML string
+        auto de1 = testMsg("{\"msgtype\":\"m.text\",\"formatted_body\":\"<b>bold</b> text\"}", "bold text");
+        (void)de1;
+        // Nested formatted_body object {"formatted_body":{"body":"..."}}
+        auto de2 = testMsg("{\"msgtype\":\"m.text\",\"formatted_body\":{\"body\":\"<i>nested</i>\"}}", "nested");
+        (void)de2;
+        // Reply: fallback quote stripped + isReply/replyToEventId set
+        auto de3 = testMsg("{\"msgtype\":\"m.text\",\"body\":\"> <@alice:test> original\\n\\nreply text\",\"m.relates_to\":{\"rel_type\":\"m.in_reply_to\",\"event_id\":\"$msg1\"}}", "reply text");
+        CHECK(de3.isReply && de3.replyToEventId == "$msg1",
+              "applier: sync-path reply extraction");
+        // m.file: mxcUrl + filename body fallback
+        auto de4 = testMsg("{\"msgtype\":\"m.file\",\"url\":\"mxc://server/file1\",\"filename\":\"report.pdf\"}", "report.pdf");
+        CHECK(de4.mxcUrl == "mxc://server/file1", "applier: m.file mxcUrl parsed");
+        // m.audio: mxcUrl parsed
+        auto de5 = testMsg("{\"msgtype\":\"m.audio\",\"url\":\"mxc://server/audio1\"}", "");
+        CHECK(de5.mxcUrl == "mxc://server/audio1", "applier: m.audio mxcUrl parsed");
+    }
+
+    // --- member-avatar extraction into currentRoomAvatars ---
+    {
+        FastEvent m;
+        m.type = "m.room.member";
+        m.eventId = "$mem1";
+        m.senderId = "@alice:test";
+        m.stateKey = "@alice:test";
+        m.contentJson = "{\"membership\":\"join\",\"avatar_url\":\"mxc://server/ava1\"}";
+        m.originServerTs = 1;
+        FastRoom room;
+        room.stateEvents = {m};
+        FastSyncResponse resp;
+        resp.joinedRooms.push_back({"!r2:test", std::move(room)});
+        auto u = SyncApplier::prepareRoomSyncUpdate(resp, "!r2:test", "@me:test");
+        auto it = u.currentRoomAvatars.find("@alice:test");
+        CHECK(it != u.currentRoomAvatars.end() && it->second == "mxc://server/ava1",
+              "applier: member avatar extracted into currentRoomAvatars");
+    }
+
+    // --- reactions never count as thread replies ---
+    {
+        DisplayedEvent root;
+        root.eventId = "$root1";
+        root.senderId = "@a:test";
+        root.type = "m.room.message";
+        root.msgtype = "m.text";
+        root.body = "root";
+        root.originServerTs = 1;
+        TimelineState st;
+        st.appendBack(root);
+        DisplayedEvent react;
+        react.eventId = "$react1";
+        react.senderId = "@b:test";
+        react.type = "m.reaction";
+        react.isThreadReply = true;
+        react.threadRootId = "$root1";
+        react.originServerTs = 2;
+        st.appendBack(react);
+        CHECK(st.at(0)->threadReplyCount == 0, "applier: reactions never count as replies");
+    }
+
     if (failures) { std::cerr << failures << " TEST(S) FAILED\n"; return 1; }
     std::cout << "All sync_applier tests passed\n";
     return 0;

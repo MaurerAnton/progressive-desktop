@@ -293,6 +293,22 @@ static bool test_multiaccount_multidevice(const std::string& hs,
     }
     CHECK(!a2SskSig, "mm: device2 NOT SSK-signed (known per-device limitation, Phase 7)");
 
+    // Reset regression (the reset flow = publish NEW keys + re-sign the
+    // device with the NEW SSK via reuploadDeviceKeys).
+    auto resetKeys = publishCrossSigning(alice);
+    CHECK(!resetKeys.masterPub.empty() && resetKeys.selfPub != xsKeys.selfPub,
+          "mm: reset published NEW cross-signing keys");
+    std::string dkBody = alice.decryptor.buildKeysUploadBody(
+        alice.userId, alice.deviceId, 0, true, false,
+        resetKeys.selfPriv, resetKeys.selfPub, true);
+    auto dkUp = alice.client.uploadKeys(dkBody);
+    CHECK(dkUp.ok, "mm: device re-signed after reset");
+    auto q2 = alice.client.queryKeys("{\"device_keys\":{\"" + alice.userId + "\":[]}}");
+    bool newSskSig = q2.ok && q2.data.find("ed25519:" + resetKeys.selfPub) != std::string::npos;
+    bool oldSskGone = q2.ok && q2.data.find("ed25519:" + xsKeys.selfPub) == std::string::npos;
+    CHECK(newSskSig && oldSskGone,
+          "mm: device signed by the NEW SSK after reset, old signature gone");
+
     // Message 1: A1 sends -> B1, C1, A2 all decrypt.
     std::string m1 = "mm-msg1-" + std::to_string(std::time(nullptr));
     CHECK(!sendEncrypted(alice, hs, roomId, m1, "mm1").empty(), "mm: alice sent msg1");

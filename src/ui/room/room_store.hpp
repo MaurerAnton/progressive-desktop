@@ -64,6 +64,9 @@ private:
     std::shared_ptr<MatrixClient> client_;
     std::shared_ptr<SessionStore> store_;
     std::unique_ptr<RoomDataLoader> dataLoader_;
+    // Accumulated member-avatar map for the current room (the per-sync map
+    // would be empty on incremental syncs — Synapse omits the state block).
+    std::unordered_map<std::string, std::string> memberAvatars_;
     bool batchInProgress_ = false;
 };
 

@@ -59,7 +59,7 @@ PrefsDialog::PrefsDialog(QWidget* parent) : QDialog(parent) {
     syncTimeoutSpin_->setValue(pollTimeoutMs());
     syncTimeoutSpin_->setToolTip(
         "How long /sync waits for new events before returning. "
-        "Lower = faster message delivery but more requests. Default 3000 (3s).");
+        "Higher = faster message delivery, fewer requests. Default 20000 (20s).");
     form->addRow("Sync poll timeout:", syncTimeoutSpin_);
 
     historySpin_ = new QSpinBox(this);
@@ -141,47 +141,67 @@ PrefsDialog::PrefsDialog(QWidget* parent) : QDialog(parent) {
     backupLayout->addWidget(importBtn);
     root->addWidget(backupGroup);
 
-    connect(createBackupBtn, &QPushButton::clicked, this, [this, backupStatus]() {
+    connect(createBackupBtn, &QPushButton::clicked, this,
+            [this, backupStatus, createBackupBtn]() {
         if (!createKeyBackupFn_) return;
-        std::string rk = createKeyBackupFn_();
-        if (rk.empty()) {
-            QMessageBox::warning(this, "Key backup",
-                "Could not create the backup (server rejected the version).");
-            return;
-        }
-        backupStatus->setText("Backup configured");
-        // Show the recovery key ONCE with a confirmation.
-        QInputDialog dlg(this);
-        dlg.setWindowTitle("Recovery key — write it down");
-        dlg.setLabelText("Store this recovery key somewhere safe. It is shown "
-                         "only once and can restore your room keys on any device:");
-        dlg.setTextValue(QString::fromStdString(rk));
-        dlg.exec();
-        if (QMessageBox::question(this, "Recovery key",
-                "Did you write down the recovery key? The backup is NOT usable "
-                "without it.") == QMessageBox::Yes) {
-            if (uploadKeyBackupFn_ && uploadKeyBackupFn_())
-                backupStatus->setText("Backup configured and uploaded");
-        }
+        auto guard = QPointer<PrefsDialog>(this);
+        auto fn = createKeyBackupFn_;
+        createBackupBtn->setEnabled(false);
+        createBackupBtn->setText("Working…");
+        ThreadPool::instance().enqueue([guard, fn, backupStatus, createBackupBtn]() {
+            std::string rk = fn ? fn() : "";
+            QMetaObject::invokeMethod(guard, [guard, rk, backupStatus, createBackupBtn]() {
+                if (guard.isNull()) return;
+                createBackupBtn->setEnabled(true);
+                createBackupBtn->setText("Create backup…");
+                if (rk.empty()) {
+                    QMessageBox::warning(guard, "Key backup",
+                        "Could not create the backup (server rejected the version).");
+                    return;
+                }
+                // Show the recovery key ONCE with a confirmation.
+                QInputDialog dlg(guard);
+                dlg.setWindowTitle("Recovery key — write it down");
+                dlg.setLabelText("Store this recovery key somewhere safe. It is shown "
+                                 "only once and can restore your room keys on any device:");
+                dlg.setTextValue(QString::fromStdString(rk));
+                dlg.exec();
+                if (QMessageBox::question(guard, "Recovery key",
+                        "Did you write down the recovery key? The backup is NOT usable "
+                        "without it.") == QMessageBox::Yes) {
+                    backupStatus->setText("Backup configured");
+                    guard->runAsyncButton(createBackupBtn, "Working…", "Create backup…",
+                        [up = guard->uploadKeyBackupFn_]() { return up && up(); },
+                        [backupStatus](bool ok) {
+                            backupStatus->setText(ok ? "Backup configured and uploaded"
+                                                     : "Backup configured (upload failed)");
+                        });
+                }
+            });
+        });
     });
-    connect(deleteBackupBtn, &QPushButton::clicked, this, [this, backupStatus]() {
+    connect(deleteBackupBtn, &QPushButton::clicked, this, [this, backupStatus, deleteBackupBtn]() {
         if (!deleteKeyBackupFn_) return;
         if (QMessageBox::question(this, "Delete backup",
                 "Delete the server-side key backup? The recovery key becomes "
                 "useless for this account.") != QMessageBox::Yes) return;
-        if (deleteKeyBackupFn_())
-            backupStatus->setText("Backup deleted");
-        else
-            QMessageBox::warning(this, "Delete backup", "Delete failed.");
+        runAsyncButton(deleteBackupBtn, "Working…", "Delete backup…",
+            [fn = deleteKeyBackupFn_]() { return fn && fn(); },
+            [backupStatus, this](bool ok) {
+                if (ok) backupStatus->setText("Backup deleted");
+                else QMessageBox::warning(this, "Delete backup", "Delete failed.");
+            });
     });
-    connect(backupNowBtn, &QPushButton::clicked, this, [this, backupStatus]() {
-        if (uploadKeyBackupFn_ && uploadKeyBackupFn_())
-            backupStatus->setText("Backup uploaded");
-        else
-            QMessageBox::warning(this, "Key backup",
-                "Upload failed (no backup configured, or the server rejected it).");
+    connect(backupNowBtn, &QPushButton::clicked, this, [this, backupStatus, backupNowBtn]() {
+        runAsyncButton(backupNowBtn, "Working…", "Backup now",
+            [fn = uploadKeyBackupFn_]() { return fn && fn(); },
+            [backupStatus, this](bool ok) {
+                if (ok) backupStatus->setText("Backup uploaded");
+                else QMessageBox::warning(this, "Key backup",
+                    "Upload failed (no backup configured, or the server rejected it).");
+            });
     });
-    connect(ssssUploadBtn, &QPushButton::clicked, this, [this, backupStatus]() {
+    connect(ssssUploadBtn, &QPushButton::clicked, this, [this, backupStatus, ssssUploadBtn]() {
         if (!uploadSsssFn_) return;
         QInputDialog dlg(this);
         dlg.setWindowTitle("Sync secrets to other devices");
@@ -189,35 +209,46 @@ PrefsDialog::PrefsDialog(QWidget* parent) : QDialog(parent) {
                          "cross-signing secrets:");
         dlg.setTextEchoMode(QLineEdit::Normal);
         if (dlg.exec() != QDialog::Accepted || dlg.textValue().isEmpty()) return;
-        if (uploadSsssFn_(dlg.textValue().toStdString()))
-            backupStatus->setText("Secrets synced to account-data");
-        else
-            QMessageBox::warning(this, "Secrets sync",
-                "Failed (no cross-signing keys, or the upload was rejected).");
+        std::string pw = dlg.textValue().toStdString();
+        runAsyncButton(ssssUploadBtn, "Working…", "Sync secrets to my other devices…",
+            [fn = uploadSsssFn_, pw]() { return fn && fn(pw); },
+            [backupStatus, this](bool ok) {
+                if (ok) backupStatus->setText("Secrets synced to account-data");
+                else QMessageBox::warning(this, "Secrets sync",
+                    "Failed (no cross-signing keys, or the upload was rejected).");
+            });
     });
-    connect(ssssRetrieveBtn, &QPushButton::clicked, this, [this, backupStatus]() {
+    connect(ssssRetrieveBtn, &QPushButton::clicked, this, [this, backupStatus, ssssRetrieveBtn]() {
         if (!retrieveSsssFn_) return;
         QInputDialog dlg(this);
         dlg.setWindowTitle("Retrieve secrets");
         dlg.setLabelText("Enter the recovery key:");
         dlg.setTextEchoMode(QLineEdit::Normal);
         if (dlg.exec() != QDialog::Accepted || dlg.textValue().isEmpty()) return;
-        int n = retrieveSsssFn_(dlg.textValue().toStdString());
-        backupStatus->setText(n > 0
-            ? "Secrets retrieved — device keys re-signed"
-            : "Retrieve failed (wrong key or no synced secrets)");
+        std::string pw = dlg.textValue().toStdString();
+        runAsyncButton(ssssRetrieveBtn, "Working…", "Retrieve secrets with recovery key…",
+            [fn = retrieveSsssFn_, pw]() { return fn && fn(pw) > 0; },
+            [backupStatus](bool ok) {
+                backupStatus->setText(ok
+                    ? "Secrets retrieved — device keys re-signed"
+                    : "Retrieve failed (wrong key or no synced secrets)");
+            });
     });
-    connect(restoreBtn, &QPushButton::clicked, this, [this, backupStatus]() {
+    connect(restoreBtn, &QPushButton::clicked, this, [this, backupStatus, restoreBtn]() {
         if (!restoreKeyBackupFn_) return;
         QInputDialog dlg(this);
         dlg.setWindowTitle("Restore from recovery key");
         dlg.setLabelText("Enter the recovery key:");
         dlg.setTextEchoMode(QLineEdit::Normal);
         if (dlg.exec() != QDialog::Accepted || dlg.textValue().isEmpty()) return;
-        int n = restoreKeyBackupFn_(dlg.textValue().toStdString());
-        backupStatus->setText(n > 0
-            ? QString("Restored %1 sessions").arg(n)
-            : "Nothing restored (wrong key or no backup found)");
+        std::string pw = dlg.textValue().toStdString();
+        runAsyncButton(restoreBtn, "Working…", "Restore from recovery key…",
+            [fn = restoreKeyBackupFn_, pw]() { return fn && fn(pw) > 0; },
+            [backupStatus](bool ok) {
+                backupStatus->setText(ok
+                    ? "Restored sessions"
+                    : "Nothing restored (wrong key or no backup found)");
+            });
     });
 
     connect(exportBtn, &QPushButton::clicked, this, [this]() {
@@ -279,6 +310,25 @@ PrefsDialog::PrefsDialog(QWidget* parent) : QDialog(parent) {
     dialogScroll->setWidgetResizable(true);
     dialogScroll->setWidget(content);
     outer->addWidget(dialogScroll);
+}
+
+
+void PrefsDialog::runAsyncButton(QPushButton* btn, const QString& busyText,
+                                 const QString& idleText, std::function<bool()> fn,
+                                 std::function<void(bool)> onDone) {
+    btn->setEnabled(false);
+    btn->setText(busyText);
+    QPointer<PrefsDialog> guard(this);
+    ThreadPool::instance().enqueue([guard, btn, busyText, idleText,
+                                    fn = std::move(fn), onDone = std::move(onDone)]() {
+        bool ok = fn ? fn() : false;
+        QMetaObject::invokeMethod(guard, [guard, btn, busyText, idleText, ok, onDone]() {
+            if (guard.isNull()) return;
+            btn->setEnabled(true);
+            btn->setText(idleText);
+            if (onDone) onDone(ok);
+        });
+    });
 }
 
 void PrefsDialog::runSecurityAction(std::function<bool()> fn, QPushButton* btn,
@@ -359,8 +409,13 @@ void PrefsDialog::loadDevices(QVBoxLayout* sectionLayout) {
     ThreadPool::instance().enqueue([guard, client, store, ourUserId, ourDeviceId,
                                      queryBody, sectionLayout, this]() {
         std::vector<DeviceRow> rows;
+        std::string fetchError;
         auto resp = client->queryKeys(queryBody);
-        if (resp.ok) {
+        if (!resp.ok) {
+            fetchError = "Could not fetch devices. (HTTP " +
+                         std::to_string(resp.httpStatus) + ")";
+            LOG(LogChannel::E2EE, "prefs: keys/query FAILED http=%d", resp.httpStatus);
+        } else {
             // Trust shields: green = SAS-verified, grey = SSK cross-signed,
             // red = unverified. A user whose master carries OUR USK signature
             // upgrades all their devices to Verified.
@@ -394,16 +449,46 @@ void PrefsDialog::loadDevices(QVBoxLayout* sectionLayout) {
                 }
             }
         }
-        QMetaObject::invokeMethod(guard, [guard, sectionLayout, rows, this, ourUserId]() {
+        QMetaObject::invokeMethod(guard, [guard, sectionLayout, rows, fetchError, this, ourUserId, ourDeviceId]() {
             if (guard.isNull()) return;
             while (QLayoutItem* item = sectionLayout->takeAt(0)) {
                 if (QWidget* w = item->widget()) w->deleteLater();
                 delete item;
             }
-            if (rows.empty()) {
-                sectionLayout->addWidget(new QLabel("No other devices to verify.", this));
+            if (!fetchError.empty()) {
+                sectionLayout->addWidget(new QLabel(QString::fromStdString(fetchError), this));
                 return;
             }
+            if (rows.empty()) {
+                sectionLayout->addWidget(new QLabel("No other devices to verify.", this));
+            }
+            // The current device's status: cross-signing published? device
+            // signed by the account's SSK? (answers "why is my device not
+            // logged in / verified" in-app).
+            bool selfSigned = false;
+            for (const auto& row : rows) {
+                if (row.deviceId == ourDeviceId && row.trust == progressive::desktop::DeviceTrust::Trusted)
+                    selfSigned = true;
+            }
+            QString selfState;
+            QColor selfColor = QColor("#F44336");
+            if (selfSigned) {
+                selfState = "This device: signed by cross-signing \u2713";
+                selfColor = QColor("#4CAF50");
+            } else {
+                selfState = "This device: NOT cross-signed — re-run setup or check the log viewer (E2EE)";
+            }
+            auto* selfRow = new QHBoxLayout;
+            auto* selfDot = new QLabel("\u25CF", this);
+            selfDot->setStyleSheet("color:" + selfColor.name() + "; font-size:14px;");
+            auto* selfLabel = new QLabel(selfState, this);
+            selfLabel->setWordWrap(true);
+            selfRow->addWidget(selfDot);
+            selfRow->addWidget(selfLabel, 1);
+            auto* selfWidget = new QWidget(this);
+            selfWidget->setLayout(selfRow);
+            sectionLayout->addWidget(selfWidget);
+            if (rows.empty()) return;
             for (const auto& row : rows) {
                 bool sasVerified = store_ && store_->isDeviceVerified(ourUserId, row.deviceId);
                 bool sskTrusted = row.trust == progressive::desktop::DeviceTrust::Trusted;

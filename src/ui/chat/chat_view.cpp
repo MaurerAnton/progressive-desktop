@@ -118,10 +118,17 @@ void ChatView::doSend(const std::string& body) {
             if (rd) encrypted = rd->isEncrypted;
         }
     }
-    ThreadPool::instance().enqueue([guard, client, roomId, body, tempId, myUserId, threadRoot, encrypted]() {
+    auto sendStartNs = std::chrono::steady_clock::now();
+    ThreadPool::instance().enqueue([guard, client, roomId, body, tempId, myUserId, threadRoot, encrypted, sendStartNs]() {
+        auto enqNs = std::chrono::steady_clock::now();
+        auto enqMs = std::chrono::duration_cast<std::chrono::milliseconds>(enqNs - sendStartNs).count();
         // Thread reply (unencrypted)
         if (!threadRoot.empty() && !encrypted) {
+            auto t0 = std::chrono::steady_clock::now();
             auto r = client->sendThreadReply(roomId, body, threadRoot);
+            LOG(LogChannel::GUI, "send: enqueueDelayMs=%lld httpElapsedMs=%lld ok=%d", (long long)enqMs,
+                (long long)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count(),
+                r.ok ? 1 : 0);
             if (!r.ok) {
                 std::fprintf(stderr, "[send] FAILED thread: %s (code=%s)\n",
                              r.error.message.c_str(), r.error.code.c_str());

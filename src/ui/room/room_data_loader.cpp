@@ -121,6 +121,13 @@ void RoomDataLoader::loadHistory(const std::string& roomId, TimelineModel* model
                         de.isReply = true;
                         de.replyToEventId = replyTo;
                     }
+                    if (de.msgtype == "m.image" || de.msgtype == "m.video" ||
+                        de.msgtype == "m.file" || de.msgtype == "m.audio") {
+                        de.mxcUrl = SyncApplier::extractStringDec(de.contentJson, "url");
+                        de.mimetype = SyncApplier::extractStringDec(de.contentJson, "mimetype");
+                        if (de.body.empty())
+                            de.body = SyncApplier::extractStringDec(de.contentJson, "filename");
+                    }
                 } else if (de.type == "m.room.encrypted" && decryptor && decryptor->isInitialized()) {
                     auto result = decryptor->decryptMegolmEvent(roomId, de.senderId,
                                                                  de.contentJson, de.eventId,
@@ -132,6 +139,13 @@ void RoomDataLoader::loadHistory(const std::string& roomId, TimelineModel* model
                         if (parsePlaintextBody(result.plaintext, de.type, de.contentJson)) {
                             de.msgtype = SyncApplier::msgType(de.contentJson);
                             de.body = SyncApplier::msgBody(de.contentJson);
+                            if (de.msgtype == "m.image" || de.msgtype == "m.video" ||
+                                de.msgtype == "m.file" || de.msgtype == "m.audio") {
+                                de.mxcUrl = SyncApplier::extractStringDec(de.contentJson, "url");
+                                de.mimetype = SyncApplier::extractStringDec(de.contentJson, "mimetype");
+                                if (de.body.empty())
+                                    de.body = SyncApplier::extractStringDec(de.contentJson, "filename");
+                            }
                             std::string_view cv(de.contentJson);
                             std::string threadRoot = SyncApplier::extractThreadRootId(cv);
                             if (!threadRoot.empty()) {

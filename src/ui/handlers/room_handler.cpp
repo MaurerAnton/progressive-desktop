@@ -215,9 +215,12 @@ void RoomHandler::onLoadMoreClicked() {
                 if (de.type == "m.room.message") {
                     de.msgtype = SyncApplier::extractStringDec(de.contentJson, "msgtype");
                     de.body = SyncApplier::extractStringDec(de.contentJson, "body");
-                    if (de.msgtype == "m.image" || de.msgtype == "m.video") {
+                    if (de.msgtype == "m.image" || de.msgtype == "m.video" ||
+                        de.msgtype == "m.file" || de.msgtype == "m.audio") {
                         de.mxcUrl = SyncApplier::extractStringDec(de.contentJson, "url");
                         de.mimetype = SyncApplier::extractStringDec(de.contentJson, "mimetype");
+                        if (de.body.empty())
+                            de.body = SyncApplier::extractStringDec(de.contentJson, "filename");
                     }
                     std::string_view cv(de.contentJson);
                     std::string threadRoot = SyncApplier::extractThreadRootId(cv);

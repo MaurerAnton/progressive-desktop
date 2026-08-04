@@ -136,6 +136,7 @@ add_library(progressive_ui_dialogs STATIC
     src/ui/dialogs/sas_verification_dialog.cpp
     src/ui/dialogs/prefs_dialog.cpp
     src/ui/dialogs/network_log_dialog.cpp
+    src/ui/dialogs/log_viewer_dialog.cpp
     src/ui/profile_dialog.cpp
     src/ui/profile/room_members_dialog.cpp
     src/ui/profile/user_profile_dialog.cpp

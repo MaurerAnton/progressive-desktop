@@ -2,6 +2,10 @@
 #pragma once
 #include <cstdio>
 #include <cstdlib>
+#include <deque>
+#include <mutex>
+#include <string>
+#include <vector>
 
 //
 // Compile-time toggles (set via CMake -D flags, optional):
@@ -35,18 +39,66 @@ enum class LogChannel {
 #ifndef PROGRESSIVE_DISABLE_LOG
 #define LOG(ch, fmt, ...) \
     do { \
+        char pdcBuf[1024]; \
+        int pdcLen = std::snprintf(pdcBuf, sizeof(pdcBuf), fmt, ##__VA_ARGS__); \
+        if (pdcLen < 0) pdcLen = 0; \
+        if (pdcLen > (int)sizeof(pdcBuf) - 1) pdcLen = (int)sizeof(pdcBuf) - 1; \
+        pdcBuf[pdcLen] = '\0'; \
         switch (ch) { \
-            case LogChannel::GUI:  std::fprintf(stderr, "[GUI]  " fmt "\n", ##__VA_ARGS__); break; \
-            case LogChannel::SYNC: std::fprintf(stderr, "[SYNC] " fmt "\n", ##__VA_ARGS__); break; \
-            case LogChannel::E2EE: std::fprintf(stderr, "[E2EE] " fmt "\n", ##__VA_ARGS__); break; \
-            case LogChannel::NET:  std::fprintf(stderr, "[NET]  " fmt "\n", ##__VA_ARGS__); break; \
-            case LogChannel::MEM:  std::fprintf(stderr, "[MEM]  " fmt "\n", ##__VA_ARGS__); break; \
-            case LogChannel::DBG:  std::fprintf(stderr, "[DBG]  " fmt "\n", ##__VA_ARGS__); break; \
+            case LogChannel::GUI:  std::fprintf(stderr, "[GUI]  %s\n", pdcBuf); break; \
+            case LogChannel::SYNC: std::fprintf(stderr, "[SYNC] %s\n", pdcBuf); break; \
+            case LogChannel::E2EE: std::fprintf(stderr, "[E2EE] %s\n", pdcBuf); break; \
+            case LogChannel::NET:  std::fprintf(stderr, "[NET]  %s\n", pdcBuf); break; \
+            case LogChannel::MEM:  std::fprintf(stderr, "[MEM]  %s\n", pdcBuf); break; \
+            case LogChannel::DBG:  std::fprintf(stderr, "[DBG]  %s\n", pdcBuf); break; \
         } \
+        ::progressive::logToRing(ch, std::string(pdcBuf)); \
     } while(0)
 #else
 #define LOG(ch, fmt, ...) ((void)0)
 #endif
+
+//
+// In-app log ring buffer (Qt-free). The LOG() macro mirrors every line here;
+// the UI log viewer (LogViewerDialog) shows this instead of the console.
+//
+namespace progressive {
+
+struct LogLine {
+    LogChannel channel;
+    std::string text;
+    uint64_t seq = 0;  // insertion order (for stable filtering)
+};
+
+inline void logToRing(LogChannel ch, const std::string& text) {
+    static std::deque<LogLine> ring;
+    static std::mutex mtx;
+    static uint64_t seq = 0;
+    std::lock_guard<std::mutex> lock(mtx);
+    ring.push_back({ch, text, seq++});
+    if (ring.size() > 2000) ring.pop_front();
+}
+
+inline std::vector<LogLine> snapshotLogRing() {
+    static std::deque<LogLine> ring;
+    static std::mutex mtx;
+    std::lock_guard<std::mutex> lock(mtx);
+    return std::vector<LogLine>(ring.begin(), ring.end());
+}
+
+inline const char* logChannelName(LogChannel ch) {
+    switch (ch) {
+        case LogChannel::GUI:  return "GUI";
+        case LogChannel::SYNC: return "SYNC";
+        case LogChannel::E2EE: return "E2EE";
+        case LogChannel::NET:  return "NET";
+        case LogChannel::MEM:  return "MEM";
+        case LogChannel::DBG:  return "DBG";
+    }
+    return "?";
+}
+
+}  // namespace progressive
 
 class TraceFn {
     const char* name_;

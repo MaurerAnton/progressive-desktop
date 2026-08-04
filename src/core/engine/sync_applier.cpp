@@ -28,14 +28,19 @@ static bool parsePlaintextBody(const std::string& plaintextJson,
     return true;
 }
 
-std::string SyncApplier::extractStringDec(std::string_view json, const std::string& key) {
+std::string SyncApplier::extractStringDecAt(std::string_view json, const std::string& key,
+                                              size_t startPos) {
     std::string p = "\"" + key + "\":\"";
-    auto pos = json.find(p);
-    if (pos == std::string_view::npos) { p = "\"" + key + "\": \""; pos = json.find(p); }
+    auto pos = json.find(p, startPos);
+    if (pos == std::string_view::npos) { p = "\"" + key + "\": \""; pos = json.find(p, startPos); }
     if (pos != std::string_view::npos) { pos += p.size(); size_t end = pos;
         while (end < json.size()) { if (json[end]=='\\'&&end+1<json.size()){end+=2;continue;} if (json[end]=='"')break; ++end; }
         if (end < json.size()) return jsonUnescape(std::string(json.substr(pos, end-pos))); }
     return {};
+}
+
+std::string SyncApplier::extractStringDec(std::string_view json, const std::string& key) {
+    return SyncApplier::extractStringDecAt(json, key, 0);
 }
 
 std::string SyncApplier::extractString(std::string_view json, const std::string& key) {
@@ -158,11 +163,10 @@ RoomSyncUpdate SyncApplier::prepareRoomSyncUpdate(const FastSyncResponse& resp,
 
         u.roomsToUpsert.push_back(std::move(rd));
 
-        // Store timeline events for current room
-        if (roomId == currentRoomId && !room.timeline.events.empty()) {
-            u.currentRoomUpdated = true;
-            u.currentRoomId = roomId;
-            u.currentRoomEvents = room.timeline.events;
+        // Member avatars for the current room: built from state + timeline
+        // member events even on state-only updates (the avatar map must stay
+        // current without new timeline events).
+        if (roomId == currentRoomId) {
             for (const auto& e : room.stateEvents) {
                 if (e.type == "m.room.member" && !e.contentJson.empty()) {
                     auto av = SyncApplier::extractStringDec(e.contentJson, "avatar_url");
@@ -175,6 +179,12 @@ RoomSyncUpdate SyncApplier::prepareRoomSyncUpdate(const FastSyncResponse& resp,
                     if (!av.empty()) u.currentRoomAvatars[std::string(e.stateKey)] = av;
                 }
             }
+        }
+        // Store timeline events for current room
+        if (roomId == currentRoomId && !room.timeline.events.empty()) {
+            u.currentRoomUpdated = true;
+            u.currentRoomId = roomId;
+            u.currentRoomEvents = room.timeline.events;
         }
     }
 
@@ -226,6 +236,7 @@ void SyncApplier::fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
         } else {
             LOG(LogChannel::E2EE, "fastEventToDisplayed: FAILED eid=%s err=%s",
                 de.eventId.c_str(), result.error.c_str());
+            de.decryptError = result.error;
             de.body = "[encrypted]"; de.msgtype = "m.notice";
         }
     } else if (de.type == "m.room.encrypted") {
@@ -236,31 +247,60 @@ void SyncApplier::fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
         // String-based extraction (no simdjson DOM + no std::regex in the hot
         // per-event path — a Release-mode-only crash was observed in the DOM
         // region on CI; the extractors are equivalent and simpler).
-        de.body = jsonUnescape(extractStringDec(de.contentJson, "body"));
-        if (de.body.empty()) {
-            std::string fb = jsonUnescape(extractStringDec(de.contentJson, "formatted_body"));
-            if (!fb.empty() && fb.find("\"body\":") == std::string::npos) {
-                // Plain formatted_body string — strip HTML tags without std::regex.
-                std::string out;
-                bool inTag = false;
-                for (char c : fb) {
-                    if (c == '<') inTag = true;
-                    else if (c == '>') inTag = false;
-                    else if (!inTag) out += c;
-                }
-                de.body = std::move(out);
-            } else if (!fb.empty()) {
-                // Nested formatted_body object: {"formatted_body":{"body":"..."}}
-                de.body = jsonUnescape(extractStringDec(de.contentJson, "body"));
+        // Detect the formatted_body shape BEFORE extracting "body": in the
+        // nested-object case {"formatted_body":{"body":"..."}} the naive
+        // top-level extraction would grab the nested value.
+        size_t fbKeyPos = de.contentJson.find("\"formatted_body\":");
+        size_t fbValPos = fbKeyPos == std::string::npos ? std::string::npos
+                                                        : fbKeyPos + 17;
+        while (fbValPos != std::string::npos && fbValPos < de.contentJson.size() &&
+               de.contentJson[fbValPos] == ' ')
+            ++fbValPos;
+        bool fbIsObject = fbValPos != std::string::npos &&
+                          fbValPos < de.contentJson.size() &&
+                          de.contentJson[fbValPos] == '{';
+        std::string htmlBody;
+        if (fbIsObject) {
+            htmlBody = extractStringDecAt(de.contentJson, "body", fbValPos);
+        } else {
+            de.body = jsonUnescape(extractStringDec(de.contentJson, "body"));
+            if (de.body.empty()) {
+                // Plain formatted_body HTML string.
+                htmlBody = extractStringDec(de.contentJson, "formatted_body");
             }
         }
+        if (!htmlBody.empty()) {
+            // Strip HTML tags without std::regex.
+            std::string out;
+            bool inTag = false;
+            for (char c : htmlBody) {
+                if (c == '<') inTag = true;
+                else if (c == '>') inTag = false;
+                else if (!inTag) out += c;
+            }
+            de.body = std::move(out);
+        }
         de.msgtype = extractStringDec(de.contentJson, "msgtype");
-        if (de.msgtype == "m.image" || de.msgtype == "m.video") {
+        if (de.msgtype == "m.image" || de.msgtype == "m.video" ||
+            de.msgtype == "m.file" || de.msgtype == "m.audio") {
             de.mxcUrl = jsonUnescape(extractStringDec(de.contentJson, "url"));
             de.mimetype = extractStringDec(de.contentJson, "mimetype");
+            if (de.body.empty())
+                de.body = extractStringDec(de.contentJson, "filename");
         }
         auto thRoot = SyncApplier::extractThreadRootId(de.contentJson);
         if (!thRoot.empty()) { de.isThreadReply = true; de.threadRootId = thRoot; }
+        // Bug fix: replies arriving via /sync never got isReply/replyToEventId.
+        std::string replyTo = SyncApplier::extractReplyToId(de.contentJson);
+        if (!replyTo.empty()) { de.isReply = true; de.replyToEventId = replyTo; }
+        if (de.isReply && de.body.size() > 2 && de.body[0] == '>' && de.body[1] == ' ') {
+            // Strip Element's fallback quote: "> <@user:server> text\n\nreal".
+            auto nl = de.body.find('\n');
+            if (nl != std::string::npos) {
+                de.body.erase(0, nl + 1);
+                if (!de.body.empty() && de.body[0] == '\n') de.body.erase(0, 1);
+            }
+        }
     }
     if (de.type == "m.room.encrypted") {
         LOG(LogChannel::DBG, "sync-encrypted: sender=%s content=[%.300s]",

@@ -145,15 +145,21 @@ void RoomMembersDialog::loadMembers() {
             }
         }
 
-        QMetaObject::invokeMethod(guard, [guard, members = std::move(members), ok = r.ok,
-                                         trust = std::move(trust)]() {
+        bool ok = r.ok;
+        QString failReason = ok ? QString()
+            : QString("HTTP %1 %2").arg(r.httpStatus)
+                  .arg(QString::fromStdString(r.error.message));
+        QMetaObject::invokeMethod(guard, [guard, members = std::move(members), ok,
+                                         trust = std::move(trust),
+                                         failReason = std::move(failReason)]() {
             if (guard.isNull()) return;
             guard->allMembers_ = std::move(members);
             guard->userTrust_ = std::move(trust);
             guard->loaded_ = true;
             guard->statusLabel_->setText(
                 guard->allMembers_.empty()
-                    ? (ok ? "No members found" : "Failed to load members — try again")
+                    ? (ok ? "No members found"
+                          : "Failed to load members: " + failReason)
                     : QString("%1 members").arg(guard->allMembers_.size()));
             guard->applyFilter();
         }, Qt::QueuedConnection);

@@ -29,6 +29,10 @@ struct DisplayedEvent {
     std::string contentJson;       // raw content JSON (for images, etc.)
     std::string mxcUrl;            // for images: mxc:// URL
     std::string mimetype;          // for images: image/gif, image/png, etc.
+    // Why an encrypted message could not be decrypted ("" = decrypted/plain).
+    // Surfaced in the UI (badge + tooltip) so "why is this encrypted?" is
+    // answerable in-app without console logs.
+    std::string decryptError;
     int64_t originServerTs = 0;
     bool isReply = false;          // has m.relates_to m.reply
     std::string replyToEventId;    // if isReply

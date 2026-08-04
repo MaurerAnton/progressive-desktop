@@ -20,6 +20,7 @@
 #include "../dialogs/color_settings_dialog.hpp"
 #include "verification_handler.hpp"
 #include "../dialogs/network_log_dialog.hpp"
+#include "../dialogs/log_viewer_dialog.hpp"
 #include "../shared/image_loader.hpp"
 #include "../chat/chat_logger.hpp"
 
@@ -181,6 +182,10 @@ void ToolbarHandler::onRoomSettings() {
 }
 
 void ToolbarHandler::onRoomMembers() {
+    if (!roomHandler_ || roomHandler_->currentRoomId().empty()) {
+        QMessageBox::information(parentWidget_, "Members", "Select a room first.");
+        return;
+    }
     if (!client_) { QMessageBox::information(parentWidget_, "Members", "Select a room first."); return; }
     RoomMembersDialog dlg(client_.get(),
                           roomHandler_ ? roomHandler_->currentRoomId() : "",
@@ -204,6 +209,7 @@ void ToolbarHandler::onSettings() {
     menu.addSeparator();
     auto* colorsAction = menu.addAction("Colors...");
     auto* netLogAction = menu.addAction("Network log");
+    auto* logViewerAction = menu.addAction("Log viewer");
     menu.addSeparator();
     auto* resetKeysAction = menu.addAction("Reset device keys");
     auto* selected = menu.exec(QCursor::pos());
@@ -262,6 +268,9 @@ void ToolbarHandler::onSettings() {
         dlg.exec();
     } else if (selected == netLogAction) {
         NetworkLogDialog dlg(parentWidget_);
+        dlg.exec();
+    } else if (selected == logViewerAction) {
+        LogViewerDialog dlg(parentWidget_);
         dlg.exec();
     } else if (selected == resetKeysAction) {
         onResetDeviceKeys();

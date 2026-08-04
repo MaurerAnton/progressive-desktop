@@ -683,12 +683,9 @@ static bool test_key_backup_api(const std::string& hs, TestUser& alice) {
             simdjson::dom::parser p;
             auto doc = p.parse(versions.data);
             if (doc.error() == simdjson::SUCCESS) {
-                auto arr = doc.value()["versions"].get_array();
-                if (arr.error() == simdjson::SUCCESS && arr.value().size() > 0) {
-                    auto last = arr.value().at(arr.value().size() - 1).get_string();
-                    if (last.error() == simdjson::SUCCESS)
-                        latestVersion = std::string(last.value());
-                }
+                auto v = doc.value()["version"].get_string();
+                if (v.error() == simdjson::SUCCESS)
+                    latestVersion = std::string(v.value());
             }
         }
     }

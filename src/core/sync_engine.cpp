@@ -679,16 +679,14 @@ int SyncEngine::restoreKeyBackupNow(const std::string& recoveryKey) {
     // device has no local store entry). Fallback: the stored version.
     auto versions = client_->getRoomKeysVersions();
     if (versions.ok) {
+        // Synapse returns the LATEST version object directly:
+        // {"version":"1","algorithm":...,"auth_data":...,"etag":..,"count":N}
         simdjson::dom::parser p;
         auto doc = p.parse(versions.data);
         if (doc.error() == simdjson::SUCCESS) {
-            auto arr = doc.value()["versions"].get_array();
-            if (arr.error() == simdjson::SUCCESS && arr.value().size() > 0) {
-                // The list is ordered oldest->newest; the LAST is the latest.
-                auto last = arr.value().at(arr.value().size() - 1).get_string();
-                if (last.error() == simdjson::SUCCESS)
-                    info.version = std::string(last.value());
-            }
+            auto v = doc.value()["version"].get_string();
+            if (v.error() == simdjson::SUCCESS)
+                info.version = std::string(v.value());
         }
     }
     if (info.version.empty()) {

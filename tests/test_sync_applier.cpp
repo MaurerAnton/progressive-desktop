@@ -90,10 +90,15 @@ int main() {
     CHECK(u.inviteCount == 0, "applier: no invites");
 
     std::vector<DisplayedEvent> events;
+    int convIdx = 0;
     for (const auto& fe : u.currentRoomEvents) {
+        std::cerr << "[applier-checkpoint] converting event " << convIdx
+                  << " type=" << std::string(fe.type) << "\n";
         DisplayedEvent de;
         SyncApplier::fastEventToDisplayed(fe, de, u.currentRoomId, nullptr);
+        std::cerr << "[applier-checkpoint] converted event " << convIdx << " ok\n";
         events.push_back(std::move(de));
+        convIdx++;
     }
     std::cerr << "[applier-checkpoint] converted " << events.size() << " events\n";
     TimelineState st;

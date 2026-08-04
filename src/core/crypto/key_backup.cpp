@@ -123,22 +123,36 @@ int restoreKeyBackup(MatrixClient& client, Decryptor& decryptor,
         std::string roomId(room.key);
         auto sessions = room.value["sessions"].get_object();
         if (sessions.error() != simdjson::SUCCESS) continue;
+        int roomCount = 0, decrypted = 0, parsed = 0;
         for (auto sess : sessions.value()) {
             auto sd = sess.value["session_data"].get_string();
             if (sd.error() != simdjson::SUCCESS) continue;
+            roomCount++;
             std::string payload = decryptBackupSessionData(
                 std::string(sd.value()), pair.privateKeyB64);
-            if (payload.empty()) continue;
+            if (payload.empty()) {
+                std::fprintf(stderr, "[key-backup] decrypt FAILED for session in %s\n",
+                    roomId.c_str());
+                continue;
+            }
+            decrypted++;
             simdjson::dom::parser wp;
             auto wdoc = wp.parse(payload);
-            if (wdoc.error() != simdjson::SUCCESS) continue;
+            if (wdoc.error() != simdjson::SUCCESS) {
+                std::fprintf(stderr, "[key-backup] wrapper parse FAILED payload=%.60s\n",
+                    payload.c_str());
+                continue;
+            }
             auto sKey = wdoc.value()["sender_key"].get_string();
             auto exp = wdoc.value()["export"].get_string();
             if (sKey.error() != simdjson::SUCCESS || exp.error() != simdjson::SUCCESS) continue;
+            parsed++;
             std::string realId = decryptor.importSingleSession(
                 roomId, std::string(sKey.value()), std::string(exp.value()));
             if (!realId.empty()) imported++;
         }
+        std::fprintf(stderr, "[key-backup] room %s: sessions=%d decrypted=%d parsed=%d\n",
+            roomId.c_str(), roomCount, decrypted, parsed);
     }
     return imported;
 }

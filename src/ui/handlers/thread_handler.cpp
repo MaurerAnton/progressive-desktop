@@ -263,8 +263,15 @@ void ThreadHandler::sendThreadReply(const std::string& roomId,
                 return;
             }
             bool keySharedBefore = dec->roomKeyShared(roomId);
-            shareRoomKeyForRoom(*self->client_, *dec, roomId);
-            bool sharedFresh = !keySharedBefore && dec->roomKeyShared(roomId);
+            bool sharedFresh = false;
+            if (!keySharedBefore) {
+                auto tShare0 = std::chrono::steady_clock::now();
+                sharedFresh = shareRoomKeyForRoom(*self->client_, *dec, roomId);
+                auto shareMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - tShare0).count();
+                LOG(LogChannel::E2EE, "sendThreadReply: shareRoomKeyForRoom %s in %lldms room=%.30s",
+                    sharedFresh ? "ok" : "FAILED", (long long)shareMs, roomId.c_str());
+            }
             int64_t ts = static_cast<int64_t>(
                 std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::system_clock::now().time_since_epoch()).count());

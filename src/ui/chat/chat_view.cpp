@@ -44,9 +44,23 @@ ChatView::ChatView(std::shared_ptr<MatrixClient> client, TimelineModel* model, M
             echo.body = args;
             echo.originServerTs = static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
             model_->appendBack(echo);
-            // DEBT(E2EE): /me emote bypasses encryption — never checks room state
-            ThreadPool::instance().enqueue([client = client_, roomId = roomId_, body = args]() {
-                client->sendMessage(roomId, body, "m.emote");
+            std::string emoteBody = args;
+            bool enc = encrypted_;
+            QPointer<ChatView> guard(this);
+            ThreadPool::instance().enqueue([guard, client = client_, roomId = roomId_, body = std::move(emoteBody), enc]() {
+                if (enc && guard && guard->sync_ && guard->sync_->decryptor()->isInitialized()) {
+                    auto* dec = guard->sync_->decryptor();
+                    std::string sessId = dec->getOrCreateOutboundSession(roomId);
+                    if (sessId.empty()) return;
+                    std::string inner = "{\"type\":\"m.room.message\",\"content\":{\"msgtype\":\"m.emote\",\"body\":\"" +
+                                        body + "\"},\"room_id\":\"" + roomId + "\"}";
+                    std::string enc2 = dec->encryptMessage(roomId, client->account().deviceId, inner);
+                    if (enc2.empty()) return;
+                    if (!dec->roomKeyShared(roomId)) shareRoomKeyForRoom(*client, *dec, roomId);
+                    client->sendEncryptedEvent(roomId, enc2, "pd" + std::to_string(std::time(nullptr)));
+                } else {
+                    client->sendMessage(roomId, body, "m.emote");
+                }
             });
         } else {
             emit slashCommandForward(cmd, args);
@@ -193,10 +207,18 @@ void ChatView::doSend(const std::string& body) {
             // and the message decrypts immediately instead of showing 'Unable to decrypt'.
             bool keySharedBefore = dec->roomKeyShared(roomId);
             bool sharedFresh = false;
-            if (!shareRoomKeyForRoom(*client, *dec, roomId)) {
-                LOG(LogChannel::E2EE, "doSend: room key NOT shared (will retry next send) room=%.30s", roomId.c_str());
-            } else {
-                sharedFresh = !keySharedBefore;
+            if (!keySharedBefore) {
+                auto tShare0 = std::chrono::steady_clock::now();
+                bool shared = shareRoomKeyForRoom(*client, *dec, roomId);
+                auto shareMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - tShare0).count();
+                if (!shared) {
+                    LOG(LogChannel::E2EE, "doSend: room key NOT shared (will retry next send) room=%.30s", roomId.c_str());
+                } else {
+                    sharedFresh = true;
+                }
+                LOG(LogChannel::E2EE, "doSend: shareRoomKeyForRoom %s in %lldms room=%.30s",
+                    shared ? "ok" : "FAILED", (long long)shareMs, roomId.c_str());
             }
             auto r = client->sendEncryptedEvent(roomId, enc, "pd" + std::to_string(std::time(nullptr)));
             if (!r.ok) {
@@ -306,7 +328,14 @@ void ChatView::doAttachFile(const QString& filePath) {
                 }, Qt::QueuedConnection);
                 return;
             }
-            shareRoomKeyForRoom(*client, *dec, roomId);
+            if (!dec->roomKeyShared(roomId)) {
+                auto tShare0 = std::chrono::steady_clock::now();
+                bool shared = shareRoomKeyForRoom(*client, *dec, roomId);
+                auto shareMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - tShare0).count();
+                LOG(LogChannel::E2EE, "sendFile: shareRoomKeyForRoom %s in %lldms room=%.30s",
+                    shared ? "ok" : "FAILED", (long long)shareMs, roomId.c_str());
+            }
             r = client->sendEncryptedEvent(roomId, enc, "pd" + std::to_string(std::time(nullptr)));
         } else {
             r = client->sendMessageEvent(roomId, "m.room.message", body.str());
@@ -347,6 +376,8 @@ void ChatView::doQuickReact(const QString& emoji) {
         if (encrypted && guard && guard->sync_ && guard->sync_->decryptor()->isInitialized()) {
             auto* dec = guard->sync_->decryptor();
             std::string sessId = dec->getOrCreateOutboundSession(roomId);
+            if (!sessId.empty() && !dec->roomKeyShared(roomId))
+                shareRoomKeyForRoom(*client, *dec, roomId);
             std::string content = "{\"m.relates_to\":{\"rel_type\":\"m.annotation\",\"event_id\":\""
                                   + eid + "\",\"key\":\"" + em + "\"}}";
             if (!sessId.empty()) {

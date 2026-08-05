@@ -6,9 +6,11 @@
 #include <QTimer>
 #include <memory>
 #include <set>
+#include <vector>
 
 class QCheckBox;
 class QLineEdit;
+class QPushButton;
 
 namespace progressive::desktop {
 
@@ -21,9 +23,11 @@ public:
 private:
     void refresh();
     void rebuild();
+    void onCopy();
 
     QListWidget* list_ = nullptr;
     QLineEdit* filterEdit_ = nullptr;
+    QPushButton* copyBtn_ = nullptr;
     std::vector<QCheckBox*> channelBoxes_;
     QTimer timer_;
     std::set<uint64_t> shownSeqs_;  // seqs already in the list (dedup)

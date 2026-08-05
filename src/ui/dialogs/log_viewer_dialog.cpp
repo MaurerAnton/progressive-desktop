@@ -4,10 +4,13 @@
 #include "core/debug_log.hpp"
 #include "../shared/theme.hpp"
 
+#include <QApplication>
 #include <QCheckBox>
+#include <QClipboard>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPushButton>
 #include <QScrollBar>
 #include <QString>
 #include <QVBoxLayout>
@@ -35,6 +38,15 @@ LogViewerDialog::LogViewerDialog(QWidget* parent) : QDialog(parent) {
 
     auto* root = new QVBoxLayout(this);
 
+    auto* hint = new QLabel(
+        "Live view of the last 2000 log lines (all channels). "
+        "Check/uncheck channels, type to filter. "
+        "Copy: select lines (or none = all visible) and press Copy. "
+        "Opened via Settings menu \u2192 Log viewer.", this);
+    hint->setWordWrap(true);
+    hint->setStyleSheet("color:" + Design::mutedTextColor.name() + "; font-size:9pt;");
+    root->addWidget(hint);
+
     auto* filterRow = new QHBoxLayout;
     filterEdit_ = new QLineEdit(this);
     filterEdit_->setPlaceholderText("Filter text…");
@@ -54,8 +66,17 @@ LogViewerDialog::LogViewerDialog(QWidget* parent) : QDialog(parent) {
     root->addLayout(channelRow);
 
     list_ = new QListWidget(this);
+    list_->setSelectionMode(QAbstractItemView::ExtendedSelection);
     root->addWidget(list_, 1);
 
+    auto* bottomRow = new QHBoxLayout;
+    copyBtn_ = new QPushButton("Copy", this);
+    copyBtn_->setToolTip("Copy selected lines — or all visible lines if nothing is selected.");
+    bottomRow->addWidget(copyBtn_);
+    bottomRow->addStretch();
+    root->addLayout(bottomRow);
+
+    connect(copyBtn_, &QPushButton::clicked, this, &LogViewerDialog::onCopy);
     connect(filterEdit_, &QLineEdit::textChanged, this, [this](const QString&) { rebuild(); });
     for (auto* cb : channelBoxes_)
         connect(cb, &QCheckBox::toggled, this, [this](bool) { rebuild(); });
@@ -72,8 +93,8 @@ void LogViewerDialog::refresh() {
     bool appended = false;
 
     std::set<LogChannel> on;
-    for (auto* cb : channelBoxes_)
-        if (cb->isChecked()) on.insert(static_cast<LogChannel>(&cb - channelBoxes_.data()));
+    for (size_t i = 0; i < channelBoxes_.size(); ++i)
+        if (channelBoxes_[i]->isChecked()) on.insert(static_cast<LogChannel>(i));
     QString filter = filterEdit_->text().toLower();
 
     for (const auto& line : snapshotLogRing()) {
@@ -90,6 +111,21 @@ void LogViewerDialog::refresh() {
     }
     if (appended && atBottom)
         list_->verticalScrollBar()->setValue(list_->verticalScrollBar()->maximum());
+}
+
+void LogViewerDialog::onCopy() {
+    QStringList lines;
+    auto selected = list_->selectedItems();
+    if (selected.isEmpty()) {
+        for (int i = 0; i < list_->count(); ++i)
+            lines << list_->item(i)->text();
+    } else {
+        for (auto* item : selected)
+            lines << item->text();
+    }
+    QApplication::clipboard()->setText(lines.join('\n'));
+    copyBtn_->setText("Copied!");
+    QTimer::singleShot(1500, this, [this]() { copyBtn_->setText("Copy"); });
 }
 
 void LogViewerDialog::rebuild() {

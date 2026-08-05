@@ -1308,9 +1308,10 @@ void Decryptor::requestRoomKey(const std::string& roomId, const std::string& sen
     // The request content (m.room_key_request) — sent Olm-encrypted per spec.
     std::string requestContent = buildRoomKeyRequestJson(roomId, senderKey, sessionId, reqId, ctxDeviceId_);
     // Address the sending device directly (known from the megolm content's
-    // device_id) — more reliable than the "*" wildcard.
-    bool ok = !senderDeviceId.empty() &&
-        sendOlmToDevice(senderId, senderDeviceId, "m.room_key_request", requestContent);
+    // device_id); fall back to the "*" wildcard when it is missing so the
+    // request is never silently dropped.
+    std::string targetDev = senderDeviceId.empty() ? "*" : senderDeviceId;
+    bool ok = sendOlmToDevice(senderId, targetDev, "m.room_key_request", requestContent);
     LOG(LogChannel::E2EE, "requestRoomKey: sent for room=%.40s sid=%.20s sender=%s ok=%d",
         roomId.c_str(), sessionId.c_str(), senderId.c_str(), ok ? 1 : 0);
     std::fprintf(stderr, "[e2ee] requestRoomKey: room=%.40s sid=%.20s sender=%s ok=%d\n",
@@ -1347,8 +1348,8 @@ void Decryptor::reRequestKey(const std::string& roomId, const std::string& sende
         static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count())
         + g_txnCounter.fetch_add(1));
     std::string requestContent = buildRoomKeyRequestJson(roomId, senderKey, sessionId, reqId, ctxDeviceId_);
-    bool ok = !senderDeviceId.empty() &&
-        sendOlmToDevice(senderId, senderDeviceId, "m.room_key_request", requestContent);
+    std::string targetDev = senderDeviceId.empty() ? "*" : senderDeviceId;
+    bool ok = sendOlmToDevice(senderId, targetDev, "m.room_key_request", requestContent);
     noteRoomKey({roomId, sessionId, senderId, RoomKeyEventKind::Requested, attempt, 0});
     LOG(LogChannel::E2EE, "reRequestKey: manual room=%.40s sid=%.20s sender=%s ok=%d",
         roomId.c_str(), sessionId.c_str(), senderId.c_str(), ok ? 1 : 0);
@@ -1506,6 +1507,26 @@ bool Decryptor::handleForwardedRoomKey(const std::string& contentJson,
     // key request this forwarded key is answering).
     processPending(roomId, senderKey, realId);
     noteRoomKey({roomId, realId, senderId, RoomKeyEventKind::Received, 0, 0});
+    // A forwarded key satisfies any pending requests for this room+session
+    // (the imported session id can differ from the requested one). Without
+    // this the backoff retries would keep firing forever.
+    {
+        std::lock_guard<std::mutex> lk(requestMtx_);
+        for (auto it = requestedKeys_.begin(); it != requestedKeys_.end();) {
+            auto sep1 = it->first.find('|');
+            auto sep2 = it->first.find('|', sep1 == std::string::npos ? 0 : sep1 + 1);
+            bool match = sep1 != std::string::npos && sep2 != std::string::npos &&
+                         it->first.compare(0, sep1, roomId) == 0 &&
+                         it->first.compare(sep2 + 1, std::string::npos, senderKey) == 0;
+            if (match) {
+                LOG(LogChannel::E2EE, "handleForwardedRoomKey: satisfied pending request for room=%.40s sid=%.20s",
+                    roomId.c_str(), it->first.substr(sep1 + 1, sep2 - sep1 - 1).c_str());
+                it = requestedKeys_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
     LOG(LogChannel::E2EE, "handleForwardedRoomKey: imported room=%.40s sender=%.20s",
         roomId.c_str(), senderKey.c_str());
     return true;

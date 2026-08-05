@@ -252,9 +252,10 @@ void ChatView::doAttachFile(const QString& filePath) {
     std::string fn = fileName.toStdString();
     std::string ct = contentType.toStdString();
     auto client = client_;
+    bool encrypted = encrypted_;
     QPointer<ChatView> guard(this);
 
-    ThreadPool::instance().enqueue([guard, client, roomId, fn, ct, filePath, isImage, isVideo, isAudio]() {
+    ThreadPool::instance().enqueue([guard, client, roomId, fn, ct, filePath, isImage, isVideo, isAudio, encrypted]() {
         QFile f(filePath);
         if (!f.open(QIODevice::ReadOnly)) return;
         QByteArray data = f.readAll(); f.close();
@@ -266,8 +267,35 @@ void ChatView::doAttachFile(const QString& filePath) {
         else if (isVideo) body << R"({"msgtype":"m.video","body":")" << fn << R"(","url":")" << upload.data << R"("})";
         else if (isAudio) body << R"({"msgtype":"m.audio","body":")" << fn << R"(","url":")" << upload.data << R"("})";
         else body << R"({"msgtype":"m.file","body":")" << fn << R"(","url":")" << upload.data << R"("})";
-        // DEBT(E2EE): file attachments bypass encryption — never checks room state
-        auto r = client->sendMessageEvent(roomId, "m.room.message", body.str());
+        // Encrypted room: wrap the media event in m.room.encrypted (Megolm),
+        // mirroring the text path. The media bytes stay on the media repo;
+        // the mxc URL + filename now travel inside the encrypted event.
+        ApiResult<std::string> r;
+        if (encrypted && guard && guard->sync_ && guard->sync_->decryptor()->isInitialized()) {
+            auto* dec = guard->sync_->decryptor();
+            std::string sessId = dec->getOrCreateOutboundSession(roomId);
+            if (sessId.empty()) {
+                QMetaObject::invokeMethod(guard, [guard]() {
+                    if (guard.isNull()) return;
+                    guard->model_->appendBack({.msgtype = "m.notice", .body = "❌ Failed to encrypt media"});
+                }, Qt::QueuedConnection);
+                return;
+            }
+            std::string inner = "{\"type\":\"m.room.message\",\"content\":" + body.str() +
+                                ",\"room_id\":\"" + roomId + "\"}";
+            std::string enc = dec->encryptMessage(roomId, client->account().deviceId, inner);
+            if (enc.empty()) {
+                QMetaObject::invokeMethod(guard, [guard]() {
+                    if (guard.isNull()) return;
+                    guard->model_->appendBack({.msgtype = "m.notice", .body = "❌ Encryption failed"});
+                }, Qt::QueuedConnection);
+                return;
+            }
+            shareRoomKeyForRoom(*client, *dec, roomId);
+            r = client->sendEncryptedEvent(roomId, enc, "pd" + std::to_string(std::time(nullptr)));
+        } else {
+            r = client->sendMessageEvent(roomId, "m.room.message", body.str());
+        }
         if (!r.ok) std::fprintf(stderr, "[send] FAILED file: %s\n", r.error.message.c_str());
         QMetaObject::invokeMethod(guard, [guard, r, fn, isImage, isVideo, isAudio, mxc = upload.data]() {
             if (guard.isNull() || !r.ok) return;
@@ -297,9 +325,27 @@ void ChatView::doQuickReact(const QString& emoji) {
     std::string em = emoji.toStdString();
     auto client = client_;
     std::string roomId = roomId_;
+    bool encrypted = encrypted_;
     QPointer<ChatView> guard(this);
-    ThreadPool::instance().enqueue([guard, client, roomId, eid, em]() {
-        auto r = client->sendReaction(roomId, eid, em);
+    ThreadPool::instance().enqueue([guard, client, roomId, eid, em, encrypted]() {
+        ApiResult<std::string> r;
+        if (encrypted && guard && guard->sync_ && guard->sync_->decryptor()->isInitialized()) {
+            auto* dec = guard->sync_->decryptor();
+            std::string sessId = dec->getOrCreateOutboundSession(roomId);
+            std::string content = "{\"m.relates_to\":{\"rel_type\":\"m.annotation\",\"event_id\":\""
+                                  + eid + "\",\"key\":\"" + em + "\"}}";
+            if (!sessId.empty()) {
+                std::string inner = "{\"type\":\"m.reaction\",\"content\":" + content +
+                                    ",\"room_id\":\"" + roomId + "\"}";
+                std::string enc = dec->encryptMessage(roomId, client->account().deviceId, inner);
+                if (!enc.empty())
+                    r = client->sendEncryptedEvent(roomId, enc, "pd" + std::to_string(std::time(nullptr)));
+            }
+            if (!r.ok && r.error.message.empty())
+                r.error.message = "reaction encryption failed";
+        } else {
+            r = client->sendReaction(roomId, eid, em);
+        }
         QMetaObject::invokeMethod(guard, [guard, r, eid, em]() {
             if (guard.isNull() || !r.ok) return;
             guard->model_->addReaction(eid, em, guard->client_->account().userId, r.data);

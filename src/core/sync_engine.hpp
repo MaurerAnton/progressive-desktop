@@ -171,6 +171,7 @@ private:
     // Process to-device events from a sync response — handles m.room_key
     // (adds megolm inbound sessions) and m.room.encrypted (Olm 1:1, future).
     void processToDeviceEvents(const FastSyncResponse& resp);
+    std::mutex persistMtx_;  // serializes persistCrypto (close vs periodic)
     void handleVerificationEvent(const std::string& type,
                                  const std::string& senderId,
                                  const std::string& contentJson);

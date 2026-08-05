@@ -150,6 +150,17 @@ void RoomDataLoader::loadHistory(const std::string& roomId, TimelineModel* model
             // DEBT(UI): insert date dividers before events on day boundaries
             std::vector<DisplayedEvent> withDividers;
             int64_t prevDay = 0;
+            // Edits (m.replace) update the original row instead of duplicating it.
+            std::vector<DisplayedEvent> kept;
+            kept.reserve(events.size());
+            for (auto& evt : events) {
+                if (evt.isReplace && model->findRow(evt.replaceTargetId) >= 0) {
+                    model->updateBody(evt.replaceTargetId, evt.body + " (edited)");
+                    continue;
+                }
+                kept.push_back(std::move(evt));
+            }
+            events.swap(kept);
             for (const auto& evt : events) {
                 int64_t day = (evt.originServerTs / 86400000LL) * 86400000LL;
                 if (prevDay > 0 && day != prevDay) {

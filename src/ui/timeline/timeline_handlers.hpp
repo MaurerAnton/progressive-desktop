@@ -11,14 +11,17 @@ namespace progressive::desktop {
 
 class MatrixClient;
 class TimelineModel;
+class Decryptor;
 
 void handleReaction(QPointer<QWidget> parent, const std::shared_ptr<MatrixClient>& client,
                      const std::string& roomId, const std::string& eventId,
-                     TimelineModel* model, QLabel* statusLabel);
+                     TimelineModel* model, QLabel* statusLabel,
+                     bool encrypted = false, Decryptor* dec = nullptr);
 
 void handleEdit(QPointer<QWidget> parent, const std::shared_ptr<MatrixClient>& client,
                  const std::string& roomId, const std::string& eventId,
-                 TimelineModel* model, QLabel* statusLabel);
+                 TimelineModel* model, QLabel* statusLabel,
+                 bool encrypted = false, Decryptor* dec = nullptr);
 
 void handleDelete(QPointer<QWidget> parent, const std::shared_ptr<MatrixClient>& client,
                    const std::string& roomId, const std::string& eventId,

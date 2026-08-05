@@ -46,6 +46,10 @@ bool Decryptor::init(const std::string& accountPickle, const std::string& pickle
         std::lock_guard<std::mutex> lk(outboundOlmMtx_);
         outboundOlmSessions_.clear();
     }
+    {
+        std::lock_guard<std::mutex> lk(requestMtx_);
+        forcedOlm_.clear();
+    }
     if (!accountPickle.empty()) {
         if (!account_->load(accountPickle, pickleKey)) {
             return account_->create();
@@ -288,6 +292,20 @@ std::vector<RoomKeyNotification> Decryptor::takeRoomKeyNotifications() {
     std::lock_guard<std::mutex> lk(roomKeyNotifMtx_);
     std::vector<RoomKeyNotification> out;
     out.swap(roomKeyNotifications_);
+    return out;
+}
+
+void Decryptor::noteOlmRecovery(const std::string& senderId, const std::string& senderKey) {
+    std::lock_guard<std::mutex> lk(olmRecoveryNoteMtx_);
+    lastOlmRecoveryNote_ = senderId + " (device " + senderKey.substr(0, 8) + "…)" +
+        " — Olm session was broken; re-established. If messages stay encrypted, " +
+        "ask them to reset encryption in Element.";
+}
+
+std::string Decryptor::takeLastOlmRecoveryNote() {
+    std::lock_guard<std::mutex> lk(olmRecoveryNoteMtx_);
+    std::string out = std::move(lastOlmRecoveryNote_);
+    lastOlmRecoveryNote_.clear();
     return out;
 }
 
@@ -551,9 +569,13 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
     // Try to find an existing OlmSession for this sender.
     // If none, create one from the pre-key message (type 0).
     std::fprintf(stderr, "[E2EE] DBG5: entering lock\n");
+    std::string plaintext;
+    // Recovery (HTTP) must never run while holding olmMtx_ — deferred here,
+    // executed after the lock scope ends.
+    std::string deferredRecovery;
+    {
     std::lock_guard<std::mutex> lk(olmMtx_);
     std::fprintf(stderr, "[E2EE] DBG6: lock acquired\n");
-    std::string plaintext;
 
     progressive::OlmSession session;
     auto* underlyingAccount = static_cast<progressive::OlmAccount*>(account_->rawAccount());
@@ -572,8 +594,8 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
             auto* raw = static_cast<::OlmSession*>(session.rawSession());
             std::fprintf(stderr, "[E2EE] createInbound libolm error: %s\n",
                 ::olm_session_last_error(raw) ? ::olm_session_last_error(raw) : "(null)");
-            forceNewOlmSession(senderId, senderKey);
-            return {};
+            deferredRecovery = senderKey;
+            goto olm_locked_end;
         }
         // After createInbound, decrypt the ORIGINAL message body
         std::fprintf(stderr, "[E2EE] DBG10: calling decrypt type 0\n");
@@ -582,8 +604,8 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
             decResult.success ? 1 : 0, decResult.data.size());
         if (!decResult.success) {
             LOG(LogChannel::E2EE, "Olm: decrypt after createInbound FAILED — recovering with a fresh session");
-            forceNewOlmSession(senderId, senderKey);
-            return {};
+            deferredRecovery = senderKey;
+            goto olm_locked_end;
         }
         plaintext = decResult.data;
         std::fprintf(stderr, "[E2EE] DBG12: plaintext copied size=%zu\n", plaintext.size());
@@ -607,8 +629,8 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
         if (it == olmSessions_.end() || it->second.empty()) {
             LOG(LogChannel::E2EE, "Olm: no saved session for sender=%s — cannot decrypt type %d — recovering with a fresh session",
                 senderKey.c_str(), msgType);
-            forceNewOlmSession(senderId, senderKey);
-            return {};
+            deferredRecovery = senderKey;
+            goto olm_locked_end;
         }
         bool decrypted = false;
         for (size_t i = 0; i < it->second.size(); ++i) {
@@ -641,9 +663,15 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
             LOG(LogChannel::E2EE, "Olm: decrypt type %d FAILED for sender=%s (tried %zu sessions) — dropping stale pickles + fresh session",
                 msgType, senderKey.c_str(), it->second.size());
             olmSessions_.erase(senderKey);
-            forceNewOlmSession(senderId, senderKey);
-            return {};
+            deferredRecovery = senderKey;
+            goto olm_locked_end;
         }
+    }
+olm_locked_end:;
+    }  // olmMtx_ released here — recovery does HTTP, never under the lock
+    if (!deferredRecovery.empty()) {
+        forceNewOlmSession(senderId, deferredRecovery);
+        noteOlmRecovery(senderId, deferredRecovery);
     }
 
     // If we got plaintext, it's a JSON object like:
@@ -1363,6 +1391,14 @@ void Decryptor::requestRoomKey(const std::string& roomId, const std::string& sen
         st.senderId = senderId;
         st.senderDeviceId = senderDeviceId;
         requestedKeys_.emplace(key, std::move(st));
+        // History loads accumulate unresolved sessions — cap the map and
+        // evict the oldest (matching recentKeyRequests_' pattern).
+        if (requestedKeys_.size() > 200) {
+            auto oldest = requestedKeys_.begin();
+            for (auto it2 = requestedKeys_.begin(); it2 != requestedKeys_.end(); ++it2)
+                if (it2->second.lastMs < oldest->second.lastMs) oldest = it2;
+            requestedKeys_.erase(oldest);
+        }
     }
     std::string reqId = "pdrkr" + std::to_string(
         static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count())
@@ -1977,10 +2013,23 @@ bool Decryptor::sendOlmToDevice(const std::string& targetUserId,
 void Decryptor::forceNewOlmSession(const std::string& senderId, const std::string& senderKey) {
     if (ctxHomeserver_.empty() || ctxToken_.empty()) return;
 
+    auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
     {
         std::lock_guard<std::mutex> lk(requestMtx_);
-        if (forcedOlm_.count(senderKey)) return;
-        forcedOlm_.insert(senderKey);
+        auto it = forcedOlm_.find(senderKey);
+        if (it != forcedOlm_.end() && nowMs - it->second < 600000) return;
+        forcedOlm_[senderKey] = nowMs;
+        // The peer's session is broken — re-arm our pending key requests for
+        // this sender so they re-fire soon after the peer rotates (the backoff
+        // cap would otherwise keep them silent forever).
+        for (auto& [key, st] : requestedKeys_) {
+            auto sep = key.rfind('|');
+            if (sep != std::string::npos && key.compare(sep + 1, std::string::npos, senderKey) == 0) {
+                st.attempts = 1;
+                st.lastMs = nowMs - 30001;  // fires on the next maybeReRequestKeys tick
+            }
+        }
     }
 
     auto hdrs = makeAuthHeaders(ctxToken_);

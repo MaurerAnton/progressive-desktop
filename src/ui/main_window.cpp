@@ -334,8 +334,10 @@ void MainWindow::startWithSavedSession() {
 }
 
 void MainWindow::closeEvent(QCloseEvent* e) {
-    sync_.persistCrypto();
+    // Stop the sync loop FIRST — the final save must not race the sync
+    // thread's decryptor activity (was a same-thread double-lock crash).
     sync_.stop();
+    sync_.persistCrypto();
     QMainWindow::closeEvent(e);
     QApplication::quit();
 }

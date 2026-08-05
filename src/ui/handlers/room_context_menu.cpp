@@ -382,7 +382,11 @@ void RoomContextMenu::showTimelineContextMenu(const QString& eventId,
             "encrypted, the sender's client may be withholding the key "
             "(verified-device policy) — check the Log viewer (E2EE channel).");
     } else if (selected == reactAction) {
-        handleReaction(mw_.data(), client_, roomIdStr, eidStrVal, timelineModel_, statusLabel_);
+        bool enc = false;
+        int rrow = roomModel_->findRowByRoomId(roomIdStr);
+        if (rrow >= 0 && roomModel_->at(rrow)) enc = roomModel_->at(rrow)->isEncrypted;
+        handleReaction(mw_.data(), client_, roomIdStr, eidStrVal, timelineModel_, statusLabel_,
+                       enc, mw_->decryptor());
     } else if (selected == pinAction) {
         handlePin(mw_.data(), client_, roomIdStr, eidStrVal, timelineModel_, statusLabel_);
     } else if (selected == unpinAction) {
@@ -401,7 +405,11 @@ void RoomContextMenu::showTimelineContextMenu(const QString& eventId,
     } else if (selected == copyLinkAction) {
         handleCopyLink(mw_.data(), roomIdStr, eidStrVal, statusLabel_);
     } else if (selected == editAction) {
-        handleEdit(mw_.data(), client_, roomIdStr, eidStrVal, timelineModel_, statusLabel_);
+        bool enc = false;
+        int erow = roomModel_->findRowByRoomId(roomIdStr);
+        if (erow >= 0 && roomModel_->at(erow)) enc = roomModel_->at(erow)->isEncrypted;
+        handleEdit(mw_.data(), client_, roomIdStr, eidStrVal, timelineModel_, statusLabel_,
+                   enc, mw_->decryptor());
     } else if (selected == deleteAction) {
         handleDelete(mw_.data(), client_, roomIdStr, eidStrVal, timelineModel_, statusLabel_);
     }

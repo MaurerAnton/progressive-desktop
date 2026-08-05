@@ -167,3 +167,21 @@ completed items are removed.
 - [x] Key-request rate gate (10 per 5s) — history loads no longer flood
 - [x] Room-list/notification previews show "[encrypted]" for encrypted rooms
 - [x] Tests: genTxnId uniqueness, file.mimetype, [encrypted] preview
+
+## Aug 5 batch 4 (crash fix + recovery completeness + encrypted menu actions)
+- [x] CRASH FIX: closeEvent stop() BEFORE persistCrypto() (the same-thread
+      double-lock on olmMtx_); persistCrypto serialized (persistMtx_); the
+      Olm recovery (forceNewOlmSession, HTTP) moved OUT of the olmMtx_ lock —
+      deferred + executed after the lock scope ends
+- [x] Recovery completeness: time-bounded m.dummy dedup (10 min, cleared on
+      init) — self-heals when the peer's Element rotates; pending key
+      requests for that sender re-armed (attempts reset) so they re-fire;
+      status-line hint with guidance when recovery triggers
+- [x] requestedKeys_ capped at 200 (evict oldest)
+- [x] Context-menu reactions now encrypted in E2EE rooms (was plaintext)
+- [x] Message edits now encrypted in E2EE rooms (was plaintext leak)
+- [x] Incoming m.replace (edits) handled: applier extracts target + new
+      content; sync/history/load-more update the original row + "(edited)"
+      instead of rendering duplicate rows
+- [x] Test: applier m.replace case
+- [ ] Follow-up: notification click -> open the room (optional)

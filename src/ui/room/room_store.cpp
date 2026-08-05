@@ -181,6 +181,11 @@ static void appendTimelineForRoom(const std::string& roomId,
             auto it = memberAvatars->find(de.senderId);
             if (it != memberAvatars->end()) de.avatarUrl = it->second;
         }
+        // Edits (m.replace) update the original row instead of duplicating it.
+        if (de.isReplace && model->findRow(de.replaceTargetId) >= 0) {
+            model->updateBody(de.replaceTargetId, de.body + " (edited)");
+            continue;
+        }
         batch.push_back(std::move(de));
     }
     model->appendBackBatch(batch);

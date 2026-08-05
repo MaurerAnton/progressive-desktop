@@ -131,6 +131,9 @@ public:
     // Drain room-key activity (received/requested) for the UI timeline rows.
     std::vector<RoomKeyNotification> takeRoomKeyNotifications();
 
+    // One-shot note when an Olm session recovery fired (status-line hint).
+    std::string takeLastOlmRecoveryNote();
+
     // ---- Inbound Olm 1:1 (to-device decryption) ----
     // Handle a to-device m.room.encrypted event (Olm 1:1 algorithm).
     // Decrypts the ciphertext using an inbound OlmSession, then if the
@@ -320,7 +323,9 @@ private:
     std::unordered_set<std::string> recentKeyRequests_;  // dedup by request_id (capped)
     bool shareKeysVerifiedOnly_ = false;  // policy: only share with SAS-verified devices
     VerifiedDeviceChecker verifiedDeviceChecker_;
-    std::unordered_set<std::string> forcedOlm_;  // throttle: one m.dummy per senderKey per run
+    // m.dummy recovery throttle: senderKey -> last attempt (ms). Time-bounded
+    // so a peer that rotates later (restart / Element reset) gets re-asked.
+    std::unordered_map<std::string, int64_t> forcedOlm_;
     std::mutex requestMtx_;
     // Track which rooms have had their key shared for current outbound session
     std::unordered_map<std::string, bool> roomKeysShared_;
@@ -346,6 +351,10 @@ private:
     std::vector<RoomKeyNotification> roomKeyNotifications_;
     std::mutex roomKeyNotifMtx_;
     void noteRoomKey(RoomKeyNotification n);
+
+    void noteOlmRecovery(const std::string& senderId, const std::string& senderKey);
+    std::string lastOlmRecoveryNote_;
+    std::mutex olmRecoveryNoteMtx_;
 
     // Send a key request to a device list; "*" entries go as PLAIN to-device
     // (Olm encryption to a wildcard is impossible).

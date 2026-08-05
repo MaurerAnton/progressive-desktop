@@ -47,6 +47,13 @@ void SyncResponseHandler::handle(FastSyncResponse resp) {
         if (decryptor_ && !curRoomId.empty())
             appendRoomKeyRows(decryptor_->takeRoomKeyNotifications(), curRoomId);
     }
+    // Olm recovery hint: a broken 1:1 session was re-established — surface it
+    // once so the user knows why messages were stuck.
+    if (decryptor_) {
+        auto note = decryptor_->takeLastOlmRecoveryNote();
+        if (!note.empty() && statusLabel_)
+            statusLabel_->setText(QString::fromStdString(note));
+    }
 
     bool hasData = !resp.joinedRooms.empty() || !resp.leftRoomIds.empty()
                    || !resp.invitedRooms.empty();

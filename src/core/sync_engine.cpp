@@ -958,6 +958,10 @@ SyncEngine::E2eeInitResult SyncEngine::initializeE2EE() {
 }
 
 void SyncEngine::persistCrypto() {
+    // Close-event saves and periodic sync-loop saves must never overlap
+    // (the decryptor's session map is touched under its own lock, but the
+    // whole pickling sequence must stay serialized).
+    std::lock_guard<std::mutex> lk(persistMtx_);
     if (!client_ || !store_ || !decryptor_.isInitialized() || !decryptor_.isInitialized()) return;
     std::string pickleKey = client_->account().userId + "/" + client_->account().deviceId;
     auto megolmPickle = decryptor_.megolm()->pickleAll(pickleKey);

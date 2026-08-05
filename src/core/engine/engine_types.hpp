@@ -45,6 +45,8 @@ struct DisplayedEvent {
     int64_t originServerTs = 0;
     bool isReply = false;          // has m.relates_to m.reply
     std::string replyToEventId;    // if isReply
+    bool isReplace = false;        // m.relates_to m.replace (an edit)
+    std::string replaceTargetId;   // event being edited
     bool isThreadRoot = false;     // has m.thread replies
     int threadReplyCount = 0;
     bool isThreadReply = false;    // this message is a reply in a thread

@@ -3,6 +3,8 @@
 
 #include "timeline_handlers.hpp"
 #include "core/matrix_client.hpp"
+#include "core/crypto/decryptor.hpp"
+#include "../handlers/room_key_helper.hpp"
 #include "timeline_model.hpp"
 #include "../chat/emoji_picker.hpp"
 
@@ -20,14 +22,33 @@ namespace progressive::desktop {
 
 void handleReaction(QPointer<QWidget> parent, const std::shared_ptr<MatrixClient>& client,
                      const std::string& roomId, const std::string& eventId,
-                     TimelineModel* model, QLabel* statusLabel) {
+                     TimelineModel* model, QLabel* statusLabel,
+                     bool encrypted, Decryptor* dec) {
     EmojiPicker picker(parent);
     QPointer<QWidget> guard = parent;
     QObject::connect(&picker, &EmojiPicker::emojiSelected, parent,
-        [guard, client, roomId, eventId, model, statusLabel](const QString& emoji) {
+        [guard, client, roomId, eventId, model, statusLabel, encrypted, dec](const QString& emoji) {
             std::string em = emoji.toStdString();
-            ThreadPool::instance().enqueue([guard, client, roomId, eventId = eventId, em, model, statusLabel]() {
-                auto r = client->sendReaction(roomId, eventId, em);
+            ThreadPool::instance().enqueue([guard, client, roomId, eventId = eventId, em, model, statusLabel, encrypted, dec]() {
+                ApiResult<std::string> r;
+                if (encrypted && dec && dec->isInitialized()) {
+                    std::string sessId = dec->getOrCreateOutboundSession(roomId);
+                    std::string content = "{\"m.relates_to\":{\"rel_type\":\"m.annotation\",\"event_id\":\""
+                                          + eventId + "\",\"key\":\"" + em + "\"}}";
+                    if (!sessId.empty()) {
+                        std::string inner = "{\"type\":\"m.reaction\",\"content\":" + content +
+                                            ",\"room_id\":\"" + roomId + "\"}";
+                        std::string enc = dec->encryptMessage(roomId, client->account().deviceId, inner);
+                        if (!enc.empty()) {
+                            if (!dec->roomKeyShared(roomId)) shareRoomKeyForRoom(*client, *dec, roomId);
+                            r = client->sendEncryptedEvent(roomId, enc, genTxnId("enc"));
+                        }
+                    }
+                    if (!r.ok && r.error.message.empty())
+                        r.error.message = "reaction encryption failed";
+                } else {
+                    r = client->sendReaction(roomId, eventId, em);
+                }
                 QMetaObject::invokeMethod(guard, [guard, r, eventId, em, model, statusLabel, client]() {
                     if (guard.isNull()) return;
                     if (r.ok) {
@@ -42,7 +63,8 @@ void handleReaction(QPointer<QWidget> parent, const std::shared_ptr<MatrixClient
 
 void handleEdit(QPointer<QWidget> parent, const std::shared_ptr<MatrixClient>& client,
                  const std::string& roomId, const std::string& eventId,
-                 TimelineModel* model, QLabel* statusLabel) {
+                 TimelineModel* model, QLabel* statusLabel,
+                 bool encrypted, Decryptor* dec) {
     int row = model->findRow(eventId);
     if (row < 0) return;
     auto* evt = model->at(row);
@@ -53,8 +75,35 @@ void handleEdit(QPointer<QWidget> parent, const std::shared_ptr<MatrixClient>& c
     if (!ok || newText.trimmed().isEmpty()) return;
     std::string newBody = newText.toStdString();
     QPointer<QWidget> guard(parent);
-    ThreadPool::instance().enqueue([guard, client, roomId, eventId, newBody, model, statusLabel]() {
-        auto r = client->editMessage(roomId, eventId, newBody);
+    ThreadPool::instance().enqueue([guard, client, roomId, eventId, newBody, model, statusLabel, encrypted, dec]() {
+        ApiResult<std::string> r;
+        if (encrypted && dec && dec->isInitialized()) {
+            // Edits leak plaintext if sent raw in E2EE rooms — megolm-wrap
+            // the m.replace event like any other message.
+            std::string escaped;
+            for (char ch : newBody) {
+                if (ch == '"') escaped += "\\\"";
+                else if (ch == '\\') escaped += "\\\\";
+                else if (ch == '\n') escaped += "\\n";
+                else escaped += ch;
+            }
+            std::string sessId = dec->getOrCreateOutboundSession(roomId);
+            std::string inner = "{\"type\":\"m.room.message\",\"content\":{\"msgtype\":\"m.text\",\"body\":\"" +
+                                escaped + "\",\"m.new_content\":{\"msgtype\":\"m.text\",\"body\":\"" + escaped +
+                                "\"},\"m.relates_to\":{\"rel_type\":\"m.replace\",\"event_id\":\"" + eventId +
+                                "\"}},\"room_id\":\"" + roomId + "\"}";
+            if (!sessId.empty()) {
+                std::string enc = dec->encryptMessage(roomId, client->account().deviceId, inner);
+                if (!enc.empty()) {
+                    if (!dec->roomKeyShared(roomId)) shareRoomKeyForRoom(*client, *dec, roomId);
+                    r = client->sendEncryptedEvent(roomId, enc, genTxnId("edit"));
+                }
+            }
+            if (!r.ok && r.error.message.empty())
+                r.error.message = "edit encryption failed";
+        } else {
+            r = client->editMessage(roomId, eventId, newBody);
+        }
         QMetaObject::invokeMethod(guard, [guard, r, eventId, newBody, model, statusLabel]() {
             if (guard.isNull()) return;
             if (r.ok) {

@@ -247,6 +247,23 @@ int main() {
               "media: plain url: fallback kept");
     }
 
+    // --- incoming edits (m.replace) ---
+    {
+        FastEvent fe;
+        fe.type = "m.room.message";
+        fe.eventId = "$e1";
+        fe.senderId = "@alice:test";
+        std::string cj = "{\"msgtype\":\"m.text\",\"body\":\"old\","
+            "\"m.new_content\":{\"msgtype\":\"m.text\",\"body\":\"new text\"},"
+            "\"m.relates_to\":{\"rel_type\":\"m.replace\",\"event_id\":\"$orig\"}}";
+        fe.contentJson = cj;
+        fe.originServerTs = 3;
+        DisplayedEvent de;
+        SyncApplier::fastEventToDisplayed(fe, de, "!r:test", nullptr);
+        CHECK(de.isReplace && de.replaceTargetId == "$orig" && de.body == "new text",
+              "applier: m.replace extracted (target + new_content body)");
+    }
+
     // --- reactions never count as thread replies ---
     {
         DisplayedEvent root;

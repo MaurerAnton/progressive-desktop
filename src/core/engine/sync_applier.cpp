@@ -341,6 +341,25 @@ void SyncApplier::fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
         // Bug fix: replies arriving via /sync never got isReply/replyToEventId.
         std::string replyTo = SyncApplier::extractReplyToId(de.contentJson);
         if (!replyTo.empty()) { de.isReply = true; de.replyToEventId = replyTo; }
+        // Edits (m.relates_to: m.replace): carry the new_content body and the
+        // target; the append path replaces the original row instead of
+        // rendering a duplicate message.
+        {
+            simdjson::dom::parser pp;
+            auto pd = pp.parse(de.contentJson);
+            if (pd.error() == simdjson::SUCCESS) {
+                auto rt = pd.value()["m.relates_to"]["rel_type"].get_string();
+                auto reid = pd.value()["m.relates_to"]["event_id"].get_string();
+                if (rt.error() == simdjson::SUCCESS &&
+                    std::string_view(rt.value()) == "m.replace" &&
+                    reid.error() == simdjson::SUCCESS) {
+                    de.isReplace = true;
+                    de.replaceTargetId = std::string(reid.value());
+                    auto nb = pd.value()["m.new_content"]["body"].get_string();
+                    if (nb.error() == simdjson::SUCCESS) de.body = std::string(nb.value());
+                }
+            }
+        }
         stripReplyFallback(de);
     }
     if (de.type == "m.room.encrypted") {

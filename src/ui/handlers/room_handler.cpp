@@ -292,6 +292,10 @@ void RoomHandler::onLoadMoreClicked() {
                 auto nameIt = self->memberAvatarCache_.find(de.senderId + "/name");
                 if (nameIt != self->memberAvatarCache_.end()) de.senderName = nameIt->second;
 
+                if (de.isReplace && self->timelineModel_->findRow(de.replaceTargetId) >= 0) {
+                    self->timelineModel_->updateBody(de.replaceTargetId, de.body + " (edited)");
+                    continue;
+                }
                 events.push_back(std::move(de));
             }
 

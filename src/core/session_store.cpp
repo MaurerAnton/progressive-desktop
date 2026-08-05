@@ -313,6 +313,37 @@ std::optional<std::string> SessionStore::loadMegolmSessions(const std::string& p
     return r;
 }
 
+bool SessionStore::savePendingKeyRequests(const std::string& data, const std::string& pickleKey) {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
+    if (!db_) return false;
+    std::string key = "pending_requests:" + pickleKey;
+    const char* sql = "INSERT INTO e2ee_data(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, key.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, data.c_str(), -1, SQLITE_TRANSIENT);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) return false;
+    checkpoint();
+    return true;
+}
+
+std::optional<std::string> SessionStore::loadPendingKeyRequests(const std::string& pickleKey) {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
+    if (!db_) return std::nullopt;
+    std::string key = "pending_requests:" + pickleKey;
+    const char* sql = "SELECT value FROM e2ee_data WHERE key=?;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
+    sqlite3_bind_text(stmt, 1, key.c_str(), -1, SQLITE_TRANSIENT);
+    std::optional<std::string> r;
+    if (sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL)
+        r = std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
+    sqlite3_finalize(stmt);
+    return r;
+}
+
 bool SessionStore::saveOlmSessions(const std::string& data, const std::string& pickleKey) {
     std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return false;

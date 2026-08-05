@@ -76,6 +76,10 @@ public:
     bool saveOutboundSessions(const std::string& data, const std::string& pickleKey);
     std::optional<std::string> loadOutboundSessions(const std::string& pickleKey);
 
+    // ---- Pending room-key requests (E2EE, Element parity: survive restarts) ----
+    bool savePendingKeyRequests(const std::string& data, const std::string& pickleKey);
+    std::optional<std::string> loadPendingKeyRequests(const std::string& pickleKey);
+
     // ---- E2EE flags ----
     bool saveE2eeFlag(const std::string& key, bool value);
     std::optional<bool> loadE2eeFlag(const std::string& key);

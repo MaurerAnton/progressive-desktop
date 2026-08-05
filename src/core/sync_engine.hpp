@@ -171,6 +171,9 @@ private:
     // Process to-device events from a sync response — handles m.room_key
     // (adds megolm inbound sessions) and m.room.encrypted (Olm 1:1, future).
     void processToDeviceEvents(const FastSyncResponse& resp);
+    void handleVerificationEvent(const std::string& type,
+                                 const std::string& senderId,
+                                 const std::string& contentJson);
 
     std::shared_ptr<MatrixClient> client_;
     std::shared_ptr<SessionStore> store_;

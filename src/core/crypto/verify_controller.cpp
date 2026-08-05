@@ -74,6 +74,21 @@ void VerificationController::sendToDevice(const std::string& eventType,
     const std::string& txnId, const std::string& contentJson,
     const std::string& targetUserId, const std::string& targetDeviceId) {
     if (!client_) return;
+    // Cross-client interop: Element only accepts verification messages that
+    // are Olm-encrypted (m.room.encrypted wrapping). Send via the decryptor's
+    // Olm path when available; fall back to plain to-device otherwise.
+    if (sync_ && sync_->decryptor() && sync_->decryptor()->isInitialized() &&
+        !targetUserId.empty() && !targetDeviceId.empty()) {
+        bool ok = sync_->decryptor()->sendOlmToDevice(
+            targetUserId, targetDeviceId, eventType, contentJson);
+        if (ok) {
+            LOG(LogChannel::E2EE, "verifyController: sent %s txn=%s to %s/%s (Olm-wrapped)",
+                eventType.c_str(), txnId.c_str(), targetUserId.c_str(), targetDeviceId.c_str());
+            return;
+        }
+        LOG(LogChannel::E2EE, "verifyController: Olm send FAILED %s — falling back to plain",
+            eventType.c_str());
+    }
     std::ostringstream body;
     body << "{\"messages\":{\"" << targetUserId << "\":{\""
          << targetDeviceId << "\":" << contentJson << "}}}";

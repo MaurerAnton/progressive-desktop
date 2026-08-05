@@ -276,6 +276,15 @@ public:
                       const std::string& senderKey, const std::string& sessionId,
                       const std::string& senderDeviceId);
 
+    // Element parity: re-send ALL outstanding key requests immediately
+    // (fresh request_ids). Called after SAS verification completes.
+    void resendAllPendingRequests();
+
+    // Persistence for outstanding key requests (survive restarts; the
+    // backoff schedule continues from the stored timestamps).
+    std::string picklePendingKeyRequests();
+    bool unpicklePendingKeyRequests(const std::string& json);
+
     // Force a new Olm session with a sender by sending m.dummy (to-device).
     // Creates an outbound Olm session, pickles+stores it so we can decrypt
     // the sender's reply. Called when we have no Olm session for the sender.
@@ -300,6 +309,8 @@ private:
         int64_t lastMs = 0;          // steady_clock ms of the last request
         std::string senderId;
         std::string senderDeviceId;
+        std::string lastRequestId;                 // for request_cancellation
+        std::vector<std::string> recipientDevices; // devices we asked
     };
     std::unordered_map<std::string, KeyRequestState> requestedKeys_;
     std::unordered_set<std::string> recentKeyRequests_;  // dedup by request_id (capped)
@@ -331,6 +342,10 @@ private:
     std::vector<RoomKeyNotification> roomKeyNotifications_;
     std::mutex roomKeyNotifMtx_;
     void noteRoomKey(RoomKeyNotification n);
+
+    std::vector<std::string> resolveRequestRecipients(const std::string& senderId,
+                                                      const std::string& senderDeviceId);
+    void sendRequestCancellation(const KeyRequestState& st);
 };
 
 } // namespace progressive::desktop

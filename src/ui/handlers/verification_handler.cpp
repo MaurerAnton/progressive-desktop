@@ -51,6 +51,7 @@ void VerificationHandler::setSyncEngine(SyncEngine* sync) {
     if (!sync) return;
     vm_ = &sync->verificationManager();
     controller_.setVerificationManager(vm_);
+    controller_.setSyncEngine(sync);  // enables Olm-wrapped verification sends
     vm_->setStateChangedFn([this, vm = vm_](VerificationTransaction* txn) {
         std::string txnId = txn ? txn->transactionId : "";
         QMetaObject::invokeMethod(this, [this, vm, txnId]() {

@@ -394,10 +394,25 @@ void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
             std::fprintf(stderr, "[E2EE] Olm result: size=%zu first200='%.200s'\n",
                 innerPlaintext.size(), innerPlaintext.empty() ? "(empty)" : innerPlaintext.c_str());
             if (!innerPlaintext.empty()) {
-                LOG(LogChannel::E2EE, "processToDevice: Olm decrypt OK — inner type should be m.room_key");
+                LOG(LogChannel::E2EE, "processToDevice: Olm decrypt OK — dispatching inner type");
                 stats_.decryptedEvents++;
                 std::cerr << "[e2ee] decrypted Olm 1:1 to-device from "
                           << evt.senderId << " (" << innerPlaintext.size() << " bytes)\n";
+                // Element wraps verification messages in Olm — route them to
+                // the verification manager (cross-client SAS).
+                simdjson::dom::parser pd;
+                auto pdoc = pd.parse(innerPlaintext);
+                if (pdoc.error() == simdjson::SUCCESS) {
+                    auto it = pdoc.value()["type"].get_string();
+                    auto icr = pdoc.value()["content"];
+                    if (it.error() == simdjson::SUCCESS &&
+                        std::string_view(it.value()).find("m.key.verification.") == 0 &&
+                        icr.error() == simdjson::SUCCESS) {
+                        handleVerificationEvent(std::string(it.value()),
+                                                std::string(evt.senderId),
+                                                simdjson::to_string(icr.value()));
+                    }
+                }
             } else {
                 LOG(LogChannel::E2EE, "processToDevice: Olm decrypt FAILED or not m.room_key");
                 stats_.decryptErrors++;
@@ -415,15 +430,27 @@ void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
         } else if (evt.type.find("m.key.verification.") == 0) {
             LOG(LogChannel::E2EE, "processToDevice: verification event type=%s from=%s",
                 std::string(evt.type).c_str(), std::string(evt.senderId).c_str());
-            std::string contentStr(evt.contentJson);
-            std::string senderStr(evt.senderId);
-            std::string userId = client_ ? client_->account().userId : "";
-            std::string deviceId = client_ ? client_->account().deviceId : "";
-            auto* vtxn = verificationManager_.handleEvent(
-                std::string(evt.type), senderStr, contentStr,
-                userId, deviceId, decryptor_.ed25519Key(), decryptor_.curve25519Key());
-            // SAS completed -> persist the other device as verified (key-share policy).
-            if (vtxn && vtxn->state == VerificationState::Done && store_) {
+            handleVerificationEvent(std::string(evt.type), std::string(evt.senderId),
+                                    std::string(evt.contentJson));
+        }
+    }
+    // NOTE: resendAllPendingRequests() is called from handleVerificationEvent
+    // (Done) — outstanding key requests are re-asked after a completed SAS.
+}
+
+// Route a verification to-device event (plain or Olm-decrypted) into the
+// verification manager; on Done, persist the verified device, cross-sign
+// their master key, and re-ask all outstanding room-key requests.
+void SyncEngine::handleVerificationEvent(const std::string& type,
+                                         const std::string& senderId,
+                                         const std::string& contentJson) {
+    std::string userId = client_ ? client_->account().userId : "";
+    std::string deviceId = client_ ? client_->account().deviceId : "";
+    auto* vtxn = verificationManager_.handleEvent(
+        type, senderId, contentJson,
+        userId, deviceId, decryptor_.ed25519Key(), decryptor_.curve25519Key());
+    // SAS completed -> persist the other device as verified (key-share policy).
+    if (vtxn && vtxn->state == VerificationState::Done && store_) {
                 store_->saveVerifiedDevice(vtxn->otherUserId, vtxn->otherDeviceId);
                 LOG(LogChannel::E2EE, "processToDevice: recorded verified device %s/%s",
                     vtxn->otherUserId.c_str(), vtxn->otherDeviceId.c_str());
@@ -465,9 +492,10 @@ void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
                     }
                 }
             }
-        }
+        // Element parity: after a completed verification, re-ask every session
+        // we still miss (the sender may answer now that trust changed).
+        decryptor_.resendAllPendingRequests();
     }
-}
 
 // Upload device keys to the server. Call once at login.
 // force=true: bypass otk_uploaded_once flag (used by auto-refresh when count<5).
@@ -903,6 +931,9 @@ SyncEngine::E2eeInitResult SyncEngine::initializeE2EE() {
             if (outboundData) {
                 decryptor_.unpickleOutboundSessions(pickleKey, *outboundData);
             }
+            auto pendingReqData = store_->loadPendingKeyRequests(pickleKey);
+            if (pendingReqData && !pendingReqData->empty())
+                decryptor_.unpicklePendingKeyRequests(*pendingReqData);
             auto olmSessionsData = store_->loadOlmSessions(pickleKey);
             if (olmSessionsData && !olmSessionsData->empty()) {
                 decryptor_.unpickleOlmSessions(pickleKey, *olmSessionsData);
@@ -935,6 +966,9 @@ void SyncEngine::persistCrypto() {
     }
     auto olmSessionsPickle = decryptor_.pickleOlmSessions(pickleKey);
     if (!olmSessionsPickle.empty()) store_->saveOlmSessions(olmSessionsPickle, pickleKey);
+    auto pendingPickle = decryptor_.picklePendingKeyRequests();
+    if (!pendingPickle.empty() && pendingPickle != "[]")
+        store_->savePendingKeyRequests(pendingPickle, pickleKey);
 }
 
 bool SyncEngine::resetCrossSigning() {

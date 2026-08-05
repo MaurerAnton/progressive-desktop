@@ -172,8 +172,18 @@ bool Decryptor::handleRoomKey(const std::string& contentJson,
                 std::string key = std::string(rid.value()) + "|" +
                                   std::string(sid.value()) + "|" +
                                   std::string(sk.value());
-                std::lock_guard<std::mutex> lk(requestMtx_);
-                requestedKeys_.erase(key);
+                KeyRequestState st;
+                bool hadRequest = false;
+                {
+                    std::lock_guard<std::mutex> lk(requestMtx_);
+                    auto it = requestedKeys_.find(key);
+                    if (it != requestedKeys_.end()) {
+                        st = it->second;
+                        hadRequest = true;
+                        requestedKeys_.erase(it);
+                    }
+                }
+                if (hadRequest) sendRequestCancellation(st);
             }
         }
     }
@@ -1307,11 +1317,21 @@ void Decryptor::requestRoomKey(const std::string& roomId, const std::string& sen
         + g_txnCounter.fetch_add(1));
     // The request content (m.room_key_request) — sent Olm-encrypted per spec.
     std::string requestContent = buildRoomKeyRequestJson(roomId, senderKey, sessionId, reqId, ctxDeviceId_);
-    // Address the sending device directly (known from the megolm content's
-    // device_id); fall back to the "*" wildcard when it is missing so the
-    // request is never silently dropped.
-    std::string targetDev = senderDeviceId.empty() ? "*" : senderDeviceId;
-    bool ok = sendOlmToDevice(senderId, targetDev, "m.room_key_request", requestContent);
+    // Ask ALL of the sender's devices (Element parity) — one request per
+    // device, Olm-encrypted. Falls back to the known sender device, then to
+    // the "*" wildcard so a request is never silently dropped.
+    auto devs = resolveRequestRecipients(senderId, senderDeviceId);
+    bool ok = false;
+    for (const auto& dev : devs)
+        ok |= sendOlmToDevice(senderId, dev, "m.room_key_request", requestContent);
+    {
+        std::lock_guard<std::mutex> lk(requestMtx_);
+        auto it = requestedKeys_.find(key);
+        if (it != requestedKeys_.end()) {
+            it->second.lastRequestId = reqId;
+            it->second.recipientDevices = devs;
+        }
+    }
     LOG(LogChannel::E2EE, "requestRoomKey: sent for room=%.40s sid=%.20s sender=%s ok=%d",
         roomId.c_str(), sessionId.c_str(), senderId.c_str(), ok ? 1 : 0);
     std::fprintf(stderr, "[e2ee] requestRoomKey: room=%.40s sid=%.20s sender=%s ok=%d\n",
@@ -1348,11 +1368,170 @@ void Decryptor::reRequestKey(const std::string& roomId, const std::string& sende
         static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count())
         + g_txnCounter.fetch_add(1));
     std::string requestContent = buildRoomKeyRequestJson(roomId, senderKey, sessionId, reqId, ctxDeviceId_);
-    std::string targetDev = senderDeviceId.empty() ? "*" : senderDeviceId;
-    bool ok = sendOlmToDevice(senderId, targetDev, "m.room_key_request", requestContent);
+    auto devs = resolveRequestRecipients(senderId, senderDeviceId);
+    bool ok = false;
+    for (const auto& dev : devs)
+        ok |= sendOlmToDevice(senderId, dev, "m.room_key_request", requestContent);
+    {
+        std::lock_guard<std::mutex> lk(requestMtx_);
+        auto it = requestedKeys_.find(key);
+        if (it != requestedKeys_.end()) {
+            it->second.lastRequestId = reqId;
+            it->second.recipientDevices = devs;
+        }
+    }
     noteRoomKey({roomId, sessionId, senderId, RoomKeyEventKind::Requested, attempt, 0});
     LOG(LogChannel::E2EE, "reRequestKey: manual room=%.40s sid=%.20s sender=%s ok=%d",
         roomId.c_str(), sessionId.c_str(), senderId.c_str(), ok ? 1 : 0);
+}
+
+// Element parity: after SAS verification, re-ask every outstanding key.
+void Decryptor::resendAllPendingRequests() {
+    if (ctxHomeserver_.empty() || ctxToken_.empty()) return;
+    std::vector<std::pair<std::string, KeyRequestState>> entries;
+    {
+        std::lock_guard<std::mutex> lk(requestMtx_);
+        for (const auto& [key, st] : requestedKeys_) entries.emplace_back(key, st);
+    }
+    for (auto& [key, st] : entries) {
+        auto sep1 = key.find('|');
+        auto sep2 = key.find('|', sep1 == std::string::npos ? 0 : sep1 + 1);
+        if (sep1 == std::string::npos || sep2 == std::string::npos) continue;
+        std::string roomId = key.substr(0, sep1);
+        std::string sessionId = key.substr(sep1 + 1, sep2 - sep1 - 1);
+        std::string senderKey = key.substr(sep2 + 1);
+        std::string reqId = "pdrkr" + std::to_string(
+            static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count())
+            + g_txnCounter.fetch_add(1));
+        std::string requestContent = buildRoomKeyRequestJson(roomId, senderKey, sessionId, reqId, ctxDeviceId_);
+        std::vector<std::string> devs = st.recipientDevices;
+        if (devs.empty() && !st.senderDeviceId.empty()) devs.push_back(st.senderDeviceId);
+        if (devs.empty()) devs.push_back("*");
+        bool ok = false;
+        for (const auto& dev : devs)
+            ok |= sendOlmToDevice(st.senderId, dev, "m.room_key_request", requestContent);
+        {
+            std::lock_guard<std::mutex> lk(requestMtx_);
+            auto it = requestedKeys_.find(key);
+            if (it != requestedKeys_.end()) {
+                it->second.attempts++;
+                it->second.lastMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch()).count();
+                it->second.lastRequestId = reqId;
+                it->second.recipientDevices = devs;
+            }
+        }
+        noteRoomKey({roomId, sessionId, st.senderId, RoomKeyEventKind::Requested, st.attempts + 1, 0});
+        LOG(LogChannel::E2EE, "resendAllPendingRequests: room=%.40s sid=%.20s ok=%d",
+            roomId.c_str(), sessionId.c_str(), ok ? 1 : 0);
+    }
+}
+
+// Persist outstanding key requests (survive restarts).
+std::string Decryptor::picklePendingKeyRequests() {
+    std::lock_guard<std::mutex> lk(requestMtx_);
+    if (requestedKeys_.empty()) return "[]";
+    std::ostringstream os;
+    os << "[";
+    bool first = true;
+    for (const auto& [key, st] : requestedKeys_) {
+        auto sep1 = key.find('|');
+        auto sep2 = key.find('|', sep1 == std::string::npos ? 0 : sep1 + 1);
+        if (sep1 == std::string::npos || sep2 == std::string::npos) continue;
+        if (!first) os << ",";
+        first = false;
+        os << "{\"r\":\"" << key.substr(0, sep1)
+           << "\",\"s\":\"" << key.substr(sep1 + 1, sep2 - sep1 - 1)
+           << "\",\"k\":\"" << key.substr(sep2 + 1)
+           << "\",\"u\":\"" << st.senderId
+           << "\",\"d\":\"" << st.senderDeviceId
+           << "\",\"a\":" << st.attempts
+           << ",\"l\":" << st.lastMs
+           << ",\"q\":\"" << st.lastRequestId << "\"}";
+    }
+    os << "]";
+    return os.str();
+}
+
+bool Decryptor::unpicklePendingKeyRequests(const std::string& json) {
+    if (json.empty() || json == "[]") return true;
+    simdjson::dom::parser p;
+    auto doc = p.parse(json);
+    if (doc.error() != simdjson::SUCCESS) return false;
+    auto arr = doc.value().get_array();
+    if (arr.error() != simdjson::SUCCESS) return false;
+    std::lock_guard<std::mutex> lk(requestMtx_);
+    int loaded = 0;
+    for (auto elem : arr.value()) {
+        auto obj = elem.get_object();
+        if (obj.error() != simdjson::SUCCESS) continue;
+        auto r = obj.value()["r"].get_string();
+        auto s = obj.value()["s"].get_string();
+        auto k = obj.value()["k"].get_string();
+        auto u = obj.value()["u"].get_string();
+        if (r.error() != simdjson::SUCCESS || s.error() != simdjson::SUCCESS ||
+            k.error() != simdjson::SUCCESS || u.error() != simdjson::SUCCESS) continue;
+        std::string key = std::string(r.value()) + "|" + std::string(s.value()) + "|" + std::string(k.value());
+        if (requestedKeys_.count(key)) continue;
+        KeyRequestState st;
+        st.senderId = std::string(u.value());
+        auto d = obj.value()["d"].get_string();
+        if (d.error() == simdjson::SUCCESS) st.senderDeviceId = std::string(d.value());
+        auto q = obj.value()["q"].get_string();
+        if (q.error() == simdjson::SUCCESS) st.lastRequestId = std::string(q.value());
+        auto a = obj.value()["a"].get_int64();
+        if (a.error() == simdjson::SUCCESS) st.attempts = static_cast<int>(a.value());
+        auto l = obj.value()["l"].get_int64();
+        if (l.error() == simdjson::SUCCESS) st.lastMs = l.value();
+        requestedKeys_.emplace(key, std::move(st));
+        ++loaded;
+    }
+    LOG(LogChannel::E2EE, "unpicklePendingKeyRequests: loaded %d", loaded);
+    return true;
+}
+
+// Resolve the devices to ask: query the sender's device list, fall back to
+// the known sender device, then to the "*" wildcard.
+std::vector<std::string> Decryptor::resolveRequestRecipients(
+    const std::string& senderId, const std::string& senderDeviceId) {
+    std::vector<std::string> devs;
+    if (!senderId.empty() && !ctxHomeserver_.empty() && !ctxToken_.empty()) {
+        std::string queryBody = "{\"device_keys\":{\"" + senderId + "\":[]}}";
+        auto resp = httpPost(ctxHomeserver_ + "/_matrix/client/v3/keys/query",
+                             queryBody, makeAuthHeaders(ctxToken_), 10000);
+        if (resp.success && !resp.body.empty()) {
+            simdjson::dom::parser p;
+            auto doc = p.parse(resp.body);
+            if (doc.error() == simdjson::SUCCESS) {
+                auto userObj = doc.value()["device_keys"][senderId];
+                if (userObj.error() == simdjson::SUCCESS) {
+                    auto obj = userObj.value().get_object();
+                    if (obj.error() == simdjson::SUCCESS) {
+                        for (auto field : obj.value())
+                            devs.emplace_back(field.key);
+                    }
+                }
+            }
+        }
+    }
+    if (devs.empty() && !senderDeviceId.empty()) devs.push_back(senderDeviceId);
+    if (devs.empty()) devs.push_back("*");
+    return devs;
+}
+
+// Tell the sender its request is no longer needed (Element parity).
+void Decryptor::sendRequestCancellation(const KeyRequestState& st) {
+    if (st.lastRequestId.empty() || st.senderId.empty()) return;
+    std::string content = "{\"action\":\"request_cancellation\","
+        "\"requesting_device_id\":\"" + ctxDeviceId_ + "\","
+        "\"request_id\":\"" + st.lastRequestId + "\"}";
+    std::vector<std::string> devs = st.recipientDevices;
+    if (devs.empty() && !st.senderDeviceId.empty()) devs.push_back(st.senderDeviceId);
+    if (devs.empty()) devs.push_back("*");
+    for (const auto& dev : devs)
+        sendOlmToDevice(st.senderId, dev, "m.room_key_request", content);
+    LOG(LogChannel::E2EE, "sendRequestCancellation: sender=%s reqId=%.30s",
+        st.senderId.c_str(), st.lastRequestId.c_str());
 }
 
 
@@ -1376,8 +1555,13 @@ void Decryptor::maybeReRequestKeys() {
         std::string sessionId = key.substr(sep1 + 1, sep2 - sep1 - 1);
         std::string senderKey = key.substr(sep2 + 1);
         std::string requestContent = buildRoomKeyRequestJson(roomId, senderKey, sessionId, reqId, ctxDeviceId_);
-        bool ok = !st.senderDeviceId.empty() &&
-            sendOlmToDevice(st.senderId, st.senderDeviceId, "m.room_key_request", requestContent);
+        std::vector<std::string> devs = st.recipientDevices;
+        if (devs.empty() && !st.senderDeviceId.empty()) devs.push_back(st.senderDeviceId);
+        if (devs.empty()) devs.push_back("*");
+        bool ok = false;
+        for (const auto& dev : devs)
+            ok |= sendOlmToDevice(st.senderId, dev, "m.room_key_request", requestContent);
+        st.lastRequestId = reqId;
         noteRoomKey({roomId, sessionId, st.senderId, RoomKeyEventKind::Requested, st.attempts, 0});
         LOG(LogChannel::E2EE, "maybeReRequestKeys: retry %d for room=%.40s sid=%.20s ok=%d",
             st.attempts, roomId.c_str(), sessionId.c_str(), ok ? 1 : 0);
@@ -1511,21 +1695,26 @@ bool Decryptor::handleForwardedRoomKey(const std::string& contentJson,
     // (the imported session id can differ from the requested one). Without
     // this the backoff retries would keep firing forever.
     {
-        std::lock_guard<std::mutex> lk(requestMtx_);
-        for (auto it = requestedKeys_.begin(); it != requestedKeys_.end();) {
-            auto sep1 = it->first.find('|');
-            auto sep2 = it->first.find('|', sep1 == std::string::npos ? 0 : sep1 + 1);
-            bool match = sep1 != std::string::npos && sep2 != std::string::npos &&
-                         it->first.compare(0, sep1, roomId) == 0 &&
-                         it->first.compare(sep2 + 1, std::string::npos, senderKey) == 0;
-            if (match) {
-                LOG(LogChannel::E2EE, "handleForwardedRoomKey: satisfied pending request for room=%.40s sid=%.20s",
-                    roomId.c_str(), it->first.substr(sep1 + 1, sep2 - sep1 - 1).c_str());
-                it = requestedKeys_.erase(it);
-            } else {
-                ++it;
+        std::vector<KeyRequestState> satisfied;
+        {
+            std::lock_guard<std::mutex> lk(requestMtx_);
+            for (auto it = requestedKeys_.begin(); it != requestedKeys_.end();) {
+                auto sep1 = it->first.find('|');
+                auto sep2 = it->first.find('|', sep1 == std::string::npos ? 0 : sep1 + 1);
+                bool match = sep1 != std::string::npos && sep2 != std::string::npos &&
+                             it->first.compare(0, sep1, roomId) == 0 &&
+                             it->first.compare(sep2 + 1, std::string::npos, senderKey) == 0;
+                if (match) {
+                    LOG(LogChannel::E2EE, "handleForwardedRoomKey: satisfied pending request for room=%.40s sid=%.20s",
+                        roomId.c_str(), it->first.substr(sep1 + 1, sep2 - sep1 - 1).c_str());
+                    satisfied.push_back(it->second);
+                    it = requestedKeys_.erase(it);
+                } else {
+                    ++it;
+                }
             }
         }
+        for (auto& st : satisfied) sendRequestCancellation(st);
     }
     LOG(LogChannel::E2EE, "handleForwardedRoomKey: imported room=%.40s sender=%.20s",
         roomId.c_str(), senderKey.c_str());

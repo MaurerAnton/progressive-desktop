@@ -30,6 +30,13 @@ void ImageLoader::fetchThumbnail(const std::string& mxcUrl, int w, int h,
         if (result.ok && !result.data.empty()) {
             img.loadFromData(result.data.data(), static_cast<int>(result.data.size()));
         }
+        if (img.isNull() && (w > 0 || h > 0)) {
+            // Some servers/CDNs 404 the thumbnail endpoint — fall back to the
+            // full file so avatars still render.
+            auto full = client_->downloadMedia(mxcUrl, 0, 0);
+            if (full.ok && !full.data.empty())
+                img.loadFromData(full.data.data(), static_cast<int>(full.data.size()));
+        }
         QMetaObject::invokeMethod(this, [this, key, img, cb]() {
             if (!img.isNull()) {
                 imageCache_.insert(key, new QImage(img));

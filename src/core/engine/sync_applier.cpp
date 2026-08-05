@@ -51,7 +51,7 @@ std::string SyncApplier::extractString(std::string_view json, const std::string&
 // {url,key,iv,hashes:{sha256},v,mimetype}. Fills url/key/iv/sha.
 static void extractEncryptedFile(const std::string& contentJson,
     const std::string& path, std::string& url, std::string& key,
-    std::string& iv, std::string& sha) {
+    std::string& iv, std::string& sha, std::string* mimetype = nullptr) {
     simdjson::dom::parser p;
     auto doc = p.parse(contentJson);
     if (doc.error() != simdjson::SUCCESS) return;
@@ -74,6 +74,10 @@ static void extractEncryptedFile(const std::string& contentJson,
     if (v.error() == simdjson::SUCCESS) iv = std::string(v.value());
     auto h = obj.value()["hashes"]["sha256"].get_string();
     if (h.error() == simdjson::SUCCESS) sha = std::string(h.value());
+    if (mimetype) {
+        auto mt = obj.value()["mimetype"].get_string();
+        if (mt.error() == simdjson::SUCCESS) *mimetype = std::string(mt.value());
+    }
 }
 
 std::string SyncApplier::extractThreadRootId(std::string_view json) {
@@ -140,6 +144,9 @@ RoomMeta SyncApplier::extractRoomMeta(const FastRoom& room, const std::string& m
 
 std::string SyncApplier::extractLastMessageBody(const std::vector<FastEvent>& events) {
     for (auto it = events.rbegin(); it != events.rend(); ++it) {
+        // The newest encrypted event has no readable body — show a placeholder
+        // instead of a stale/empty preview.
+        if (it->type == "m.room.encrypted") return "[encrypted]";
         if (it->type == "m.room.message" && !it->contentJson.empty()) {
             simdjson::dom::parser p;
             auto doc = p.parse(it->contentJson);
@@ -319,12 +326,13 @@ void SyncApplier::fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
             // Encrypted media (Element sends file: instead of url: in E2EE
             // rooms): url + base64 key/iv + sha256-of-plaintext + thumbnail.
             extractEncryptedFile(de.contentJson, "file", de.mxcUrl,
-                                 de.mediaKey, de.mediaIv, de.mediaSha256);
+                                 de.mediaKey, de.mediaIv, de.mediaSha256, &de.mimetype);
             if (de.mxcUrl.empty())
                 de.mxcUrl = extractStringDec(de.contentJson, "url");
             extractEncryptedFile(de.contentJson, "info.thumbnail_file",
                                  de.thumbUrl, de.thumbKey, de.thumbIv, de.thumbSha256);
-            de.mimetype = extractStringDec(de.contentJson, "mimetype");
+            if (de.mimetype.empty())
+                de.mimetype = extractStringDec(de.contentJson, "mimetype");
             if (de.body.empty())
                 de.body = extractStringDec(de.contentJson, "filename");
         }

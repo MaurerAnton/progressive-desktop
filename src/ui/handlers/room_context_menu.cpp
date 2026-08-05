@@ -11,6 +11,8 @@
 #include "core/crypto/decryptor.hpp"
 #include <QFileDialog>
 #include <QFile>
+#include <QGuiApplication>
+#include <QClipboard>
 #include <simdjson.h>
 
 #include <QInputDialog>
@@ -296,8 +298,10 @@ void RoomContextMenu::showTimelineContextMenu(const QString& eventId,
         ? nullptr
         : menu.addAction("Request the key again");
     bool isMediaRow = (msgtype == "m.image" || msgtype == "m.video" ||
-                       msgtype == "m.audio" || msgtype == "m.file") && !mediaBody.empty();
+                       msgtype == "m.audio" || msgtype == "m.file");
     auto* downloadAction = isMediaRow ? menu.addAction("Download…") : nullptr;
+    bool hasText = !mediaBody.empty() && !isSystemEvent;
+    auto* copyTextAction = hasText ? menu.addAction("Copy text") : nullptr;
     menu.addSeparator();
     auto* editAction = menu.addAction("Edit");
     auto* deleteAction = menu.addAction("Delete");
@@ -309,7 +313,9 @@ void RoomContextMenu::showTimelineContextMenu(const QString& eventId,
     std::string roomIdStr = roomId;
     std::string eidStrVal = eventId.toStdString();
 
-    if (selected == downloadAction && downloadAction) {
+    if (selected == copyTextAction && copyTextAction) {
+        QGuiApplication::clipboard()->setText(QString::fromStdString(mediaBody));
+    } else if (selected == downloadAction && downloadAction) {
         QString suggested = mediaBody.empty()
             ? QString("download") : QString::fromStdString(mediaBody);
         QString path = QFileDialog::getSaveFileName(

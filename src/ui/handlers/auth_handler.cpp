@@ -46,6 +46,7 @@ void AuthHandler::forceReLogin() {
 }
 
 void AuthHandler::logout() {
+    if (sync_) sync_->persistCrypto();
     sync_->stop();
     if (client_) client_->logout();
     if (store_ && client_) store_->clearAccount(client_->account().userId);

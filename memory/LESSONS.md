@@ -249,5 +249,213 @@ curl-multi/libevent (Nheko's coeurl) over a full async runtime.
   NOT m.file/m.audio → card paints (painter ignores mxcUrl, `timeline_painter.cpp:303`) but click
   silently no-ops (`timeline_delegate.cpp:217` requires !mxcUrl.isEmpty()). History path
   (`room_data_loader.cpp:110-122`) never sets mxcUrl at all.
-- Lesson: "the code path exists, but the feature is broken in practice" — why we track bugs.
+- Lesson: "a file path exists, but the feature is broken in practice" — why we track bugs.
 - Tracked in PROGRESS.md (Critical). Fix deferred by user request.
+
+---
+
+# Part 2 — written after the first 10 rounds (the E2EE + testing era)
+
+> The first 10 rounds taught the *shape* of the app (sync, data, memory, threads).
+> These lessons teach the part the app grew after that: encryption, trust, and how bugs get caught.
+
+## Lesson 6 — What encryption actually does (the padlock story)
+
+**Core idea:** A public key is not a hash or a fingerprint — it is a ONE-WAY LOCK.
+The public key can only LOCK the box; the private key can only UNLOCK it; and
+mathematically you cannot figure out the unlock from the lock. The private key
+NEVER leaves your device — not even the server ever sees it.
+
+- Two mechanisms, don't mix them up:
+  - **Olm** = the *envelope* (delivers the key). One per PAIR of devices. Ephemeral.
+  - **Megolm** = the *room key* (encrypts messages). One per SENDER device,
+    shared with the whole room. All messages in a room from one sender use it.
+- In a 30-device room you need ~1 key per device that actually SENDS — not 30×29.
+  That collapse is the entire point of Megolm. This is why rooms stay fast.
+- The server = **phone book** (stores everyone's Public padlocks, `/keys/query`)
+  + **courier** (delivers locked envelopes by device ID). It knows the ADDRESS
+  (device ID) but can never open the box.
+- First message in an encrypted room is a beat slow: the room key makes a separate
+  delivery trip first (`shareRoomKey` → `/sendToDevice` → `olm_encrypt`). After
+  that, instant. Messages arriving BEFORE the key sit in a pending queue
+  (`decryptor.cpp`) and decode the moment the key lands.
+
+**Key words:** public key = padlock, private key = key that opens it, Olm envelope,
+Megolm sender-key, pending-event queue.
+
+## Lesson 7 — Trust: verification, cross-signing, and backup
+
+**Core idea:** The whole "only I can read" promise depends on the padlock in the
+phone book really being YOUR device's padlock. If the server were evil, it could
+swap in its own padlock and open your mail. Verification is how you check the padlock.
+
+- **SAS verification = the 7-emoji check.** Both devices show 7 emoji; if they match,
+  both sides really see the same device keys — you're talking to the Alice device, not
+  an imposter (MITM). Green shield = you verified it; red = not trusted yet.
+- **Cross-signing** is the *spreadable* form of trust: you sign the other user's master
+  key with your own key (`USK`) → `POST /keys/signatures/upload` → their device now looks
+  grey-signed, meaning "someone I trust vouches for it." Green = SAS-verified,
+  grey = cross-signed, red = unverified.
+- **SSSS / key backup (Phase 7):** your room keys are encrypted and stored in a
+  safety-deposit box on the server (locked with a recovery passphrase). New device
+  logs in → gets a NEW device ID → type the passphrase → room keys import, so you can
+  read old history even with a brand-new device ID.
+- **The one thing without backup:** no passphrase → the past is gone. New devices can
+  still read NEW messages (the current key is re-shared when the new device appears —
+  `device_lists:{changed,left}` in /sync triggers `shareRoomKey`).
+
+**Key words:** padlock check (SAS), cross-signature chain, recovery passphrase,
+new device ID ↔ imported room keys.
+
+## Lesson 8 — Why crypto code is fiddly: the library "eats your data" traps
+
+**Core idea:** libolm (the crypto library) is VERB-driven: some of its calls
+MUTATE the buffer you hand it, in place. You hand it your data believing it's
+read-only, and it silently destroys it. We hit 9 of these. Rules:
+
+1. All Olm/Matrix crypto fields are BASE64 in JSON — the lib expects base64. NEVER
+   `base64Decode` before an `olm_*` call; it decodes internally.
+2. `olm_unpickle_*` decrypts the pickle buffer IN-PLACE — after the call, your
+   buffer contains garbage — so you MUST pass a copy:
+   `std::string copy = original; sess.unpickle("", copy);`.
+3. `olm_sas_set_their_key` decodes the other side's pubkey base64 IN-PLACE — same: pass a copy.
+4. Re-calling `olm_*_session(memory)` ZEROS the struct (it re-inits and wipes your
+   session). Call it ONCE on fresh memory, then use `static_cast` for later access.
+5. `olm_account_unpublished_fallback_key` returns the empty form `{"curve25519":{}}`
+   (length > 0) even when NO fallback key exists — detect by content, not length.
+- Each of these cost a real debugging cycle. Lesson: crypto bugs are silent and
+  invisible to the eye — which is why crypto has automated tests (they fail loudly
+  where the app would just show garbage).
+
+**Key words:** base64-decodes internally, in-place mutation → "pass a copy",
+one-shot init, empty-form trap.
+
+## Lesson 9 — How bugs get caught: smoke tests, CI, and the "4-time" crash
+
+**Core idea:** The app is protected by three nets: small smoke tests, a full test
+suite (`ctest`), and CI that runs everything on every push — including a REAL
+homeserver that does encrypted round-trips automatically.
+
+- Every new handler gets a **15-line smoke test** (test_visual.cpp) — build + one
+  method call with a fake client. Instant feedback.
+- `ctest` = the whole suite; green means "100% tests passed". Run before push.
+- **CI spins up a real Synapse server** (a real Matrix homeserver in a container)
+  and runs a 3-user encrypted round-trip — register, create encrypted room, share
+  room key, decrypt cross-account (test_synapse_e2ee.cpp).
+- **Rule #1: push after commit.** The #1 reason "the fix didn't work" is forgetting
+  to push — the fix exists only in your editor.
+- **Rule: LOG before fixing.** Add diagnostic LOGs → run → analyze → THEN fix.
+  Never guess-fix. F12 dumps state on a live app.
+
+**The setClient chain = the crash that came back 4 times (B21, B38, B39, B40).**
+Every class that stores the client (`shared_ptr<MatrixClient>`) must have
+`setClient()`, and every parent must push it to ALL its children
+(`child->setClient(client_)`). When that tiny chain breaks, the child holds a
+null/stale pointer → silent crash. It hits context menus and threads first because
+those classes are created late (on right-click) and easy to forget. The real fix is
+not the one-liner — it's the **audit script** that checks for "MISSING setClient"
+before every commit, so the rule can't be forgotten twice.
+
+**Key words:** smoke test, ctest, Synapse CI, push after commit, setClient audit,
+LOG-before-fix.
+
+---
+
+## Quizzes (part 2)
+
+### Quiz 6 — Encryption
+1. What's a "padlock"? What never leaves the device?
+2. Olm vs Megolm: which is the envelope and which is the room key?
+3. Why is the first message in an encrypted room slow?
+4. The server knows the device ID — why can't it open the envelope?
+
+### Quiz 7 — Trust
+1. What does the 7-emoji check really verify?
+2. New phone + passphrase → old room keys come back. True/false, and why does it work
+   despite a new device ID?
+3. What does the chain master key → self-signing key → device key = ? (trust graph)
+
+### Quiz 8 — Crypto traps
+1. Should we base64-decode before olm_encrypt? Why?
+2. What goes wrong if you hand a pickle to `olm_unpickle` directly?
+3. Can you call olm_*session twice on the same memory?
+
+### Quiz 9 — Testing and the rule
+1. What is a smoke test?
+2. What does `ctest` checking "100% tests passed" tell us?
+3. Why does the diagnostics rule say "LOG before fixing"?
+
+---
+
+## Bet Rounds (Pt 2 — after the first 10)
+
+> Same game: real scenario → user guesses → I reveal the code. These 6 rounds were
+> actually played in conversation on Aug 5 (the user went 3/4 on the fresh ones).
+
+### Round 11 — "send from a verified device" → correct: C
+- The message is encrypted with the ROOM (Megolm) key, not per-device, not plaintext.
+  The server catches only the encrypted envelope.
+- BUT the B-instinct — "the server can't read it" — is literally correct too:
+  the server is the courier that never opens the box. Best answer: C + B's reasoning.
+
+### Round 12 — "the server got hacked" → correct: B
+- They get only ciphertext — but they keep an archive forever. If any device's
+  private key ever leaks (or you re-login without backup), the whole old history
+  decrypts retroactively. With no backup/passphrase, the old history is gone for
+  YOU too — the ciphertext stays ciphertext for everyone, even the admin.
+
+### Round 13 — "first message in encrypted room feels slow" → correct: B
+- The room key makes a separate delivery trip first (`shareRoomKey` → `/sendToDevice`).
+  The pending-event queue holds the message until the key lands, then decodes it.
+  Every message after the first is instant.
+
+### Round 14 — the 200-message wall → correct: B (same idea as Round 9)
+- The server keeps everything; the app keeps the last 200 in RAM as a sliding
+  window and re-fetches on scroll-up. Memory safety valve, not data loss.
+
+### Round 15 — "the crash that returned 4 times" (B21/B38/B39/B40) → correct: A
+- Not a race, not a leak — a **stale pointer**: a child class never received the
+  client via `setClient()` and dereferences null/dead memory.
+- It hits context menus and threads because those are created late (on right-click),
+  so the propagation is easy to forget. The permanent fix is the audit script that
+  greps for "MISSING setClient" before every commit.
+
+### Round 16 — crossword (from a real conversation) — you asked, code answered
+- "Does a room have 1 key or N?" → 1 per SENDER, shared with the whole room.
+- "New device + passphrase → can I read old history?" → YES: imported room keys
+  don't care about the new device ID. Without the passphrase → NO, old history gone.
+
+### The workout (do this to prove it to yourself)
+Retell the whole encrypted-room story in your own words: create room → invite →
+send first message → friend decrypts. Include: padlock, phone book, 7-emoji check,
+Megolm key, envelope. Then compare against Lesson 6-7 and see what you missed.
+
+---
+
+## Your personal checklist (how to keep learning from YOUR app)
+
+> These are things only you can do — the AI coder can't. One per day is enough.
+
+### Daily (5 minutes)
+- [ ] Read one lesson (or one quiz) and answer the questions aloud.
+- [ ] Notice one thing in the app you didn't understand yesterday, and guess why it
+      works that way BEFORE reading the code.
+
+### Weekly (one thing)
+- [ ] Play one Bet Round from memory — guess first, THEN look at the answer.
+- [ ] Run `ctest --test-dir build` and check it says "100% tests passed".
+- [ ] Press F12 on the running app and look at the state dump — read ONE number.
+
+### Try-it-yourself experiments (safe, your own device)
+- [ ] Log in on a second device → verify it with the 7-emoji check (green shield).
+- [ ] Set up the SSSS passphrase, then re-login → old history comes back.
+- [ ] Make a backup copy of session.db, then delete it → see what you lose
+      (you know why now — Lesson 2 + 7).
+- [ ] Watch the "first message in an encrypted room" be slow, then the second
+      message be instant — you're watching the key delivery trip.
+- [ ] Fix nothing, just LOOK: open the timeline of a room with >200 messages and
+      scroll up — you're watching the sliding window re-fetch.
+
+### The real test (the pencil test)
+- [ ] Explain the encrypted-room story to someone else. If you can't do it in 3
+      minutes without notes, redo the workout round.

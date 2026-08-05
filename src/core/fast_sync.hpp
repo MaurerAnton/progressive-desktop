@@ -112,7 +112,8 @@ struct FastSyncResponse {
 // Parse a /sync response using simdjson. On success, returns FastSyncResponse
 // with string_views valid until the response is destroyed.
 // On error, returns a FastSyncResponse with empty buffer and sets errorMessage.
-FastSyncResponse parseSyncResponseFast(std::string json, std::string& errorMessage);
+FastSyncResponse parseSyncResponseFast(std::string json, std::string& errorMessage,
+                             const std::string& ourDeviceId = "");
 
 // Convenience: convert a FastEvent to progressive::Event (copies strings).
 // Use this only when passing to progressive_native parsers that require

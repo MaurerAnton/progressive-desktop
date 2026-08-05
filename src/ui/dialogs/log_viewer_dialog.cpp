@@ -111,6 +111,16 @@ void LogViewerDialog::refresh() {
     }
     if (appended && atBottom)
         list_->verticalScrollBar()->setValue(list_->verticalScrollBar()->maximum());
+    // The ring holds 2000 lines but shownSeqs_ grows forever in long
+    // sessions — prune seqs that can no longer be in the ring.
+    if (shownSeqs_.size() > 6000) {
+        uint64_t maxSeq = 0;
+        for (auto s : shownSeqs_) maxSeq = std::max(maxSeq, s);
+        for (auto it = shownSeqs_.begin(); it != shownSeqs_.end();) {
+            if (*it + 4000 < maxSeq) it = shownSeqs_.erase(it);
+            else ++it;
+        }
+    }
 }
 
 void LogViewerDialog::onCopy() {

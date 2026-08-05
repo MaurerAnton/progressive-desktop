@@ -384,15 +384,29 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
             const DisplayedEvent* evt = nullptr;
             if (auto* tm = const_cast<TimelineModel*>(qobject_cast<const TimelineModel*>(idx.model()))) evt = tm->at(idx.row());
             if (evt && !evt->mediaKey.empty()) {
-                loader->fetchEncryptedThumbnail(
-                    evt->mxcUrl, evt->mediaKey, evt->mediaIv, evt->mediaSha256,
-                    [mxcUrl, model = const_cast<QAbstractItemModel*>(idx.model())]
-                    (const QImage& img) {
-                        if (!img.isNull() && model) {
-                            auto* tm = qobject_cast<TimelineModel*>(model);
-                            if (tm) tm->imageLoaded(mxcUrl.toStdString());
-                        }
-                    });
+                // Prefer the small encrypted thumbnail when present (Element
+                // always sends one) — full-file decrypts stall big photos.
+                if (!evt->thumbUrl.empty() && !evt->thumbKey.empty()) {
+                    loader->fetchEncryptedThumbnail(
+                        evt->thumbUrl, evt->thumbKey, evt->thumbIv, evt->thumbSha256,
+                        [mxcUrl, model = const_cast<QAbstractItemModel*>(idx.model())]
+                        (const QImage& img) {
+                            if (!img.isNull() && model) {
+                                auto* tm = qobject_cast<TimelineModel*>(model);
+                                if (tm) tm->imageLoaded(mxcUrl.toStdString());
+                            }
+                        });
+                } else {
+                    loader->fetchEncryptedThumbnail(
+                        evt->mxcUrl, evt->mediaKey, evt->mediaIv, evt->mediaSha256,
+                        [mxcUrl, model = const_cast<QAbstractItemModel*>(idx.model())]
+                        (const QImage& img) {
+                            if (!img.isNull() && model) {
+                                auto* tm = qobject_cast<TimelineModel*>(model);
+                                if (tm) tm->imageLoaded(mxcUrl.toStdString());
+                            }
+                        });
+                }
             } else {
                 loader->fetchThumbnail(
                     mxcUrl.toStdString(), kMaxImageW, kImageLoadedH,

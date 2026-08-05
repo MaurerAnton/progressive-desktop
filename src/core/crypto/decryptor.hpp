@@ -347,6 +347,15 @@ private:
     std::mutex roomKeyNotifMtx_;
     void noteRoomKey(RoomKeyNotification n);
 
+    // Send a key request to a device list; "*" entries go as PLAIN to-device
+    // (Olm encryption to a wildcard is impossible).
+    bool sendKeyRequestToDevices(const std::string& senderId,
+                                 const std::vector<std::string>& devices,
+                                 const std::string& requestContent);
+    // History-load flood gate (max 10 actual sends per 5s).
+    int64_t lastRequestGateMs_ = 0;
+    int requestGateCount_ = 0;
+
     // Reused outbound Olm sessions, keyed userId|deviceId. The peer keeps a
     // matching inbound session after our first (pre-key) message.
     struct OutboundOlmTarget;  // defined in decryptor.cpp (holds OlmSession)

@@ -275,8 +275,7 @@ void ThreadHandler::sendThreadReply(const std::string& roomId,
             int64_t ts = static_cast<int64_t>(
                 std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::system_clock::now().time_since_epoch()).count());
-            auto r = self->client_->sendEncryptedEvent(roomId, enc,
-                "pd" + std::to_string(ts));
+            auto r = self->client_->sendEncryptedEvent(roomId, enc, genTxnId("thr"));
             LOG(LogChannel::GUI, "sendThreadReply enc: ok=%d http=%d",
                 r.ok ? 1 : 0, r.httpStatus);
             QMetaObject::invokeMethod(guard, [guard, self, r, effectiveRoot, text, ts, sharedFresh, sessId]() {

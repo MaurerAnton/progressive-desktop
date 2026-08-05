@@ -42,6 +42,10 @@ Decryptor::~Decryptor() = default;
 
 bool Decryptor::init(const std::string& accountPickle, const std::string& pickleKey,
                       bool shared) {
+    {
+        std::lock_guard<std::mutex> lk(outboundOlmMtx_);
+        outboundOlmSessions_.clear();
+    }
     if (!accountPickle.empty()) {
         if (!account_->load(accountPickle, pickleKey)) {
             return account_->create();
@@ -564,10 +568,11 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
         auto result = session.createInbound(*underlyingAccount, msgCopy);
         std::fprintf(stderr, "[E2EE] DBG9: createInbound success=%d\n", result.success ? 1 : 0);
         if (!result.success) {
-            LOG(LogChannel::E2EE, "Olm: createInbound Olm session FAILED");
+            LOG(LogChannel::E2EE, "Olm: createInbound Olm session FAILED — recovering with a fresh session");
             auto* raw = static_cast<::OlmSession*>(session.rawSession());
             std::fprintf(stderr, "[E2EE] createInbound libolm error: %s\n",
                 ::olm_session_last_error(raw) ? ::olm_session_last_error(raw) : "(null)");
+            forceNewOlmSession(senderId, senderKey);
             return {};
         }
         // After createInbound, decrypt the ORIGINAL message body
@@ -576,7 +581,8 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
         std::fprintf(stderr, "[E2EE] DBG11: decrypt success=%d dataSize=%zu\n",
             decResult.success ? 1 : 0, decResult.data.size());
         if (!decResult.success) {
-            LOG(LogChannel::E2EE, "Olm: decrypt after createInbound FAILED");
+            LOG(LogChannel::E2EE, "Olm: decrypt after createInbound FAILED — recovering with a fresh session");
+            forceNewOlmSession(senderId, senderKey);
             return {};
         }
         plaintext = decResult.data;
@@ -599,8 +605,9 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
     } else {
         auto it = olmSessions_.find(senderKey);
         if (it == olmSessions_.end() || it->second.empty()) {
-            LOG(LogChannel::E2EE, "Olm: no saved session for sender=%s — cannot decrypt type %d",
+            LOG(LogChannel::E2EE, "Olm: no saved session for sender=%s — cannot decrypt type %d — recovering with a fresh session",
                 senderKey.c_str(), msgType);
+            forceNewOlmSession(senderId, senderKey);
             return {};
         }
         bool decrypted = false;
@@ -627,8 +634,14 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
             break;
         }
         if (!decrypted) {
-            LOG(LogChannel::E2EE, "Olm: decrypt type %d FAILED for sender=%s (tried %zu sessions, keeping all)",
+            // The session chain with this device is broken (e.g. BAD_MESSAGE_MAC
+            // after a restart lost the matching pickle). Drop the stale pickles
+            // so the peer's next pre-key message starts clean, and send an
+            // m.dummy pre-key so the peer re-establishes a session with us.
+            LOG(LogChannel::E2EE, "Olm: decrypt type %d FAILED for sender=%s (tried %zu sessions) — dropping stale pickles + fresh session",
                 msgType, senderKey.c_str(), it->second.size());
+            olmSessions_.erase(senderKey);
+            forceNewOlmSession(senderId, senderKey);
             return {};
         }
     }
@@ -1282,10 +1295,43 @@ size_t Decryptor::olmSessionCount() {
 
 void Decryptor::setCryptoContext(const std::string& ourUserId, const std::string& ourDeviceId,
                                   const std::string& homeserverUrl, const std::string& accessToken) {
+    // The outbound-session cache is tied to our identity keys — a re-init
+    // (e.g. after a device reset) regenerates them, so stale sessions must go.
+    {
+        std::lock_guard<std::mutex> lk(outboundOlmMtx_);
+        outboundOlmSessions_.clear();
+    }
     ctxUserId_ = ourUserId;
     ctxDeviceId_ = ourDeviceId;
     ctxHomeserver_ = homeserverUrl;
     ctxToken_ = accessToken;
+}
+
+// Send a key request to a device list; "*" entries go as PLAIN to-device
+// (Olm encryption to a wildcard is impossible).
+bool Decryptor::sendKeyRequestToDevices(const std::string& senderId,
+    const std::vector<std::string>& devices, const std::string& requestContent) {
+    bool ok = false;
+    std::string plainBody;
+    for (const auto& dev : devices) {
+        if (dev == "*") {
+            plainBody = "{\"messages\":{\"" + senderId + "\":{\"*\":"
+                + requestContent + "}}}";
+            continue;
+        }
+        ok |= sendOlmToDevice(senderId, dev, "m.room_key_request", requestContent, true);
+    }
+    if (!plainBody.empty()) {
+        std::string txn = "pdplain" + std::to_string(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count());
+        auto resp = httpPut(ctxHomeserver_ + "/_matrix/client/v3/sendToDevice/m.room_key_request/"
+            + txn, plainBody, makeAuthHeaders(ctxToken_), 15000);
+        LOG(LogChannel::E2EE, "sendKeyRequestToDevices: plain wildcard send ok=%d status=%d",
+            resp.success ? 1 : 0, resp.statusCode);
+        ok = ok || resp.success;
+    }
+    return ok;
 }
 
 // Shared builder for the m.room_key_request content (used by the initial
@@ -1327,9 +1373,23 @@ void Decryptor::requestRoomKey(const std::string& roomId, const std::string& sen
     // device, Olm-encrypted. Falls back to the known sender device, then to
     // the "*" wildcard so a request is never silently dropped.
     auto devs = resolveRequestRecipients(senderId, senderDeviceId);
-    bool ok = false;
-    for (const auto& dev : devs)
-        ok |= sendOlmToDevice(senderId, dev, "m.room_key_request", requestContent, true);
+    // History loads can hit many missing sessions at once — cap the actual
+    // sends; deferred entries stay in the map and are retried on schedule.
+    {
+        std::lock_guard<std::mutex> lk(requestMtx_);
+        auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        if (nowMs - lastRequestGateMs_ > 5000) { requestGateCount_ = 0; lastRequestGateMs_ = nowMs; }
+        if (requestGateCount_ >= 10) {
+            auto it = requestedKeys_.find(key);
+            if (it != requestedKeys_.end()) it->second.lastMs = nowMs - 25000;
+            LOG(LogChannel::E2EE, "requestRoomKey: rate-limited room=%.40s sid=%.20s (deferred)",
+                roomId.c_str(), sessionId.c_str());
+            return;
+        }
+        requestGateCount_++;
+    }
+    bool ok = sendKeyRequestToDevices(senderId, devs, requestContent);
     {
         std::lock_guard<std::mutex> lk(requestMtx_);
         auto it = requestedKeys_.find(key);
@@ -1375,9 +1435,7 @@ void Decryptor::reRequestKey(const std::string& roomId, const std::string& sende
         + g_txnCounter.fetch_add(1));
     std::string requestContent = buildRoomKeyRequestJson(roomId, senderKey, sessionId, reqId, ctxDeviceId_);
     auto devs = resolveRequestRecipients(senderId, senderDeviceId);
-    bool ok = false;
-    for (const auto& dev : devs)
-        ok |= sendOlmToDevice(senderId, dev, "m.room_key_request", requestContent, true);
+    bool ok = sendKeyRequestToDevices(senderId, devs, requestContent);
     {
         std::lock_guard<std::mutex> lk(requestMtx_);
         auto it = requestedKeys_.find(key);
@@ -1413,9 +1471,7 @@ void Decryptor::resendAllPendingRequests() {
         std::vector<std::string> devs = st.recipientDevices;
         if (devs.empty() && !st.senderDeviceId.empty()) devs.push_back(st.senderDeviceId);
         if (devs.empty()) devs.push_back("*");
-        bool ok = false;
-        for (const auto& dev : devs)
-            ok |= sendOlmToDevice(st.senderId, dev, "m.room_key_request", requestContent, true);
+        bool ok = sendKeyRequestToDevices(st.senderId, devs, requestContent);
         {
             std::lock_guard<std::mutex> lk(requestMtx_);
             auto it = requestedKeys_.find(key);
@@ -1564,9 +1620,7 @@ void Decryptor::maybeReRequestKeys() {
         std::vector<std::string> devs = st.recipientDevices;
         if (devs.empty() && !st.senderDeviceId.empty()) devs.push_back(st.senderDeviceId);
         if (devs.empty()) devs.push_back("*");
-        bool ok = false;
-        for (const auto& dev : devs)
-            ok |= sendOlmToDevice(st.senderId, dev, "m.room_key_request", requestContent, true);
+        bool ok = sendKeyRequestToDevices(st.senderId, devs, requestContent);
         st.lastRequestId = reqId;
         noteRoomKey({roomId, sessionId, st.senderId, RoomKeyEventKind::Requested, st.attempts, 0});
         LOG(LogChannel::E2EE, "maybeReRequestKeys: retry %d for room=%.40s sid=%.20s ok=%d",

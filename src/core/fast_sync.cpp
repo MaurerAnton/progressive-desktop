@@ -133,7 +133,8 @@ FastRoom buildFastRoom(simdjson::dom::element room,
 
 } // namespace
 
-FastSyncResponse parseSyncResponseFast(std::string json, std::string& errorMessage) {
+FastSyncResponse parseSyncResponseFast(std::string json, std::string& errorMessage,
+                                        const std::string& ourDeviceId) {
     FastSyncResponse resp;
     errorMessage.clear();
 
@@ -256,14 +257,27 @@ FastSyncResponse parseSyncResponseFast(std::string json, std::string& errorMessa
             resp.deviceListChanged.size(), resp.deviceListLeft.size());
     }
 
-    auto otkCountResult = root["device_one_time_keys_count"];
-    if (otkCountResult.error() == simdjson::SUCCESS) {
-        auto count = otkCountResult.value()["signed_curve25519"].get_int64();
-        if (count.error() == simdjson::SUCCESS) {
-            resp.signedCurve25519Count = static_cast<int>(count.value());
-            LOG(LogChannel::E2EE, "fastSync: signed_curve25519 count=%d",
-                resp.signedCurve25519Count);
+    // one_time_keys_count is the flat {algorithm: count} map (deprecated but
+    // always present); device_one_time_keys_count is keyed per device. Prefer
+    // the per-device value when we know our device id, else the flat map.
+    bool gotCount = false;
+    if (!ourDeviceId.empty()) {
+        auto perDev = root["device_one_time_keys_count"][ourDeviceId]["signed_curve25519"].get_int64();
+        if (perDev.error() == simdjson::SUCCESS) {
+            resp.signedCurve25519Count = static_cast<int>(perDev.value());
+            gotCount = true;
         }
+    }
+    if (!gotCount) {
+        auto flat = root["one_time_keys_count"]["signed_curve25519"].get_int64();
+        if (flat.error() == simdjson::SUCCESS) {
+            resp.signedCurve25519Count = static_cast<int>(flat.value());
+            gotCount = true;
+        }
+    }
+    if (gotCount) {
+        LOG(LogChannel::E2EE, "fastSync: signed_curve25519 count=%d",
+            resp.signedCurve25519Count);
     }
 
     auto unusedFallbackResult = root["device_unused_fallback_key_types"];

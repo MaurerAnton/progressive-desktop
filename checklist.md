@@ -140,3 +140,30 @@ completed items are removed.
       forwarded-erase + encrypted-blob round trip
 - [ ] Follow-up: room/DM creation UI with encryption (app can't create rooms)
 - [ ] Follow-up: receive-side GIF (fetchMovie) has no encrypted path
+
+## Aug 5 batch 3 (root-cause fixes + audit batch)
+- [x] ROOT CAUSE: Olm decrypt failure (BAD_MESSAGE_MAC / no session / pre-key
+      failure) now recovers — forceNewOlmSession (m.dummy) was dead code;
+      stale pickles dropped so the peer's next pre-key starts clean. This was
+      why Element's m.room_key answers never decrypted -> "no key yet" forever
+- [x] Crypto state persists every 20 syncs + on logout (was: only on clean
+      close — a PineTab power-off lost sessions and deadlocked peers)
+- [x] /sync OTK count parsed correctly (device_one_time_keys_count per-device
+      + one_time_keys_count fallback) — the "count=0 -> uploading fresh keys"
+      spam loop every sync is gone
+- [x] Avatar thumbnail 404 fallback (full download) — missing avatars
+- [x] Txn-id collisions fixed: all sends use genTxnId (two messages in the
+      same second were silently dropped by the server)
+- [x] Plain "*" wildcard key requests (Olm-to-* is impossible)
+- [x] mimetype from file.mimetype / info.mimetype (encrypted media rows)
+- [x] Download… works for empty-body media rows
+- [x] Outbound Olm session cache cleared on init/setCryptoContext (identity
+      changes)
+- [x] Encrypted images prefer the small info.thumbnail_file
+- [x] /me failures show an error notice (was a lying echo)
+- [x] Log viewer seq-set pruning (memory)
+- [x] "Copy text" context action on messages
+- [x] Upload filenames percent-encoded (Cyrillic/space/& safe)
+- [x] Key-request rate gate (10 per 5s) — history loads no longer flood
+- [x] Room-list/notification previews show "[encrypted]" for encrypted rooms
+- [x] Tests: genTxnId uniqueness, file.mimetype, [encrypted] preview

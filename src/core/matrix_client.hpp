@@ -25,6 +25,10 @@
 
 namespace progressive::desktop {
 
+// Unique transaction-id for /send calls (time + counter — never collides
+// within a second, unlike a bare timestamp).
+std::string genTxnId(const std::string& prefix = "pd");
+
 // Result of an API call. Either success (data populated) or error (errcode set).
 template <typename T>
 struct ApiResult {

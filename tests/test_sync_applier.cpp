@@ -9,6 +9,7 @@
 #include "core/matrix_client.hpp"
 
 #include <iostream>
+#include <set>
 #include <string>
 #include <deque>
 
@@ -206,6 +207,31 @@ int main() {
               "media: key/iv/sha extracted");
         CHECK(de.thumbUrl == "mxc://a/t" && de.thumbKey == "TK" && de.thumbSha256 == "TS",
               "media: info.thumbnail_file extracted");
+        CHECK(de.mimetype == "image/png", "media: mimetype from file.mimetype");
+    }
+    {
+        // Newest event is encrypted -> "[encrypted]" preview (no stale text).
+        FastEvent fe;
+        fe.type = "m.room.encrypted";
+        fe.eventId = "$e1";
+        fe.senderId = "@alice:test";
+        std::string cj = "{\"algorithm\":\"m.megolm.v1.aes-sha2\",\"ciphertext\":\"x\"}";
+        fe.contentJson = cj;
+        fe.originServerTs = 9;
+        std::vector<FastEvent> evs = {fe};
+        CHECK(SyncApplier::extractLastMessageBody(evs) == "[encrypted]",
+              "preview: newest encrypted event -> [encrypted] placeholder");
+    }
+    {
+        // genTxnId uniqueness (send transaction ids must never collide).
+        std::set<std::string> ids;
+        bool unique = true;
+        for (int i = 0; i < 200; ++i) {
+            auto id = genTxnId("enc");
+            if (!ids.insert(id).second) { unique = false; break; }
+        }
+        CHECK(unique, "txn: 200 rapid ids are unique");
+        CHECK(genTxnId().find("pd") == 0, "txn: default prefix");
     }
     {
         FastEvent fe;

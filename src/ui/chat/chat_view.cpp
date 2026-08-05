@@ -37,7 +37,11 @@ ChatView::ChatView(std::shared_ptr<MatrixClient> client, TimelineModel* model, M
     connect(edit_, &MessageEdit::slashCommand, this, [this](const std::string& cmd, const std::string& args) {
         if (cmd == "me" && !roomId_.empty()) {
             std::fprintf(stderr, "[chat] slash: /me %s\n", args.c_str());
+            std::string tempId = "pending-" + std::to_string(
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count());
             DisplayedEvent echo;
+            echo.eventId = tempId;
             echo.senderId = client_->account().userId;
             echo.senderName = "you";
             echo.type = "m.room.message";
@@ -48,7 +52,8 @@ ChatView::ChatView(std::shared_ptr<MatrixClient> client, TimelineModel* model, M
             std::string emoteBody = args;
             bool enc = encrypted_;
             QPointer<ChatView> guard(this);
-            ThreadPool::instance().enqueue([guard, client = client_, roomId = roomId_, body = std::move(emoteBody), enc]() {
+            ThreadPool::instance().enqueue([guard, client = client_, roomId = roomId_, body = std::move(emoteBody), enc, tempId]() {
+                ApiResult<std::string> r;
                 if (enc && guard && guard->sync_ && guard->sync_->decryptor()->isInitialized()) {
                     auto* dec = guard->sync_->decryptor();
                     std::string sessId = dec->getOrCreateOutboundSession(roomId);
@@ -58,9 +63,15 @@ ChatView::ChatView(std::shared_ptr<MatrixClient> client, TimelineModel* model, M
                     std::string enc2 = dec->encryptMessage(roomId, client->account().deviceId, inner);
                     if (enc2.empty()) return;
                     if (!dec->roomKeyShared(roomId)) shareRoomKeyForRoom(*client, *dec, roomId);
-                    client->sendEncryptedEvent(roomId, enc2, "pd" + std::to_string(std::time(nullptr)));
+                    r = client->sendEncryptedEvent(roomId, enc2, genTxnId("enc"));
                 } else {
-                    client->sendMessage(roomId, body, "m.emote");
+                    r = client->sendMessage(roomId, body, "m.emote");
+                }
+                if (!r.ok && guard) {
+                    QMetaObject::invokeMethod(guard, [guard, r, tempId]() {
+                        if (guard.isNull()) return;
+                        guard->model_->replaceEcho(tempId, {.msgtype = "m.notice", .body = "❌ " + r.error.message});
+                    }, Qt::QueuedConnection);
                 }
             });
         } else {
@@ -221,7 +232,7 @@ void ChatView::doSend(const std::string& body) {
                 LOG(LogChannel::E2EE, "doSend: shareRoomKeyForRoom %s in %lldms room=%.30s",
                     shared ? "ok" : "FAILED", (long long)shareMs, roomId.c_str());
             }
-            auto r = client->sendEncryptedEvent(roomId, enc, "pd" + std::to_string(std::time(nullptr)));
+            auto r = client->sendEncryptedEvent(roomId, enc, genTxnId("enc"));
             if (!r.ok) {
                 std::fprintf(stderr, "[send] FAILED encrypted: %s\n", r.error.message.c_str());
                 QMetaObject::invokeMethod(guard, [guard, r, tempId]() {
@@ -344,7 +355,7 @@ void ChatView::doAttachFile(const QString& filePath) {
                 LOG(LogChannel::E2EE, "sendFile: shareRoomKeyForRoom %s in %lldms room=%.30s",
                     shared ? "ok" : "FAILED", (long long)shareMs, roomId.c_str());
             }
-            r = client->sendEncryptedEvent(roomId, enc, "pd" + std::to_string(std::time(nullptr)));
+            r = client->sendEncryptedEvent(roomId, enc, genTxnId("enc"));
             echoMxc = up.data; echoKey = encKey; echoIv = encIv; echoSha = encSha;
         } else {
             auto up = client->uploadMedia(bytes, fn, ct);
@@ -403,7 +414,7 @@ void ChatView::doQuickReact(const QString& emoji) {
                                     ",\"room_id\":\"" + roomId + "\"}";
                 std::string enc = dec->encryptMessage(roomId, client->account().deviceId, inner);
                 if (!enc.empty())
-                    r = client->sendEncryptedEvent(roomId, enc, "pd" + std::to_string(std::time(nullptr)));
+                    r = client->sendEncryptedEvent(roomId, enc, genTxnId("enc"));
             }
             if (!r.ok && r.error.message.empty())
                 r.error.message = "reaction encryption failed";

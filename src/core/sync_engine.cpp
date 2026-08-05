@@ -282,6 +282,10 @@ void SyncEngine::run() {
         // Room-key request retries (backoff schedule) — every sync tick, even
         // when this sync carried no data (quiet room = no handler call).
         decryptor_.maybeReRequestKeys();
+        // Periodic crypto persistence: sessions gained since the last clean
+        // close must survive a crash (a power-off otherwise loses them, and a
+        // peer's next Olm message fails with BAD_MESSAGE_MAC forever).
+        if (stats_.syncs % 20 == 0) persistCrypto();
         if (!running_) break;
 
         if (!result.data.deviceListChanged.empty()) {

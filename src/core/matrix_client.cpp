@@ -36,11 +36,25 @@ std::string urlEncodePath(const std::string& s) {
 }
 
 // ---- Helper: generate unique txn ID ----
-std::string genTxnId(const std::string& prefix = "pd") {
-    static std::atomic<uint64_t> counter{0};
-    uint64_t t = static_cast<uint64_t>(std::time(nullptr)) * 1000 + (counter.fetch_add(1) % 1000);
-    return prefix + std::to_string(t);
+// Percent-encode a query value (unreserved chars only) — upload filenames
+// with spaces/Cyrillic/& must not break the URL.
+static std::string percentEncode(const std::string& s) {
+    static const char* hex = "0123456789ABCDEF";
+    std::string out;
+    for (unsigned char ch : s) {
+        if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
+            (ch >= '0' && ch <= '9') || ch == '-' || ch == '_' || ch == '.' || ch == '~') {
+            out += static_cast<char>(ch);
+        } else {
+            out += '%';
+            out += hex[ch >> 4];
+            out += hex[ch & 15];
+        }
+    }
+    return out;
 }
+
+
 
 // ---- Helper: JSON escape ----
 std::string jsonEscape(const std::string& s) {
@@ -112,6 +126,15 @@ std::unordered_map<std::string, std::string> MatrixClient::authHeaders() const {
     h["Content-Type"] = "application/json";
     h["Accept"] = "application/json";
     return h;
+}
+
+
+// Unique transaction-id for /send calls (time + counter — never collides
+// within a second, unlike a bare timestamp).
+std::string genTxnId(const std::string& prefix) {
+    static std::atomic<uint64_t> counter{0};
+    uint64_t t = static_cast<uint64_t>(std::time(nullptr)) * 1000 + (counter.fetch_add(1) % 1000);
+    return prefix + std::to_string(t);
 }
 
 ApiResult<std::string> MatrixClient::discoverHomeserver(const std::string& userInput) {
@@ -1006,7 +1029,7 @@ MatrixClient::FastSyncResult MatrixClient::syncFast(const std::string& since,
     r.httpStatus = resp.statusCode;
     if (resp.success) {
         std::string err;
-        r.data = parseSyncResponseFast(std::move(resp.body), err);
+        r.data = parseSyncResponseFast(std::move(resp.body), err, account().deviceId);
         r.ok = err.empty();
         if (!r.ok) r.error.message = std::move(err);
     } else {
@@ -1232,7 +1255,7 @@ ApiResult<std::string> MatrixClient::uploadMedia(const std::vector<uint8_t>& dat
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
     std::ostringstream url;
     url << account().homeserverUrl << "/_matrix/media/v3/upload";
-    if (!filename.empty()) url << "?filename=" << filename;
+    if (!filename.empty()) url << "?filename=" << percentEncode(filename);
 
     // Build headers with content type
     auto hdrs = authHeaders();

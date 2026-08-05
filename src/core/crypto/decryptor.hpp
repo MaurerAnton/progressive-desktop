@@ -249,10 +249,14 @@ public:
     // Send an Olm-encrypted to-device event (m.room.encrypted wrapping) to a
     // single device: query keys -> claim OTK -> create outbound session ->
     // encrypt inner {type, content, sender/recipient envelope} -> PUT.
+    // Established sessions are REUSED (one OTK per device ever) unless
+    // forceFresh is set — the key-request path uses fresh pre-key messages
+    // so a peer that evicted our session still creates a matching inbound one.
     bool sendOlmToDevice(const std::string& targetUserId,
                          const std::string& targetDeviceId,
                          const std::string& innerType,
-                         const std::string& innerContent);
+                         const std::string& innerContent,
+                         bool forceFresh = false);
 
     void setShareKeysVerifiedOnly(bool v) { shareKeysVerifiedOnly_ = v; }
 
@@ -342,6 +346,12 @@ private:
     std::vector<RoomKeyNotification> roomKeyNotifications_;
     std::mutex roomKeyNotifMtx_;
     void noteRoomKey(RoomKeyNotification n);
+
+    // Reused outbound Olm sessions, keyed userId|deviceId. The peer keeps a
+    // matching inbound session after our first (pre-key) message.
+    struct OutboundOlmTarget;  // defined in decryptor.cpp (holds OlmSession)
+    std::unordered_map<std::string, OutboundOlmTarget> outboundOlmSessions_;
+    std::mutex outboundOlmMtx_;
 
     std::vector<std::string> resolveRequestRecipients(const std::string& senderId,
                                                       const std::string& senderDeviceId);

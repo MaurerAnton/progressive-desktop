@@ -26,6 +26,12 @@
 
 namespace progressive::desktop {
 
+// Reused outbound Olm sessions, keyed userId|deviceId (see sendOlmToDevice).
+struct Decryptor::OutboundOlmTarget {
+    std::unique_ptr<progressive::OlmSession> session;
+    std::string curve;
+};
+
 static std::atomic<uint64_t> g_txnCounter{0};
 
 Decryptor::Decryptor()
@@ -1323,7 +1329,7 @@ void Decryptor::requestRoomKey(const std::string& roomId, const std::string& sen
     auto devs = resolveRequestRecipients(senderId, senderDeviceId);
     bool ok = false;
     for (const auto& dev : devs)
-        ok |= sendOlmToDevice(senderId, dev, "m.room_key_request", requestContent);
+        ok |= sendOlmToDevice(senderId, dev, "m.room_key_request", requestContent, true);
     {
         std::lock_guard<std::mutex> lk(requestMtx_);
         auto it = requestedKeys_.find(key);
@@ -1371,7 +1377,7 @@ void Decryptor::reRequestKey(const std::string& roomId, const std::string& sende
     auto devs = resolveRequestRecipients(senderId, senderDeviceId);
     bool ok = false;
     for (const auto& dev : devs)
-        ok |= sendOlmToDevice(senderId, dev, "m.room_key_request", requestContent);
+        ok |= sendOlmToDevice(senderId, dev, "m.room_key_request", requestContent, true);
     {
         std::lock_guard<std::mutex> lk(requestMtx_);
         auto it = requestedKeys_.find(key);
@@ -1409,7 +1415,7 @@ void Decryptor::resendAllPendingRequests() {
         if (devs.empty()) devs.push_back("*");
         bool ok = false;
         for (const auto& dev : devs)
-            ok |= sendOlmToDevice(st.senderId, dev, "m.room_key_request", requestContent);
+            ok |= sendOlmToDevice(st.senderId, dev, "m.room_key_request", requestContent, true);
         {
             std::lock_guard<std::mutex> lk(requestMtx_);
             auto it = requestedKeys_.find(key);
@@ -1560,7 +1566,7 @@ void Decryptor::maybeReRequestKeys() {
         if (devs.empty()) devs.push_back("*");
         bool ok = false;
         for (const auto& dev : devs)
-            ok |= sendOlmToDevice(st.senderId, dev, "m.room_key_request", requestContent);
+            ok |= sendOlmToDevice(st.senderId, dev, "m.room_key_request", requestContent, true);
         st.lastRequestId = reqId;
         noteRoomKey({roomId, sessionId, st.senderId, RoomKeyEventKind::Requested, st.attempts, 0});
         LOG(LogChannel::E2EE, "maybeReRequestKeys: retry %d for room=%.40s sid=%.20s ok=%d",
@@ -1776,7 +1782,7 @@ std::string Decryptor::importSingleSession(const std::string& roomId,
 // /sendToDevice/m.room.encrypted. Matches shareRoomKey's envelope format.
 bool Decryptor::sendOlmToDevice(const std::string& targetUserId,
     const std::string& targetDeviceId, const std::string& innerType,
-    const std::string& innerContent) {
+    const std::string& innerContent, bool forceFresh) {
     if (ctxHomeserver_.empty() || ctxToken_.empty()) return false;
     auto hdrs = makeAuthHeaders(ctxToken_);
 
@@ -1843,35 +1849,74 @@ bool Decryptor::sendOlmToDevice(const std::string& targetUserId,
         return false;
     }
 
-    // 3. Create outbound session + encrypt the inner event.
-    progressive::OlmSession session;
-    auto* acc = static_cast<progressive::OlmAccount*>(account_->rawAccount());
-    auto sessResult = session.createOutbound(*acc, theirCurve, oneTimeKey);
-    if (!sessResult.success) return false;
-
     std::string plaintext = "{\"type\":\"" + innerType + "\",\"content\":" + innerContent
         + ",\"sender\":\"" + ctxUserId_ + "\""
         + ",\"recipient\":\"" + targetUserId + "\""
         + ",\"keys\":{\"ed25519\":\"" + ed25519Key() + "\"}"
         + ",\"recipient_keys\":{\"ed25519\":\"" + theirEd + "\"}}";
-    auto encResult = session.encrypt(plaintext);
+
+    // 2b. Reuse an established session when the peer's identity key is
+    // unchanged — one OTK per (user, device) ever instead of one per send
+    // (fresh pre-key messages drained the peer's OTK pool). The key-request
+    // path forces fresh sessions so a peer that evicted ours still creates
+    // a matching inbound one.
+    std::string cacheKey = targetUserId + "|" + targetDeviceId;
+    if (!forceFresh) {
+        std::lock_guard<std::mutex> lk(outboundOlmMtx_);
+        auto it = outboundOlmSessions_.find(cacheKey);
+        if (it != outboundOlmSessions_.end() && it->second.curve == theirCurve) {
+            auto encResult = it->second.session->encrypt(plaintext);
+            if (encResult.success && !encResult.data.empty()) {
+                std::string sendBody = "{\"messages\":{\"" + targetUserId + "\":{\"" + targetDeviceId
+                    + "\":{\"algorithm\":\"m.olm.v1.curve25519-aes-sha2\","
+                    + "\"ciphertext\":{\"" + theirCurve + "\":{\"body\":\"" + encResult.data
+                    + "\",\"type\":" + std::to_string(encResult.messageType) + "}},"
+                    + "\"sender_key\":\"" + curve25519Key() + "\"}}}}";
+                std::string txnId = "pdolm" + std::to_string(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now().time_since_epoch()).count());
+                std::string url = ctxHomeserver_ + "/_matrix/client/v3/sendToDevice/m.room.encrypted/" + txnId;
+                auto resp = httpPut(url, sendBody, hdrs, 15000);
+                LOG(LogChannel::E2EE, "sendOlmToDevice: %s to=%s/%s reuse ok=%d status=%d",
+                    innerType.c_str(), targetUserId.c_str(), targetDeviceId.c_str(),
+                    resp.success ? 1 : 0, resp.statusCode);
+                if (resp.success) return true;
+            }
+            // Peer-side session lost (or encryption failed) — drop and fall
+            // through to a fresh pre-key session.
+            outboundOlmSessions_.erase(it);
+        }
+    }
+
+    // 3. Create outbound session + encrypt the inner event.
+    auto session = std::make_unique<progressive::OlmSession>();
+    auto* acc = static_cast<progressive::OlmAccount*>(account_->rawAccount());
+    auto sessResult = session->createOutbound(*acc, theirCurve, oneTimeKey);
+    if (!sessResult.success) return false;
+
+    auto encResult = session->encrypt(plaintext);
     if (!encResult.success || encResult.data.empty()) return false;
 
     // 4. Build + send m.room.encrypted to-device body.
     std::string sendBody = "{\"messages\":{\"" + targetUserId + "\":{\"" + targetDeviceId
         + "\":{\"algorithm\":\"m.olm.v1.curve25519-aes-sha2\","
         + "\"ciphertext\":{\"" + theirCurve + "\":{\"body\":\"" + encResult.data
-        + "\",\"type\":0}},"
+        + "\",\"type\":" + std::to_string(encResult.messageType) + "}},"
         + "\"sender_key\":\"" + curve25519Key() + "\"}}}}";
     std::string txnId = "pdolm" + std::to_string(
         std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count());
+            std::chrono::steady_clock::now().time_since_epoch()).count());
     std::string url = ctxHomeserver_ + "/_matrix/client/v3/sendToDevice/m.room.encrypted/" + txnId;
     auto resp = httpPut(url, sendBody, hdrs, 15000);
     LOG(LogChannel::E2EE, "sendOlmToDevice: %s to=%s/%s ok=%d status=%d",
         innerType.c_str(), targetUserId.c_str(), targetDeviceId.c_str(),
         resp.success ? 1 : 0, resp.statusCode);
-    return resp.success;
+    if (resp.success) {
+        std::lock_guard<std::mutex> lk(outboundOlmMtx_);
+        outboundOlmSessions_[cacheKey] = OutboundOlmTarget{std::move(session), theirCurve};
+        return true;
+    }
+    return false;
 }
 
 

@@ -87,7 +87,7 @@ static bool setupE2EE(TestUser& u, const std::string& hs) {
         return false;
     }
     u.decryptor.setCryptoContext(u.userId, u.deviceId, hs, u.token);
-    std::string body = u.decryptor.buildKeysUploadBody(u.userId, u.deviceId, 10, true);
+    std::string body = u.decryptor.buildKeysUploadBody(u.userId, u.deviceId, 30, true);
     auto up = u.client.uploadKeys(body);
     if (!up.ok) {
         std::cerr << "[synapse-test] keys/upload failed for " << u.userId << ": "
@@ -380,6 +380,8 @@ static bool test_multiaccount_multidevice(const std::string& hs,
         CHECK(!cipher.empty() && cipher != blob, "media: ciphertext differs");
         std::string sha = progressive::desktop::sha256Base64(blob);
         auto up = alice.client.uploadMedia(cipher, "test.bin", "application/octet-stream");
+        std::cerr << "[media] upload status=" << up.httpStatus << " mxc=" << up.data
+                  << " err=" << up.error.message << "\n";
         CHECK(up.ok && !up.data.empty(), "media: ciphertext uploaded");
         std::string content = "{\"msgtype\":\"m.file\",\"body\":\"test.bin\",\"filename\":\"test.bin\","
             "\"file\":{\"url\":\"" + up.data + "\",\"key\":\"" + key + "\",\"iv\":\"" + iv + "\","

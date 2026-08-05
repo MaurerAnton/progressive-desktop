@@ -1255,6 +1255,8 @@ ApiResult<std::string> MatrixClient::uploadMedia(const std::vector<uint8_t>& dat
         if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body);
         r.error.message = resp.errorMessage.empty() ? r.error.message : resp.errorMessage;
     }
+    LOG(LogChannel::NET, "uploadMedia: status=%d ok=%d mxc=%.120s err=%.200s",
+        r.httpStatus, r.ok ? 1 : 0, r.data.c_str(), r.error.message.c_str());
     return r;
 }
 

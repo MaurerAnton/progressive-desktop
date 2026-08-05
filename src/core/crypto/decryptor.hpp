@@ -36,6 +36,17 @@ struct ReDecryptedEvent {
     int64_t originServerTs = 0;
 };
 
+// Room-key activity surfaced in the UI timeline ("X sent us the room key").
+enum class RoomKeyEventKind { Received, Requested };
+struct RoomKeyNotification {
+    std::string roomId;
+    std::string sessionId;
+    std::string fromUserId;    // Received: sender; Requested: request target
+    RoomKeyEventKind kind = RoomKeyEventKind::Received;
+    int attempt = 0;           // Requested: 1 = first request, 2+ = retry
+    int64_t ts = 0;
+};
+
 // Per-room outbound megolm session. Created when we first send a message
 // to an encrypted room. The session key is shared with all room members
 // via m.room_key to-device events (Olm 1:1 encrypted).
@@ -113,10 +124,12 @@ public:
 
     // Handle a to-device m.room_key event — adds the megolm inbound session.
     // Upon success, drains the pending queue and re-decrypts any saved events.
-    bool handleRoomKey(const std::string& contentJson);
+    bool handleRoomKey(const std::string& contentJson, const std::string& senderId = "");
 
     // Drain re-decrypted events (called from UI thread after sync).
     std::vector<ReDecryptedEvent> takeDecryptedEvents();
+    // Drain room-key activity (received/requested) for the UI timeline rows.
+    std::vector<RoomKeyNotification> takeRoomKeyNotifications();
 
     // ---- Inbound Olm 1:1 (to-device decryption) ----
     // Handle a to-device m.room.encrypted event (Olm 1:1 algorithm).
@@ -206,7 +219,7 @@ public:
     // re-share a megolm room key). Sends m.forwarded_room_key on success.
     // requesterVerified: (userId, deviceId) SAS-verified. verifiedOnly: policy flag.
     // Import an m.forwarded_room_key (v1 export format) into the megolm store.
-    bool handleForwardedRoomKey(const std::string& contentJson);
+    bool handleForwardedRoomKey(const std::string& contentJson, const std::string& senderId = "");
 
     // Export all megolm keys (inbound + outbound) as a MegolmSessionData
     // JSON envelope (version 1). For backup / export file.
@@ -256,6 +269,12 @@ public:
     void requestRoomKey(const std::string& roomId, const std::string& senderId,
                         const std::string& senderKey, const std::string& sessionId,
                         const std::string& senderDeviceId = "");
+
+    // Manual "Ask for keys" (Element parity) — re-send the key request NOW
+    // with a fresh request_id even if one is already pending.
+    void reRequestKey(const std::string& roomId, const std::string& senderId,
+                      const std::string& senderKey, const std::string& sessionId,
+                      const std::string& senderDeviceId);
 
     // Force a new Olm session with a sender by sending m.dummy (to-device).
     // Creates an outbound Olm session, pickles+stores it so we can decrypt
@@ -308,6 +327,10 @@ private:
 
     std::vector<ReDecryptedEvent> reDecryptedEvents_;
     std::mutex reDecryptedMtx_;
+
+    std::vector<RoomKeyNotification> roomKeyNotifications_;
+    std::mutex roomKeyNotifMtx_;
+    void noteRoomKey(RoomKeyNotification n);
 };
 
 } // namespace progressive::desktop

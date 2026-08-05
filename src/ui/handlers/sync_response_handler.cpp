@@ -54,13 +54,40 @@ void SyncResponseHandler::handle(FastSyncResponse resp) {
     ThreadPool::instance().enqueue([guard, rmh, resp = std::move(resp), myUserId, curRoomId, notifier]() mutable {
         auto keepAlive = std::make_shared<FastSyncResponse>(std::move(resp));
         auto syncUpdate = SyncApplier::prepareRoomSyncUpdate(*keepAlive, curRoomId, myUserId);
+        // Room-key activity (received / requested) — rendered as system rows
+        // in the open room's timeline. Retries run in the core sync loop now.
+        std::vector<RoomKeyNotification> keyNotifs;
         if (guard && guard->decryptor_)
-            guard->decryptor_->maybeReRequestKeys();  // worker thread, once per sync
+            keyNotifs = guard->decryptor_->takeRoomKeyNotifications();
 
-        QMetaObject::invokeMethod(guard, [guard, rmh, syncUpdate = std::move(syncUpdate), notifier, keepAlive]() mutable {
+        QMetaObject::invokeMethod(guard, [guard, rmh, syncUpdate = std::move(syncUpdate), keyNotifs = std::move(keyNotifs), curRoomId, notifier, keepAlive]() mutable {
             if (guard.isNull()) return;
             guard->roomStore_->applyRoomSyncUpdate(syncUpdate,
                 guard->roomModel_, guard->timelineModel_, guard->decryptor_);
+
+            for (const auto& n : keyNotifs) {
+                if (n.roomId != curRoomId || n.roomId.empty()) continue;
+                std::string who = n.fromUserId;
+                if (!rmh.isNull()) {
+                    auto it = rmh->memberAvatarCache().find(n.fromUserId + "/name");
+                    if (it != rmh->memberAvatarCache().end()) who = it->second;
+                }
+                std::string shortSid = n.sessionId.size() > 6
+                    ? n.sessionId.substr(0, 6) + "…" : n.sessionId;
+                DisplayedEvent sys;
+                sys.type = "progressive.system";
+                sys.eventId = "rk" + n.sessionId.substr(0, 8) + "_" + std::to_string(n.ts);
+                sys.originServerTs = n.ts;
+                sys.senderName = "system";
+                if (n.kind == RoomKeyEventKind::Received) {
+                    sys.body = who + " sent us the room key (session " + shortSid + ")";
+                } else {
+                    sys.body = "No key yet — requested from " + who +
+                               (n.attempt > 1 ? " again (session " : " (session ") +
+                               shortSid + ")";
+                }
+                guard->timelineModel_->appendBack(sys);
+            }
 
             if (guard->decryptor_) {
                 // Core conversion (SyncApplier) + the UI-only model op.

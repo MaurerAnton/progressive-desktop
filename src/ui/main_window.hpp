@@ -43,6 +43,10 @@ class MainWindow : public QMainWindow {
 
 public:
     explicit MainWindow(QWidget* parent = nullptr);
+
+    // Live decryptor access (stable member of sync_) — for key re-request
+    // actions from context menus.
+    Decryptor* decryptor() { return sync_.decryptor(); }
     ~MainWindow();
 
     void setClient(std::shared_ptr<MatrixClient> client);

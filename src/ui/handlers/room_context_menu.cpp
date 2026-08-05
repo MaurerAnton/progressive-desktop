@@ -8,6 +8,8 @@
 #include "../timeline/timeline_handlers.hpp"
 #include "../room_list_model.hpp"
 #include "../main_window.hpp"
+#include "core/crypto/decryptor.hpp"
+#include <simdjson.h>
 
 #include <QInputDialog>
 #include <QLabel>
@@ -283,6 +285,9 @@ void RoomContextMenu::showTimelineContextMenu(const QString& eventId,
     auto* whyEncryptedAction = decryptError.isEmpty()
         ? nullptr
         : menu.addAction("Why is this encrypted?");
+    auto* askAgainAction = decryptError.isEmpty()
+        ? nullptr
+        : menu.addAction("Request the key again");
     menu.addSeparator();
     auto* editAction = menu.addAction("Edit");
     auto* deleteAction = menu.addAction("Delete");
@@ -294,7 +299,30 @@ void RoomContextMenu::showTimelineContextMenu(const QString& eventId,
     std::string roomIdStr = roomId;
     std::string eidStrVal = eventId.toStdString();
 
-    if (selected == whyEncryptedAction && whyEncryptedAction) {
+    if (selected == askAgainAction && askAgainAction) {
+        // Manual key re-request (Element's "Ask for keys"): re-send the
+        // m.room_key_request NOW with a fresh request_id.
+        int rrow = timelineModel_->findRow(eidStrVal);
+        auto* evt2 = rrow >= 0 ? timelineModel_->at(rrow) : nullptr;
+        if (evt2 && mw_) {
+            std::string sid, sk, devId;
+            simdjson::dom::parser p;
+            auto doc = p.parse(evt2->contentJson);
+            if (doc.error() == simdjson::SUCCESS) {
+                auto a = doc.value()["session_id"].get_string();
+                auto b = doc.value()["sender_key"].get_string();
+                auto c = doc.value()["device_id"].get_string();
+                if (a.error() == simdjson::SUCCESS) sid = std::string(a.value());
+                if (b.error() == simdjson::SUCCESS) sk = std::string(b.value());
+                if (c.error() == simdjson::SUCCESS) devId = std::string(c.value());
+            }
+            if (!sid.empty() && !sk.empty() && mw_->decryptor()) {
+                mw_->decryptor()->reRequestKey(roomIdStr, evt2->senderId, sk, sid, devId);
+                statusLabel_->setText(QString("Key request sent to %1")
+                    .arg(QString::fromStdString(evt2->senderId)));
+            }
+        }
+    } else if (selected == whyEncryptedAction && whyEncryptedAction) {
         QMessageBox::information(mw_.data(), "Why is this encrypted?",
             "This message could not be decrypted.\n\n" + decryptError +
             "\n\nA room-key request was sent to the sender. If it stays "

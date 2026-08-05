@@ -191,8 +191,12 @@ void ChatView::doSend(const std::string& body) {
             // Share room key ONCE per session — BEFORE sending the encrypted message
             // so the recipient's /sync processes the to-device room_key before the room event,
             // and the message decrypts immediately instead of showing 'Unable to decrypt'.
+            bool keySharedBefore = dec->roomKeyShared(roomId);
+            bool sharedFresh = false;
             if (!shareRoomKeyForRoom(*client, *dec, roomId)) {
                 LOG(LogChannel::E2EE, "doSend: room key NOT shared (will retry next send) room=%.30s", roomId.c_str());
+            } else {
+                sharedFresh = !keySharedBefore;
             }
             auto r = client->sendEncryptedEvent(roomId, enc, "pd" + std::to_string(std::time(nullptr)));
             if (!r.ok) {
@@ -203,8 +207,19 @@ void ChatView::doSend(const std::string& body) {
                 }, Qt::QueuedConnection);
                 return;
             }
-            QMetaObject::invokeMethod(guard, [guard, r, tempId, body, myUserId]() {
-                if (guard.isNull() || !r.ok) return;
+            QMetaObject::invokeMethod(guard, [guard, r, tempId, body, myUserId, sharedFresh, sessId]() {
+                if (guard.isNull()) return;
+                if (sharedFresh) {
+                    auto nowMs = static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+                    DisplayedEvent sys;
+                    sys.type = "progressive.system";
+                    sys.eventId = "rks" + sessId.substr(0, 8) + "_" + std::to_string(nowMs);
+                    sys.originServerTs = nowMs;
+                    sys.senderName = "system";
+                    sys.body = "You shared the room key (session " + sessId.substr(0, 6) + "…)";
+                    guard->model_->appendBack(sys);
+                }
+                if (!r.ok) return;
                 DisplayedEvent real;
                 real.eventId = r.data; real.senderId = myUserId.toStdString();
                 real.senderName = "you"; real.type = "m.room.message";

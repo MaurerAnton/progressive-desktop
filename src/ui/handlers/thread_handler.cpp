@@ -262,7 +262,9 @@ void ThreadHandler::sendThreadReply(const std::string& roomId,
                 }, Qt::QueuedConnection);
                 return;
             }
+            bool keySharedBefore = dec->roomKeyShared(roomId);
             shareRoomKeyForRoom(*self->client_, *dec, roomId);
+            bool sharedFresh = !keySharedBefore && dec->roomKeyShared(roomId);
             int64_t ts = static_cast<int64_t>(
                 std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::system_clock::now().time_since_epoch()).count());
@@ -270,8 +272,17 @@ void ThreadHandler::sendThreadReply(const std::string& roomId,
                 "pd" + std::to_string(ts));
             LOG(LogChannel::GUI, "sendThreadReply enc: ok=%d http=%d",
                 r.ok ? 1 : 0, r.httpStatus);
-            QMetaObject::invokeMethod(guard, [guard, self, r, effectiveRoot, text, ts]() {
+            QMetaObject::invokeMethod(guard, [guard, self, r, effectiveRoot, text, ts, sharedFresh, sessId]() {
                 if (guard.isNull() || self.isNull()) return;
+                if (sharedFresh) {
+                    DisplayedEvent sys;
+                    sys.type = "progressive.system";
+                    sys.eventId = "rks" + sessId.substr(0, 8) + "_" + std::to_string(ts);
+                    sys.originServerTs = ts;
+                    sys.senderName = "system";
+                    sys.body = "You shared the room key (session " + sessId.substr(0, 6) + "…)";
+                    self->timelineModel_->appendBack(sys);
+                }
                 if (r.ok) {
                     DisplayedEvent echo;
                     echo.eventId = r.data;

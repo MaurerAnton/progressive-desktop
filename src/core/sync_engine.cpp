@@ -279,6 +279,9 @@ void SyncEngine::run() {
         // Process to-device events (E2EE): m.room_key adds megolm sessions,
         // m.room.encrypted handles Olm 1:1 (decrypts room_key delivery).
         processToDeviceEvents(result.data);
+        // Room-key request retries (backoff schedule) — every sync tick, even
+        // when this sync carried no data (quiet room = no handler call).
+        decryptor_.maybeReRequestKeys();
         if (!running_) break;
 
         if (!result.data.deviceListChanged.empty()) {
@@ -371,7 +374,7 @@ void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
             std::string contentStr(evt.contentJson);
             LOG(LogChannel::E2EE, "processToDevice: got m.room_key from=%s content=[%.200s]",
                 std::string(evt.senderId).c_str(), contentStr.c_str());
-            if (decryptor_.handleRoomKey(contentStr)) {
+            if (decryptor_.handleRoomKey(contentStr, std::string(evt.senderId))) {
                 LOG(LogChannel::E2EE, "processToDevice: handleRoomKey OK");
                 stats_.decryptedEvents++;
                 std::cerr << "[e2ee] added megolm session (room_key from "
@@ -402,7 +405,8 @@ void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
                           << evt.senderId << "\n";
             }
         } else if (evt.type == "m.forwarded_room_key") {
-            decryptor_.handleForwardedRoomKey(std::string(evt.contentJson));
+            decryptor_.handleForwardedRoomKey(std::string(evt.contentJson),
+                                              std::string(evt.senderId));
         } else if (evt.type == "m.room_key_request") {
             // Another device asks us to re-share a room key. Verified-only
             // policy is enforced inside handleRoomKeyRequest via the checker.

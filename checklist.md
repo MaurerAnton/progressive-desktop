@@ -95,3 +95,19 @@ completed items are removed.
 - [x] Avatar preserved when a re-decrypted event replaces its row
 - [x] Double-unescape removed (extractor unescapes; callers no longer re-wrap)
 - [x] Tooltip wording softened ("a key request is sent…")
+
+## Aug 5 batch (key-request UX + room-key chat events)
+- [x] Key requests: auto-retry now runs on EVERY sync tick in the core loop
+      (was: only on data syncs — retries stalled on quiet rooms)
+- [x] Manual "Ask for keys" (Element parity): context menu action on
+      undecryptable messages -> reRequestKey (fresh request_id, bypasses dedup)
+- [x] Chat rows: "X sent us the room key (session …)" (Received),
+      "No key yet — requested from X (session …)" (+ "again" on retries),
+      "You shared the room key" (once per session, send + thread paths)
+- [x] Shared buildRoomKeyRequestJson helper (was hand-built 3x)
+- [x] handleRoomKey/handleForwardedRoomKey carry the sender for the rows
+- [x] Tests: Received + forced re-request notifications in the mm scenario
+- [x] Media + reactions now encrypt in encrypted rooms (755d9a1)
+- [ ] Follow-up: receive-side m.encrypted media (file:) support + AES media
+      encryption (Element sends/expects encrypted media in E2EE rooms)
+- [ ] Follow-up: /me emote checks room state (DEBT(E2EE) chat_view.cpp:47)

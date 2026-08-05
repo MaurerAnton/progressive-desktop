@@ -317,6 +317,32 @@ static bool test_multiaccount_multidevice(const std::string& hs,
     CHECK(waitForDecrypt(carol, roomId, m1, sinceC), "mm: carol decrypts msg1");
     CHECK(waitForDecrypt(alice2, roomId, m1, sinceA2), "mm: alice device2 decrypts msg1");
 
+    // Room-key chat-event notifications: bob saw the key arrive (Received),
+    // and a manual "Ask for keys" re-request is forced even while pending.
+    {
+        auto got = bob.decryptor.takeRoomKeyNotifications();
+        bool received = false;
+        for (const auto& n : got) {
+            if (n.kind == RoomKeyEventKind::Received && n.roomId == roomId)
+                received = true;
+        }
+        CHECK(received, "notify: bob recorded a Received room-key event");
+    }
+    {
+        std::string fakeSid = "notify-session-" + std::to_string(std::time(nullptr));
+        std::string sk = alice.decryptor.curve25519Key();
+        bob.decryptor.requestRoomKey(roomId, alice.userId, sk, fakeSid, alice.deviceId);
+        bob.decryptor.reRequestKey(roomId, alice.userId, sk, fakeSid, alice.deviceId);
+        auto got = bob.decryptor.takeRoomKeyNotifications();
+        int requested = 0;
+        for (const auto& n : got) {
+            if (n.kind == RoomKeyEventKind::Requested && n.sessionId == fakeSid)
+                requested++;
+        }
+        CHECK(requested == 2,
+              "notify: initial request + manual re-request both recorded");
+    }
+
     // Late joiner: dan joins; A1 shares the current key; A1 sends -> dan decrypts.
     if (!registerUser(dan, hs, "mm_dan", pass)) return false;
     if (!setupE2EE(dan, hs)) return false;

@@ -157,7 +157,8 @@ DecryptionResult Decryptor::decryptMegolmEvent(const std::string& roomId,
     return r;
 }
 
-bool Decryptor::handleRoomKey(const std::string& contentJson) {
+bool Decryptor::handleRoomKey(const std::string& contentJson,
+    const std::string& senderId) {
     {
         // A received session satisfies any pending requests for it.
         simdjson::dom::parser p;
@@ -218,7 +219,10 @@ bool Decryptor::handleRoomKey(const std::string& contentJson) {
     }
     bool ok = megolm_->addInboundSession(roomId, senderKey, sessionId, sessionKey);
     LOG(LogChannel::E2EE, "handleRoomKey: addInboundSession=%d", ok ? 1 : 0);
-    if (ok) processPending(roomId, senderKey, sessionId);
+    if (ok) {
+        noteRoomKey({roomId, sessionId, senderId, RoomKeyEventKind::Received, 0, 0});
+        processPending(roomId, senderKey, sessionId);
+    }
     return ok;
 }
 
@@ -258,6 +262,20 @@ std::vector<ReDecryptedEvent> Decryptor::takeDecryptedEvents() {
     std::vector<ReDecryptedEvent> out;
     out.swap(reDecryptedEvents_);
     return out;
+}
+
+std::vector<RoomKeyNotification> Decryptor::takeRoomKeyNotifications() {
+    std::lock_guard<std::mutex> lk(roomKeyNotifMtx_);
+    std::vector<RoomKeyNotification> out;
+    out.swap(roomKeyNotifications_);
+    return out;
+}
+
+void Decryptor::noteRoomKey(RoomKeyNotification n) {
+    n.ts = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    std::lock_guard<std::mutex> lk(roomKeyNotifMtx_);
+    roomKeyNotifications_.push_back(std::move(n));
 }
 
 // ---- Device key upload body builder ----
@@ -650,7 +668,7 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
                             innerContent.insert(innerContent.size() - 1,
                                 ",\"sender_key\":\"" + senderKey + "\"");
                         }
-                        handleRoomKey(innerContent);
+                        handleRoomKey(innerContent, senderId);
                     }
                 } else if (typeVal == "m.room_key_request") {
                     // Another device's encrypted key request — route to the responder.
@@ -661,7 +679,7 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
                     // An Olm-encrypted forwarded key — import + replay pending.
                     LOG(LogChannel::E2EE, "Olm: inner type=m.forwarded_room_key — importing");
                     if (!innerContent.empty())
-                        handleForwardedRoomKey(innerContent);
+                        handleForwardedRoomKey(innerContent, senderId);
                 }
             }
         }
@@ -1254,6 +1272,20 @@ void Decryptor::setCryptoContext(const std::string& ourUserId, const std::string
     ctxToken_ = accessToken;
 }
 
+// Shared builder for the m.room_key_request content (used by the initial
+// request, the backoff retries, and the manual "Ask for keys" resend).
+static std::string buildRoomKeyRequestJson(const std::string& roomId,
+    const std::string& senderKey, const std::string& sessionId,
+    const std::string& requestId, const std::string& requestingDeviceId) {
+    return "{\"action\":\"request\","
+        "\"body\":{\"algorithm\":\"m.megolm.v1.aes-sha2\","
+        "\"room_id\":\"" + roomId + "\","
+        "\"sender_key\":\"" + senderKey + "\","
+        "\"session_id\":\"" + sessionId + "\"},"
+        "\"request_id\":\"" + requestId + "\","
+        "\"requesting_device_id\":\"" + requestingDeviceId + "\"}";
+}
+
 void Decryptor::requestRoomKey(const std::string& roomId, const std::string& senderId,
                                 const std::string& senderKey, const std::string& sessionId,
                                 const std::string& senderDeviceId) {
@@ -1274,13 +1306,7 @@ void Decryptor::requestRoomKey(const std::string& roomId, const std::string& sen
         static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count())
         + g_txnCounter.fetch_add(1));
     // The request content (m.room_key_request) — sent Olm-encrypted per spec.
-    std::string requestContent = "{\"action\":\"request\","
-        "\"body\":{\"algorithm\":\"m.megolm.v1.aes-sha2\","
-        "\"room_id\":\"" + roomId + "\","
-        "\"sender_key\":\"" + senderKey + "\","
-        "\"session_id\":\"" + sessionId + "\"},"
-        "\"request_id\":\"" + reqId + "\","
-        "\"requesting_device_id\":\"" + ctxDeviceId_ + "\"}";
+    std::string requestContent = buildRoomKeyRequestJson(roomId, senderKey, sessionId, reqId, ctxDeviceId_);
     // Address the sending device directly (known from the megolm content's
     // device_id) — more reliable than the "*" wildcard.
     bool ok = !senderDeviceId.empty() &&
@@ -1289,6 +1315,43 @@ void Decryptor::requestRoomKey(const std::string& roomId, const std::string& sen
         roomId.c_str(), sessionId.c_str(), senderId.c_str(), ok ? 1 : 0);
     std::fprintf(stderr, "[e2ee] requestRoomKey: room=%.40s sid=%.20s sender=%s ok=%d\n",
                  roomId.c_str(), sessionId.c_str(), senderId.c_str(), ok ? 1 : 0);
+    noteRoomKey({roomId, sessionId, senderId, RoomKeyEventKind::Requested, 1, 0});
+}
+
+void Decryptor::reRequestKey(const std::string& roomId, const std::string& senderId,
+                             const std::string& senderKey, const std::string& sessionId,
+                             const std::string& senderDeviceId) {
+    if (ctxHomeserver_.empty() || ctxToken_.empty() || senderId.empty()) return;
+    std::string key = roomId + "|" + sessionId + "|" + senderKey;
+    int attempt = 1;
+    auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    {
+        std::lock_guard<std::mutex> lk(requestMtx_);
+        auto it = requestedKeys_.find(key);
+        if (it != requestedKeys_.end()) {
+            it->second.lastMs = nowMs;
+            it->second.senderId = senderId;
+            it->second.senderDeviceId = senderDeviceId;
+            attempt = it->second.attempts;
+        } else {
+            KeyRequestState st;
+            st.attempts = 1;
+            st.lastMs = nowMs;
+            st.senderId = senderId;
+            st.senderDeviceId = senderDeviceId;
+            requestedKeys_.emplace(key, std::move(st));
+        }
+    }
+    std::string reqId = "pdrkr" + std::to_string(
+        static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count())
+        + g_txnCounter.fetch_add(1));
+    std::string requestContent = buildRoomKeyRequestJson(roomId, senderKey, sessionId, reqId, ctxDeviceId_);
+    bool ok = !senderDeviceId.empty() &&
+        sendOlmToDevice(senderId, senderDeviceId, "m.room_key_request", requestContent);
+    noteRoomKey({roomId, sessionId, senderId, RoomKeyEventKind::Requested, attempt, 0});
+    LOG(LogChannel::E2EE, "reRequestKey: manual room=%.40s sid=%.20s sender=%s ok=%d",
+        roomId.c_str(), sessionId.c_str(), senderId.c_str(), ok ? 1 : 0);
 }
 
 
@@ -1311,15 +1374,10 @@ void Decryptor::maybeReRequestKeys() {
         std::string roomId = key.substr(0, sep1);
         std::string sessionId = key.substr(sep1 + 1, sep2 - sep1 - 1);
         std::string senderKey = key.substr(sep2 + 1);
-        std::string requestContent = "{\"action\":\"request\","
-            "\"body\":{\"algorithm\":\"m.megolm.v1.aes-sha2\","
-            "\"room_id\":\"" + roomId + "\","
-            "\"sender_key\":\"" + senderKey + "\","
-            "\"session_id\":\"" + sessionId + "\"},"
-            "\"request_id\":\"" + reqId + "\","
-            "\"requesting_device_id\":\"" + ctxDeviceId_ + "\"}";
+        std::string requestContent = buildRoomKeyRequestJson(roomId, senderKey, sessionId, reqId, ctxDeviceId_);
         bool ok = !st.senderDeviceId.empty() &&
             sendOlmToDevice(st.senderId, st.senderDeviceId, "m.room_key_request", requestContent);
+        noteRoomKey({roomId, sessionId, st.senderId, RoomKeyEventKind::Requested, st.attempts, 0});
         LOG(LogChannel::E2EE, "maybeReRequestKeys: retry %d for room=%.40s sid=%.20s ok=%d",
             st.attempts, roomId.c_str(), sessionId.c_str(), ok ? 1 : 0);
     }
@@ -1417,7 +1475,8 @@ bool Decryptor::handleRoomKeyRequest(const std::string& contentJson,
 
 // Handle an incoming m.forwarded_room_key — import the v1 export-format
 // session key so we can decrypt messages the other device forwarded.
-bool Decryptor::handleForwardedRoomKey(const std::string& contentJson) {
+bool Decryptor::handleForwardedRoomKey(const std::string& contentJson,
+    const std::string& senderId) {
     simdjson::dom::parser p;
     auto doc = p.parse(contentJson);
     if (doc.error() != simdjson::SUCCESS) return false;
@@ -1446,6 +1505,7 @@ bool Decryptor::handleForwardedRoomKey(const std::string& contentJson) {
     // Replay any events that were pending on this session (they triggered the
     // key request this forwarded key is answering).
     processPending(roomId, senderKey, realId);
+    noteRoomKey({roomId, realId, senderId, RoomKeyEventKind::Received, 0, 0});
     LOG(LogChannel::E2EE, "handleForwardedRoomKey: imported room=%.40s sender=%.20s",
         roomId.c_str(), senderKey.c_str());
     return true;

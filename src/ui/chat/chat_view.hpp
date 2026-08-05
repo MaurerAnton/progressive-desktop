@@ -26,6 +26,9 @@ public:
 
     void setCurrentRoom(const std::string& roomId, const std::string& threadRoot = "",
                         bool isEncrypted = false);
+    // Refresh the encryption flag mid-session (a room can become encrypted
+    // after it was opened — sends must flip with it).
+    void setEncrypted(bool e) { encrypted_ = e; }
     void setRoomListModel(RoomListModel* m) { roomListModel_ = m; }
     void clear();
 

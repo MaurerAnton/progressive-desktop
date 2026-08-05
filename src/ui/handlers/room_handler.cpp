@@ -32,6 +32,13 @@
 namespace progressive::desktop {
 
 
+// Sync-time refresh of the open room's encryption flag (a room can become
+// encrypted after it was opened — sends must flip with it).
+void RoomHandler::updateEncryptionFlag(bool isEncrypted) {
+    if (mainWindow_ && mainWindow_->chatView())
+        mainWindow_->chatView()->setEncrypted(isEncrypted);
+}
+
 RoomHandler::RoomHandler(std::shared_ptr<MatrixClient> client, RoomStore* roomStore,
                            RoomListModel* roomModel, TimelineModel* timelineModel,
                            SyncEngine* sync, ImageLoader* imageLoader,

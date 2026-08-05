@@ -7,6 +7,7 @@
 #include "core/memory_stats.hpp"
 #include "../room_list_model.hpp"
 #include "../handlers/room_key_helper.hpp"
+#include "core/crypto/media_crypto.hpp"
 
 #include <QFileDialog>
 #include <QPointer>
@@ -297,37 +298,44 @@ void ChatView::doAttachFile(const QString& filePath) {
         if (!f.open(QIODevice::ReadOnly)) return;
         QByteArray data = f.readAll(); f.close();
         std::vector<uint8_t> bytes(data.begin(), data.end());
-        auto upload = client->uploadMedia(bytes, fn, ct);
-        if (!upload.ok) return;
-        std::ostringstream body;
-        if (isImage) body << R"({"msgtype":"m.image","body":")" << fn << R"(","url":")" << upload.data << R"("})";
-        else if (isVideo) body << R"({"msgtype":"m.video","body":")" << fn << R"(","url":")" << upload.data << R"("})";
-        else if (isAudio) body << R"({"msgtype":"m.audio","body":")" << fn << R"(","url":")" << upload.data << R"("})";
-        else body << R"({"msgtype":"m.file","body":")" << fn << R"(","url":")" << upload.data << R"("})";
-        // Encrypted room: wrap the media event in m.room.encrypted (Megolm),
-        // mirroring the text path. The media bytes stay on the media repo;
-        // the mxc URL + filename now travel inside the encrypted event.
+        // Media type name for the content.
+        std::string mt = isImage ? "m.image" : isVideo ? "m.video" : isAudio ? "m.audio" : "m.file";
         ApiResult<std::string> r;
+        std::string echoMxc, echoKey, echoIv, echoSha;
+        auto failNotice = [guard](const std::string& msg) {
+            QMetaObject::invokeMethod(guard, [guard, msg]() {
+                if (guard.isNull()) return;
+                guard->model_->appendBack({.msgtype = "m.notice", .body = msg});
+            }, Qt::QueuedConnection);
+        };
         if (encrypted && guard && guard->sync_ && guard->sync_->decryptor()->isInitialized()) {
             auto* dec = guard->sync_->decryptor();
             std::string sessId = dec->getOrCreateOutboundSession(roomId);
-            if (sessId.empty()) {
-                QMetaObject::invokeMethod(guard, [guard]() {
-                    if (guard.isNull()) return;
-                    guard->model_->appendBack({.msgtype = "m.notice", .body = "❌ Failed to encrypt media"});
-                }, Qt::QueuedConnection);
+            if (sessId.empty()) { failNotice("❌ Failed to encrypt media"); return; }
+            // Encrypt the media bytes (m.encrypted v2): the media repo only
+            // ever sees ciphertext, and Element renders the file: object.
+            std::string encKey, encIv;
+            if (!progressive::desktop::generateMediaKeyIv(encKey, encIv)) {
+                failNotice("❌ Media key generation failed"); return;
+            }
+            std::vector<uint8_t> encBytes = progressive::desktop::aesCtrCrypt(bytes, encKey, encIv);
+            if (encBytes.empty()) { failNotice("❌ Media encryption failed"); return; }
+            std::string encSha = progressive::desktop::sha256Base64(bytes);
+            auto up = client->uploadMedia(encBytes, fn, ct);
+            if (!up.ok) {
+                failNotice("❌ Upload failed: " + up.error.message);
                 return;
             }
-            std::string inner = "{\"type\":\"m.room.message\",\"content\":" + body.str() +
+            std::ostringstream fbody;
+            fbody << "{\"msgtype\":\"" << mt << "\",\"body\":\"" << fn << "\",\"filename\":\"" << fn << "\""
+                  << ",\"file\":{\"url\":\"" << up.data << "\",\"key\":\"" << encKey
+                  << "\",\"iv\":\"" << encIv << "\",\"hashes\":{\"sha256\":\"" << encSha
+                  << "\"},\"v\":\"v2\",\"mimetype\":\"" << ct << "\"}"
+                  << ",\"info\":{\"mimetype\":\"" << ct << "\"}}";
+            std::string inner = "{\"type\":\"m.room.message\",\"content\":" + fbody.str() +
                                 ",\"room_id\":\"" + roomId + "\"}";
             std::string enc = dec->encryptMessage(roomId, client->account().deviceId, inner);
-            if (enc.empty()) {
-                QMetaObject::invokeMethod(guard, [guard]() {
-                    if (guard.isNull()) return;
-                    guard->model_->appendBack({.msgtype = "m.notice", .body = "❌ Encryption failed"});
-                }, Qt::QueuedConnection);
-                return;
-            }
+            if (enc.empty()) { failNotice("❌ Encryption failed"); return; }
             if (!dec->roomKeyShared(roomId)) {
                 auto tShare0 = std::chrono::steady_clock::now();
                 bool shared = shareRoomKeyForRoom(*client, *dec, roomId);
@@ -337,19 +345,29 @@ void ChatView::doAttachFile(const QString& filePath) {
                     shared ? "ok" : "FAILED", (long long)shareMs, roomId.c_str());
             }
             r = client->sendEncryptedEvent(roomId, enc, "pd" + std::to_string(std::time(nullptr)));
+            echoMxc = up.data; echoKey = encKey; echoIv = encIv; echoSha = encSha;
         } else {
+            auto up = client->uploadMedia(bytes, fn, ct);
+            if (!up.ok) {
+                failNotice("❌ Upload failed: " + up.error.message);
+                return;
+            }
+            std::ostringstream body;
+            body << "{\"msgtype\":\"" << mt << "\",\"body\":\"" << fn << "\",\"url\":\"" << up.data << "\"}";
             r = client->sendMessageEvent(roomId, "m.room.message", body.str());
+            echoMxc = up.data;
         }
         if (!r.ok) std::fprintf(stderr, "[send] FAILED file: %s\n", r.error.message.c_str());
-        QMetaObject::invokeMethod(guard, [guard, r, fn, isImage, isVideo, isAudio, mxc = upload.data]() {
+        QMetaObject::invokeMethod(guard, [guard, r, fn, isImage, isVideo, isAudio, echoMxc, echoKey, echoIv, echoSha]() {
             if (guard.isNull() || !r.ok) return;
             DisplayedEvent echo;
             echo.eventId = r.data; echo.senderId = guard->client_->account().userId;
             echo.senderName = "you"; echo.type = "m.room.message";
-            if (isImage) { echo.msgtype = "m.image"; echo.mxcUrl = mxc; }
-            else if (isVideo) { echo.msgtype = "m.video"; echo.mxcUrl = mxc; }
-            else if (isAudio) { echo.msgtype = "m.audio"; echo.mxcUrl = mxc; }
-            else { echo.msgtype = "m.file"; echo.mxcUrl = mxc; }
+            if (isImage) { echo.msgtype = "m.image"; echo.mxcUrl = echoMxc; }
+            else if (isVideo) { echo.msgtype = "m.video"; echo.mxcUrl = echoMxc; }
+            else if (isAudio) { echo.msgtype = "m.audio"; echo.mxcUrl = echoMxc; }
+            else { echo.msgtype = "m.file"; echo.mxcUrl = echoMxc; }
+            echo.mediaKey = echoKey; echo.mediaIv = echoIv; echo.mediaSha256 = echoSha;
             echo.body = fn;
             echo.originServerTs = static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
             guard->model_->appendBack(echo);

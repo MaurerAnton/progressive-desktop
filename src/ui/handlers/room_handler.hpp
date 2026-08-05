@@ -48,6 +48,18 @@ public:
     auto& memberAvatarCache() { return memberAvatarCache_; }
 
     void clearCurrentRoom() { currentRoomIdStr_.clear(); }
+
+    // Sync-time refresh of the open room's encryption flag.
+    void updateEncryptionFlag(bool isEncrypted);
+
+    // Merge sync-time member avatars/names into the per-room-open cache
+    // (was loaded once — stale until the room reopened).
+    void refreshMemberCache(
+        const std::unordered_map<std::string, std::string>& avatars,
+        const std::unordered_map<std::string, std::string>& names) {
+        for (const auto& [uid, av] : avatars) memberAvatarCache_[uid] = av;
+        for (const auto& [uid, dn] : names) memberAvatarCache_[uid + "/name"] = dn;
+    }
     void setCurrentPrevBatch(const std::string& pb) { currentPrevBatch_ = pb; }
     ThreadHandler* threadHandler() const { return threadHandler_; }
 

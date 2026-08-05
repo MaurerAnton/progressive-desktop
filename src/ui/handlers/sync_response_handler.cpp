@@ -39,6 +39,15 @@ SyncResponseHandler::~SyncResponseHandler() {
 }
 
 void SyncResponseHandler::handle(FastSyncResponse resp) {
+    // Room-key activity (received/requested) — rendered as system rows in
+    // the OPEN room on EVERY sync (even empty ones: backoff retries must
+    // show on quiet rooms too).
+    {
+        std::string curRoomId = roomHandler_ ? roomHandler_->currentRoomId() : "";
+        if (decryptor_ && !curRoomId.empty())
+            appendRoomKeyRows(decryptor_->takeRoomKeyNotifications(), curRoomId);
+    }
+
     bool hasData = !resp.joinedRooms.empty() || !resp.leftRoomIds.empty()
                    || !resp.invitedRooms.empty();
 
@@ -54,40 +63,17 @@ void SyncResponseHandler::handle(FastSyncResponse resp) {
     ThreadPool::instance().enqueue([guard, rmh, resp = std::move(resp), myUserId, curRoomId, notifier]() mutable {
         auto keepAlive = std::make_shared<FastSyncResponse>(std::move(resp));
         auto syncUpdate = SyncApplier::prepareRoomSyncUpdate(*keepAlive, curRoomId, myUserId);
-        // Room-key activity (received / requested) — rendered as system rows
-        // in the open room's timeline. Retries run in the core sync loop now.
-        std::vector<RoomKeyNotification> keyNotifs;
-        if (guard && guard->decryptor_)
-            keyNotifs = guard->decryptor_->takeRoomKeyNotifications();
 
-        QMetaObject::invokeMethod(guard, [guard, rmh, syncUpdate = std::move(syncUpdate), keyNotifs = std::move(keyNotifs), curRoomId, notifier, keepAlive]() mutable {
+        QMetaObject::invokeMethod(guard, [guard, rmh, syncUpdate = std::move(syncUpdate), curRoomId, notifier, keepAlive]() mutable {
             if (guard.isNull()) return;
             guard->roomStore_->applyRoomSyncUpdate(syncUpdate,
                 guard->roomModel_, guard->timelineModel_, guard->decryptor_);
 
-            for (const auto& n : keyNotifs) {
-                if (n.roomId != curRoomId || n.roomId.empty()) continue;
-                std::string who = n.fromUserId;
-                if (!rmh.isNull()) {
-                    auto it = rmh->memberAvatarCache().find(n.fromUserId + "/name");
-                    if (it != rmh->memberAvatarCache().end()) who = it->second;
-                }
-                std::string shortSid = n.sessionId.size() > 6
-                    ? n.sessionId.substr(0, 6) + "…" : n.sessionId;
-                DisplayedEvent sys;
-                sys.type = "progressive.system";
-                sys.eventId = "rk" + n.sessionId.substr(0, 8) + "_" + std::to_string(n.ts);
-                sys.originServerTs = n.ts;
-                sys.senderName = "system";
-                if (n.kind == RoomKeyEventKind::Received) {
-                    sys.body = who + " sent us the room key (session " + shortSid + ")";
-                } else {
-                    sys.body = "No key yet — requested from " + who +
-                               (n.attempt > 1 ? " again (session " : " (session ") +
-                               shortSid + ")";
-                }
-                guard->timelineModel_->appendBack(sys);
-            }
+            // Stale-cache refresh: member names/avatars change mid-session;
+            // the per-room open cache must follow the sync state.
+            if (!rmh.isNull())
+                rmh->refreshMemberCache(syncUpdate.currentRoomAvatars,
+                                        syncUpdate.currentRoomMemberNames);
 
             if (guard->decryptor_) {
                 // Core conversion (SyncApplier) + the UI-only model op.
@@ -141,6 +127,8 @@ void SyncResponseHandler::handle(FastSyncResponse resp) {
             logMemorySnapshot("after-rebuildRoomList");
 
             for (auto& rd : syncUpdate.roomsToUpsert) {
+                if (!rmh.isNull() && rd.roomId == curRoomId)
+                    rmh->updateEncryptionFlag(rd.isEncrypted);
                 if (rd.unreadCount == 0 && rd.highlightCount == 0) continue;
                 if (rmh && !rmh.isNull() && rd.roomId == rmh->currentRoomId()) continue;
                 QString body = rd.lastMessage.empty()
@@ -164,6 +152,56 @@ void SyncResponseHandler::handle(FastSyncResponse resp) {
     static bool firstSync = true;
     if (firstSync) logMemorySnapshot("after-first-sync");
     firstSync = false;
+}
+
+// Render room-key activity as system rows in the open room's timeline.
+// Requested rows are capped at 3 per sync (+ a summary row) so a history
+// load with many missing sessions doesn't flood the chat.
+void SyncResponseHandler::appendRoomKeyRows(std::vector<RoomKeyNotification> notifs,
+                                            const std::string& curRoomId) {
+    if (notifs.empty()) return;
+    int requestedRows = 0;
+    int skipped = 0;
+    for (const auto& n : notifs) {
+        if (n.roomId != curRoomId || n.roomId.empty()) continue;
+        if (n.kind == RoomKeyEventKind::Requested) {
+            if (requestedRows >= 3) { skipped++; continue; }
+            requestedRows++;
+        }
+        std::string who = n.fromUserId;
+        if (roomHandler_) {
+            auto it = roomHandler_->memberAvatarCache().find(n.fromUserId + "/name");
+            if (it != roomHandler_->memberAvatarCache().end()) who = it->second;
+        }
+        std::string shortSid = n.sessionId.size() > 6
+            ? n.sessionId.substr(0, 6) + "…" : n.sessionId;
+        DisplayedEvent sys;
+        sys.type = "progressive.system";
+        sys.eventId = "rk" + n.sessionId.substr(0, 8) + "_" + std::to_string(n.ts);
+        sys.originServerTs = n.ts;
+        sys.senderName = "system";
+        if (n.kind == RoomKeyEventKind::Received) {
+            sys.body = who + " sent us the room key (session " + shortSid + ")";
+        } else {
+            sys.body = "No key yet — requested from " + who +
+                       (n.attempt > 1 ? " again (session " : " (session ") +
+                       shortSid + ")";
+        }
+        timelineModel_->appendBack(sys);
+    }
+    if (skipped > 0) {
+        DisplayedEvent sys;
+        sys.type = "progressive.system";
+        sys.eventId = "rksum" + std::to_string(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count());
+        sys.originServerTs = static_cast<int64_t>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count());
+        sys.senderName = "system";
+        sys.body = "…and " + std::to_string(skipped) + " more key requests (see the E2EE log)";
+        timelineModel_->appendBack(sys);
+    }
 }
 
 } // namespace progressive::desktop

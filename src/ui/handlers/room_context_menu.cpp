@@ -9,6 +9,8 @@
 #include "../room_list_model.hpp"
 #include "../main_window.hpp"
 #include "core/crypto/decryptor.hpp"
+#include <QFileDialog>
+#include <QFile>
 #include <simdjson.h>
 
 #include <QInputDialog>
@@ -224,11 +226,16 @@ void RoomContextMenu::showTimelineContextMenu(const QString& eventId,
     bool hasReactions = false;
     QString threadRootForView;
     QString decryptError;
+    QString msgtype;
+    std::string mediaKey, mediaIv, mediaSha, mediaBody;
     if (row >= 0) {
         auto* evt = timelineModel_->at(row);
         if (evt) {
             isOwnMessage = (evt->senderId == myUserId);
             decryptError = QString::fromStdString(evt->decryptError);
+            msgtype = QString::fromStdString(evt->msgtype);
+            mediaKey = evt->mediaKey; mediaIv = evt->mediaIv; mediaSha = evt->mediaSha256;
+            mediaBody = evt->body;
             isPinned = evt->isPinned;
             isSystemEvent = (evt->type == "progressive.system");
             if (evt->threadReplyCount > 0) { canViewThread = true; threadRootForView = eventId; }
@@ -288,6 +295,9 @@ void RoomContextMenu::showTimelineContextMenu(const QString& eventId,
     auto* askAgainAction = decryptError.isEmpty()
         ? nullptr
         : menu.addAction("Request the key again");
+    bool isMediaRow = (msgtype == "m.image" || msgtype == "m.video" ||
+                       msgtype == "m.audio" || msgtype == "m.file") && !mediaBody.empty();
+    auto* downloadAction = isMediaRow ? menu.addAction("Download…") : nullptr;
     menu.addSeparator();
     auto* editAction = menu.addAction("Edit");
     auto* deleteAction = menu.addAction("Delete");
@@ -299,7 +309,44 @@ void RoomContextMenu::showTimelineContextMenu(const QString& eventId,
     std::string roomIdStr = roomId;
     std::string eidStrVal = eventId.toStdString();
 
-    if (selected == askAgainAction && askAgainAction) {
+    if (selected == downloadAction && downloadAction) {
+        QString suggested = mediaBody.empty()
+            ? QString("download") : QString::fromStdString(mediaBody);
+        QString path = QFileDialog::getSaveFileName(
+            mw_.data(), "Save as", suggested, "All files (*.*)");
+        if (path.isEmpty()) return;
+        int drov = timelineModel_->findRow(eidStrVal);
+        auto* devt = drov >= 0 ? timelineModel_->at(drov) : nullptr;
+        if (!devt || devt->mxcUrl.empty()) return;
+        std::string mxc = devt->mxcUrl;
+        std::string dk = devt->mediaKey, div = devt->mediaIv, dsh = devt->mediaSha256;
+        QString dest = path;
+        auto client = client_;
+        QPointer<RoomContextMenu> self(this);
+        ThreadPool::instance().enqueue([self, client, mxc, dk, div, dsh, dest]() {
+            auto res = dk.empty()
+                ? client->downloadMedia(mxc, 0, 0)
+                : client->downloadMediaEncrypted(mxc, dk, div, dsh);
+            QMetaObject::invokeMethod(self, [self, res, dest]() {
+                if (self.isNull()) return;
+                if (!res.ok || res.data.empty()) {
+                    if (self->statusLabel_)
+                        self->statusLabel_->setText("Download failed.");
+                    return;
+                }
+                QFile f(dest);
+                if (f.open(QIODevice::WriteOnly)) {
+                    f.write(reinterpret_cast<const char*>(res.data.data()),
+                            static_cast<qint64>(res.data.size()));
+                    f.close();
+                    if (self->statusLabel_)
+                        self->statusLabel_->setText("Saved to " + dest);
+                } else if (self->statusLabel_) {
+                    self->statusLabel_->setText("Could not write " + dest);
+                }
+            }, Qt::QueuedConnection);
+        });
+    } else if (selected == askAgainAction && askAgainAction) {
         // Manual key re-request (Element's "Ask for keys"): re-send the
         // m.room_key_request NOW with a fresh request_id.
         int rrow = timelineModel_->findRow(eidStrVal);

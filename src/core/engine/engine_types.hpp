@@ -29,6 +29,15 @@ struct DisplayedEvent {
     std::string contentJson;       // raw content JSON (for images, etc.)
     std::string mxcUrl;            // for images: mxc:// URL
     std::string mimetype;          // for images: image/gif, image/png, etc.
+    // Encrypted media (file: object, m.encrypted v2): base64 key/iv + sha256
+    // of the plaintext. Empty for plain media. thumb* = info.thumbnail_file.
+    std::string mediaKey;
+    std::string mediaIv;
+    std::string mediaSha256;
+    std::string thumbUrl;
+    std::string thumbKey;
+    std::string thumbIv;
+    std::string thumbSha256;
     // Why an encrypted message could not be decrypted ("" = decrypted/plain).
     // Surfaced in the UI (badge + tooltip) so "why is this encrypted?" is
     // answerable in-app without console logs.

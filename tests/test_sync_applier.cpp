@@ -186,6 +186,41 @@ int main() {
               "retry: capped after 4 retries");
     }
 
+    // --- encrypted media (file:) extraction ---
+    {
+        FastEvent fe;
+        fe.type = "m.room.message";
+        fe.eventId = "$m1";
+        fe.senderId = "@alice:test";
+        std::string cj = "{\"msgtype\":\"m.image\",\"body\":\"x.png\","
+            "\"file\":{\"url\":\"mxc://a/1\",\"key\":\"KEY\",\"iv\":\"IV\","
+            "\"hashes\":{\"sha256\":\"SH\"},\"v\":\"v2\",\"mimetype\":\"image/png\"},"
+            "\"info\":{\"thumbnail_file\":{\"url\":\"mxc://a/t\",\"key\":\"TK\","
+            "\"iv\":\"TV\",\"hashes\":{\"sha256\":\"TS\"}}}}";
+        fe.contentJson = cj;
+        fe.originServerTs = 1;
+        DisplayedEvent de;
+        SyncApplier::fastEventToDisplayed(fe, de, "!r:test", nullptr);
+        CHECK(de.mxcUrl == "mxc://a/1", "media: file.url extracted");
+        CHECK(de.mediaKey == "KEY" && de.mediaIv == "IV" && de.mediaSha256 == "SH",
+              "media: key/iv/sha extracted");
+        CHECK(de.thumbUrl == "mxc://a/t" && de.thumbKey == "TK" && de.thumbSha256 == "TS",
+              "media: info.thumbnail_file extracted");
+    }
+    {
+        FastEvent fe;
+        fe.type = "m.room.message";
+        fe.eventId = "$m2";
+        fe.senderId = "@alice:test";
+        std::string cj = "{\"msgtype\":\"m.file\",\"body\":\"f.bin\",\"url\":\"mxc://a/2\"}";
+        fe.contentJson = cj;
+        fe.originServerTs = 2;
+        DisplayedEvent de;
+        SyncApplier::fastEventToDisplayed(fe, de, "!r:test", nullptr);
+        CHECK(de.mxcUrl == "mxc://a/2" && de.mediaKey.empty(),
+              "media: plain url: fallback kept");
+    }
+
     // --- reactions never count as thread replies ---
     {
         DisplayedEvent root;

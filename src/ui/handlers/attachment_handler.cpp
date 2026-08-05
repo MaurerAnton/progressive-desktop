@@ -25,10 +25,14 @@ void AttachmentHandler::openAttachment(const QString& eventId, const QString& mx
 
     int row = timelineModel_->findRow(eventId.toStdString());
     QString msgtype;
+    std::string mediaKey, mediaIv, mediaSha;
     if (row >= 0) {
         auto* evt = timelineModel_->at(row);
         if (evt) {
             msgtype = QString::fromStdString(evt->msgtype);
+            mediaKey = evt->mediaKey;
+            mediaIv = evt->mediaIv;
+            mediaSha = evt->mediaSha256;
         }
     }
 
@@ -38,8 +42,10 @@ void AttachmentHandler::openAttachment(const QString& eventId, const QString& mx
 
     if (msgtype == "m.video" || msgtype == "m.audio" || msgtype == "m.file") {
         if (statusLabel_) statusLabel_->setText("Downloading " + msgtype.mid(2) + "...");
-        ThreadPool::instance().enqueue([guard, client, mxc, msgtype]() {
-            auto r = client->downloadMedia(mxc, 0, 0);
+        ThreadPool::instance().enqueue([guard, client, mxc, msgtype, mediaKey, mediaIv, mediaSha]() {
+            auto r = mediaKey.empty()
+                ? client->downloadMedia(mxc, 0, 0)
+                : client->downloadMediaEncrypted(mxc, mediaKey, mediaIv, mediaSha);
             QMetaObject::invokeMethod(guard, [guard, r, msgtype]() {
                 if (guard.isNull()) return;
                 if (!r.ok || r.data.empty()) {
@@ -66,8 +72,10 @@ void AttachmentHandler::openAttachment(const QString& eventId, const QString& mx
     }
 
     if (statusLabel_) statusLabel_->setText("Loading full image...");
-    ThreadPool::instance().enqueue([guard, client, mxc]() {
-        auto r = client->downloadMedia(mxc, 0, 0);
+    ThreadPool::instance().enqueue([guard, client, mxc, mediaKey, mediaIv, mediaSha]() {
+        auto r = mediaKey.empty()
+            ? client->downloadMedia(mxc, 0, 0)
+            : client->downloadMediaEncrypted(mxc, mediaKey, mediaIv, mediaSha);
         QImage img;
         if (r.ok && !r.data.empty()) {
             img.loadFromData(r.data.data(), static_cast<int>(r.data.size()));

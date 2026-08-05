@@ -47,6 +47,35 @@ std::string SyncApplier::extractString(std::string_view json, const std::string&
     return SyncApplier::extractStringDec(json, key);
 }
 
+// Extract the m.encrypted media object (file: / info.thumbnail_file):
+// {url,key,iv,hashes:{sha256},v,mimetype}. Fills url/key/iv/sha.
+static void extractEncryptedFile(const std::string& contentJson,
+    const std::string& path, std::string& url, std::string& key,
+    std::string& iv, std::string& sha) {
+    simdjson::dom::parser p;
+    auto doc = p.parse(contentJson);
+    if (doc.error() != simdjson::SUCCESS) return;
+    // path is "file" or a dotted path like "info.thumbnail_file"
+    auto dot = path.find('.');
+    simdjson::simdjson_result<simdjson::dom::element> obj;
+    if (dot != std::string::npos) {
+        auto base = doc.value()[std::string_view(path).substr(0, dot)];
+        if (base.error() != simdjson::SUCCESS) return;
+        obj = base.value()[std::string_view(path).substr(dot + 1)];
+    } else {
+        obj = doc.value()[path];
+    }
+    if (obj.error() != simdjson::SUCCESS) return;
+    auto u = obj.value()["url"].get_string();
+    if (u.error() == simdjson::SUCCESS) url = std::string(u.value());
+    auto k = obj.value()["key"].get_string();
+    if (k.error() == simdjson::SUCCESS) key = std::string(k.value());
+    auto v = obj.value()["iv"].get_string();
+    if (v.error() == simdjson::SUCCESS) iv = std::string(v.value());
+    auto h = obj.value()["hashes"]["sha256"].get_string();
+    if (h.error() == simdjson::SUCCESS) sha = std::string(h.value());
+}
+
 std::string SyncApplier::extractThreadRootId(std::string_view json) {
     simdjson::dom::parser p;
     auto doc = p.parse(json);
@@ -171,12 +200,16 @@ RoomSyncUpdate SyncApplier::prepareRoomSyncUpdate(const FastSyncResponse& resp,
                 if (e.type == "m.room.member" && !e.contentJson.empty()) {
                     auto av = SyncApplier::extractStringDec(e.contentJson, "avatar_url");
                     if (!av.empty()) u.currentRoomAvatars[std::string(e.stateKey)] = av;
+                    auto dn = SyncApplier::extractStringDec(e.contentJson, "displayname");
+                    if (!dn.empty()) u.currentRoomMemberNames[std::string(e.stateKey)] = dn;
                 }
             }
             for (const auto& e : room.timeline.events) {
                 if (e.type == "m.room.member" && !e.contentJson.empty()) {
                     auto av = SyncApplier::extractStringDec(e.contentJson, "avatar_url");
                     if (!av.empty()) u.currentRoomAvatars[std::string(e.stateKey)] = av;
+                    auto dn = SyncApplier::extractStringDec(e.contentJson, "displayname");
+                    if (!dn.empty()) u.currentRoomMemberNames[std::string(e.stateKey)] = dn;
                 }
             }
         }
@@ -283,7 +316,14 @@ void SyncApplier::fastEventToDisplayed(const FastEvent& e, DisplayedEvent& de,
         de.msgtype = extractStringDec(de.contentJson, "msgtype");
         if (de.msgtype == "m.image" || de.msgtype == "m.video" ||
             de.msgtype == "m.file" || de.msgtype == "m.audio") {
-            de.mxcUrl = extractStringDec(de.contentJson, "url");
+            // Encrypted media (Element sends file: instead of url: in E2EE
+            // rooms): url + base64 key/iv + sha256-of-plaintext + thumbnail.
+            extractEncryptedFile(de.contentJson, "file", de.mxcUrl,
+                                 de.mediaKey, de.mediaIv, de.mediaSha256);
+            if (de.mxcUrl.empty())
+                de.mxcUrl = extractStringDec(de.contentJson, "url");
+            extractEncryptedFile(de.contentJson, "info.thumbnail_file",
+                                 de.thumbUrl, de.thumbKey, de.thumbIv, de.thumbSha256);
             de.mimetype = extractStringDec(de.contentJson, "mimetype");
             if (de.body.empty())
                 de.body = extractStringDec(de.contentJson, "filename");

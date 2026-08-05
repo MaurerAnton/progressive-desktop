@@ -55,6 +55,8 @@ UserProfileDialog::UserProfileDialog(MatrixClient* client, const std::string& ro
     });
     promoteBtn_ = new QPushButton("Promote", this);
     demoteBtn_ = new QPushButton("Demote", this);
+    verifyBtn_ = new QPushButton("Verify…", this);
+    adminBtn_ = new QPushButton("Make admin", this);
     copyBtn_ = new QPushButton("Copy MXID", this);
     closeBtn_ = new QPushButton("Close", this);
 
@@ -63,6 +65,7 @@ UserProfileDialog::UserProfileDialog(MatrixClient* client, const std::string& ro
     banBtn_->hide();
     promoteBtn_->hide();
     demoteBtn_->hide();
+    adminBtn_->hide();
 
     statusLabel_ = new QLabel("", this);
     statusLabel_->setStyleSheet("color:" + Design::mutedTextColor.name() + "; font-size:10pt;");
@@ -78,11 +81,13 @@ UserProfileDialog::UserProfileDialog(MatrixClient* client, const std::string& ro
 
     auto* actionGrid = new QHBoxLayout;
     actionGrid->addWidget(dmBtn_);
+    actionGrid->addWidget(verifyBtn_);
     actionGrid->addWidget(kickBtn_);
     actionGrid->addWidget(banBtn_);
 
     auto* powerRow = new QHBoxLayout;
     powerRow->addWidget(promoteBtn_);
+    powerRow->addWidget(adminBtn_);
     powerRow->addWidget(demoteBtn_);
     powerRow->addStretch();
 
@@ -101,6 +106,8 @@ UserProfileDialog::UserProfileDialog(MatrixClient* client, const std::string& ro
     root->addLayout(bottomRow);
     root->addWidget(statusLabel_);
 
+    connect(verifyBtn_, &QPushButton::clicked, this, &UserProfileDialog::onVerify);
+    connect(adminBtn_, &QPushButton::clicked, this, &UserProfileDialog::onMakeAdmin);
     connect(dmBtn_, &QPushButton::clicked, this, &UserProfileDialog::onSendDM);
     connect(kickBtn_, &QPushButton::clicked, this, &UserProfileDialog::onKick);
     connect(banBtn_, &QPushButton::clicked, this, &UserProfileDialog::onBan);
@@ -170,6 +177,7 @@ void UserProfileDialog::loadProfile() {
                 guard->kickBtn_->show();
                 guard->banBtn_->show();
                 guard->promoteBtn_->show();
+                guard->adminBtn_->show();
                 guard->demoteBtn_->show();
             }
 
@@ -288,6 +296,60 @@ void UserProfileDialog::onDemote() {
         QMetaObject::invokeMethod(guard, [guard, r]() {
             if (guard.isNull()) return;
             if (r.ok) guard->statusLabel_->setText("User demoted.");
+            else guard->statusLabel_->setText("Failed: " + QString::fromStdString(r.error.message));
+        }, Qt::QueuedConnection);
+    });
+}
+
+void UserProfileDialog::onVerify() {
+    if (!client_ || !client_->isLoggedIn()) return;
+    statusLabel_->setText("Checking devices...");
+    std::string target = userId_;
+    std::string ourDeviceId = client_->account().deviceId;
+    QPointer<UserProfileDialog> guard(this);
+    ThreadPool::instance().enqueue([guard, target, ourDeviceId]() {
+        std::string queryBody = "{\"device_keys\":{\"" + target + "\":[]}}";
+        auto resp = guard->client_->queryKeys(queryBody);
+        std::string deviceId;
+        if (resp.ok && !resp.data.empty()) {
+            simdjson::dom::parser p;
+            auto doc = p.parse(resp.data);
+            if (doc.error() == simdjson::SUCCESS) {
+                auto userObj = doc.value()["device_keys"][target];
+                if (userObj.error() == simdjson::SUCCESS) {
+                    auto obj = userObj.value().get_object();
+                    if (obj.error() == simdjson::SUCCESS) {
+                        for (auto field : obj.value()) {
+                            std::string dev(field.key);
+                            if (dev == ourDeviceId) continue;
+                            deviceId = dev;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        QMetaObject::invokeMethod(guard, [guard, deviceId]() {
+            if (guard.isNull()) return;
+            if (deviceId.empty()) {
+                guard->statusLabel_->setText("No other devices to verify.");
+                return;
+            }
+            emit guard->verifyRequested(QString::fromStdString(guard->userId_),
+                                        QString::fromStdString(deviceId));
+            guard->statusLabel_->setText("Verification started...");
+        }, Qt::QueuedConnection);
+    });
+}
+
+void UserProfileDialog::onMakeAdmin() {
+    statusLabel_->setText("Making admin...");
+    QPointer<UserProfileDialog> guard(this);
+    ThreadPool::instance().enqueue([guard, this]() {
+        auto r = client_->setUserPowerLevel(roomId_, userId_, 100);
+        QMetaObject::invokeMethod(guard, [guard, r]() {
+            if (guard.isNull()) return;
+            if (r.ok) guard->statusLabel_->setText("User is now an admin.");
             else guard->statusLabel_->setText("Failed: " + QString::fromStdString(r.error.message));
         }, Qt::QueuedConnection);
     });

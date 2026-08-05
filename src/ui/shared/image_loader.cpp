@@ -39,6 +39,31 @@ void ImageLoader::fetchThumbnail(const std::string& mxcUrl, int w, int h,
     });
 }
 
+void ImageLoader::fetchEncryptedThumbnail(const std::string& mxcUrl,
+    const std::string& key, const std::string& iv, const std::string& sha,
+    std::function<void(const QImage&)> cb) {
+    QString qkey = QString::fromStdString(mxcUrl);
+    if (auto* cached = imageCache_.object(qkey)) {
+        cb(*cached);
+        return;
+    }
+    if (!client_ || key.empty() || iv.empty()) { cb(QImage()); return; }
+
+    ThreadPool::instance().enqueue([this, mxcUrl, qkey, key, iv, sha, cb]() {
+        auto result = client_->downloadMediaEncrypted(mxcUrl, key, iv, sha);
+        QImage img;
+        if (result.ok && !result.data.empty()) {
+            img.loadFromData(result.data.data(), static_cast<int>(result.data.size()));
+        }
+        QMetaObject::invokeMethod(this, [this, qkey, img, cb]() {
+            if (!img.isNull()) {
+                imageCache_.insert(qkey, new QImage(img));
+            }
+            cb(img);
+        }, Qt::QueuedConnection);
+    });
+}
+
 void ImageLoader::fetchMovie(const std::string& mxcUrl,
                                std::function<void(QMovie*)> cb) {
     QString key = QString::fromStdString(mxcUrl);

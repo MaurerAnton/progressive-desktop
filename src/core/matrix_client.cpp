@@ -3,6 +3,7 @@
 #include "matrix_client.hpp"
 #include "http_client.hpp"
 #include "core/debug_log.hpp"
+#include "core/crypto/media_crypto.hpp"
 
 #include <progressive/login_flow.hpp>
 #include <progressive/matrix_error.hpp>
@@ -934,6 +935,29 @@ ApiResult<std::vector<uint8_t>> MatrixClient::downloadMedia(const std::string& m
     }
     LOG(LogChannel::NET, "downloadMedia: DONE mxc=%.120s status=%d ok=%d size=%zu err=%.120s",
         mxcUrl.c_str(), r.httpStatus, r.ok ? 1 : 0, r.data.size(), r.error.message.c_str());
+    return r;
+}
+
+ApiResult<std::vector<uint8_t>> MatrixClient::downloadMediaEncrypted(
+    const std::string& mxcUrl, const std::string& keyB64,
+    const std::string& ivB64, const std::string& shaB64) {
+    ApiResult<std::vector<uint8_t>> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    auto fetched = downloadMedia(mxcUrl, 0, 0);
+    if (!fetched.ok) {
+        r.httpStatus = fetched.httpStatus;
+        r.error = fetched.error;
+        return r;
+    }
+    auto plain = progressive::desktop::decryptMedia(fetched.data, keyB64, ivB64, shaB64);
+    if (plain.empty()) {
+        r.error.message = "media decryption failed (bad key or sha256 mismatch)";
+        LOG(LogChannel::NET, "downloadMediaEncrypted: DECRYPT FAILED mxc=%.120s", mxcUrl.c_str());
+        return r;
+    }
+    r.ok = true;
+    r.data = std::move(plain);
+    LOG(LogChannel::NET, "downloadMediaEncrypted: ok mxc=%.120s size=%zu", mxcUrl.c_str(), r.data.size());
     return r;
 }
 

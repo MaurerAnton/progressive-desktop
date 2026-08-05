@@ -24,6 +24,13 @@ public:
     void fetchThumbnail(const std::string& mxcUrl, int w, int h,
                          std::function<void(const QImage&)> cb);
 
+    // Fetch + decrypt m.encrypted media (file: object). Downloads the full
+    // ciphertext, AES-256-CTR decrypts, verifies sha256, then loads the
+    // image. Cache key is the mxc URL (same URL = same keys).
+    void fetchEncryptedThumbnail(const std::string& mxcUrl,
+        const std::string& key, const std::string& iv, const std::string& sha,
+        std::function<void(const QImage&)> cb);
+
     // Fetch an animated GIF as QMovie. Caller owns the movie (starts it).
     void fetchMovie(const std::string& mxcUrl,
                      std::function<void(QMovie*)> cb);

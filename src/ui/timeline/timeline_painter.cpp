@@ -379,15 +379,31 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
             p->drawText(placeholderRect, Qt::AlignCenter,
                         msgtype == "m.video" ? "🎬 loading..." : "🖼 loading...");
             curY += kImagePlaceholderH + 2;
-            loader->fetchThumbnail(
-                mxcUrl.toStdString(), kMaxImageW, kImageLoadedH,
-                [mxcUrl, model = const_cast<QAbstractItemModel*>(idx.model())]
-                (const QImage& img) {
-                    if (!img.isNull() && model) {
-                        auto* tm = qobject_cast<TimelineModel*>(model);
-                        if (tm) tm->imageLoaded(mxcUrl.toStdString());
-                    }
-                });
+            // Encrypted media (file:) has no server-side thumbnail — fetch
+            // the full ciphertext and decrypt client-side.
+            const DisplayedEvent* evt = nullptr;
+            if (auto* tm = const_cast<TimelineModel*>(qobject_cast<const TimelineModel*>(idx.model()))) evt = tm->at(idx.row());
+            if (evt && !evt->mediaKey.empty()) {
+                loader->fetchEncryptedThumbnail(
+                    evt->mxcUrl, evt->mediaKey, evt->mediaIv, evt->mediaSha256,
+                    [mxcUrl, model = const_cast<QAbstractItemModel*>(idx.model())]
+                    (const QImage& img) {
+                        if (!img.isNull() && model) {
+                            auto* tm = qobject_cast<TimelineModel*>(model);
+                            if (tm) tm->imageLoaded(mxcUrl.toStdString());
+                        }
+                    });
+            } else {
+                loader->fetchThumbnail(
+                    mxcUrl.toStdString(), kMaxImageW, kImageLoadedH,
+                    [mxcUrl, model = const_cast<QAbstractItemModel*>(idx.model())]
+                    (const QImage& img) {
+                        if (!img.isNull() && model) {
+                            auto* tm = qobject_cast<TimelineModel*>(model);
+                            if (tm) tm->imageLoaded(mxcUrl.toStdString());
+                        }
+                    });
+            }
         }
     }
 

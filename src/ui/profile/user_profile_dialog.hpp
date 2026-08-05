@@ -13,12 +13,17 @@ public:
     explicit UserProfileDialog(MatrixClient* client, const std::string& roomId,
                                 const std::string& userId, QWidget* parent = nullptr);
 
+signals:
+    void verifyRequested(const QString& userId, const QString& deviceId);
+
 private slots:
     void onSendDM();
     void onKick();
     void onBan();
     void onPromote();
     void onDemote();
+    void onVerify();
+    void onMakeAdmin();
     void onCopyMXID();
 
 private:
@@ -35,6 +40,8 @@ private:
     QPushButton* banBtn_;
     QPushButton* promoteBtn_;
     QPushButton* demoteBtn_;
+    QPushButton* verifyBtn_;
+    QPushButton* adminBtn_;
     QPushButton* copyBtn_;
     QPushButton* closeBtn_;
     int currentPowerLevel_ = 0;

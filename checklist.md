@@ -111,3 +111,32 @@ completed items are removed.
 - [ ] Follow-up: receive-side m.encrypted media (file:) support + AES media
       encryption (Element sends/expects encrypted media in E2EE rooms)
 - [ ] Follow-up: /me emote checks room state (DEBT(E2EE) chat_view.cpp:47)
+
+## Aug 5 batch 2 (encrypted media + key-request parity + cross-client SAS + UX)
+- [x] Encrypted media both ways (m.encrypted v2): media_crypto (AES-256-CTR +
+      sha256-of-plaintext), downloadMediaEncrypted, file:/info.thumbnail_file
+      extraction in fastEventToDisplayed, ImageLoader encrypted fetch,
+      attachment open/save decrypts, sendFile uploads ciphertext + emits
+      file:{...} with mimetype/filename, echo carries the keys, upload-failure
+      notices
+- [x] "Download…" context action on media rows (save-as, encrypted-aware)
+- [x] Key requests (Element parity): persisted in SessionStore, sent to ALL
+      of the sender's devices (keys/query; wildcard fallback), cancelled
+      (request_cancellation) when the key arrives, re-asked after SAS Done
+- [x] Cross-client SAS: Olm-wrapped verification events dispatched (incoming)
+      + outgoing verification sends Olm-wrapped with plain fallback
+- [x] Retry rows: drained on EVERY sync (quiet rooms), capped 3/sync + summary
+- [x] Stale member cache: applier extracts displayname; handler cache merged
+      from sync state on every sync
+- [x] Profile dialog: Verify… button (forwards to VerificationHandler) +
+      Make admin (100) — promote was only 50 (moderator)
+- [x] Open room's encryption flag refreshed on sync (encrypted_ follows
+      m.room.encryption changes mid-session)
+- [x] Log viewer: refresh() channel-mapping bug fixed + usage hint + Copy
+      button (eee83c4)
+- [x] Emote/reaction encryption, share gating + timing logs (eee83c4)
+- [x] Forwarded-key request satisfaction + wildcard fallback (eee83c4)
+- [x] Tests: test_media_crypto (new), applier file: extraction, live mm
+      forwarded-erase + encrypted-blob round trip
+- [ ] Follow-up: room/DM creation UI with encryption (app can't create rooms)
+- [ ] Follow-up: receive-side GIF (fetchMovie) has no encrypted path

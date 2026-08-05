@@ -249,6 +249,12 @@ public:
     ApiResult<std::vector<uint8_t>> downloadMedia(const std::string& mxcUrl,
                                                      int width = 0, int height = 0);
 
+    // Download + decrypt m.encrypted media (file: object): AES-256-CTR with
+    // base64 key/iv, sha256 of the plaintext verified. Always fetches the
+    // full file (the server cannot thumbnail opaque ciphertext).
+    ApiResult<std::vector<uint8_t>> downloadMediaEncrypted(const std::string& mxcUrl,
+        const std::string& keyB64, const std::string& ivB64, const std::string& shaB64);
+
     // ---- Sync ----
 
     // GET /_matrix/client/v3/sync — long-poll.

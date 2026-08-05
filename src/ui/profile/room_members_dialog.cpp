@@ -238,6 +238,8 @@ void RoomMembersDialog::onMemberClicked(QListWidgetItem* item) {
     if (!item) return;
     QString userId = item->data(Qt::UserRole).toString();
     UserProfileDialog dlg(client_, roomId_, userId.toStdString(), this);
+    connect(&dlg, &UserProfileDialog::verifyRequested, this,
+            &RoomMembersDialog::verifyRequested);
     dlg.exec();
 }
 

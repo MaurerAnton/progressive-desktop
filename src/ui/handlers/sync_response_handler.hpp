@@ -4,6 +4,7 @@
 #include <QPointer>
 #include <memory>
 #include "core/fast_sync.hpp"
+#include "core/crypto/decryptor.hpp"
 #include "../notifications.hpp"
 #include "../room/room_store.hpp"
 
@@ -37,6 +38,8 @@ public:
     void setDecryptor(Decryptor* d) { decryptor_ = d; }
 
     void handle(FastSyncResponse resp);
+    void appendRoomKeyRows(std::vector<RoomKeyNotification> notifs,
+                           const std::string& curRoomId);
 
 private:
     std::shared_ptr<MatrixClient> client_;

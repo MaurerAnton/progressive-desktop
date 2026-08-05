@@ -23,6 +23,7 @@
 #include "core/crypto/sas.hpp"
 #include "core/crypto/recovery_key.hpp"
 #include "core/crypto/backup_crypto.hpp"
+#include "core/crypto/media_crypto.hpp"
 #include "core/crypto/key_backup.hpp"
 #include "core/crypto/ssss.hpp"
 
@@ -341,6 +342,61 @@ static bool test_multiaccount_multidevice(const std::string& hs,
         }
         CHECK(requested == 2,
               "notify: initial request + manual re-request both recorded");
+    }
+    {
+        // Forwarded keys satisfy pending requests: request the sender's real
+        // session, have the sender forward it, then request again — the second
+        // request must NOT be deduped away (proves the entry was erased).
+        std::string sid = alice.decryptor.getOutboundSessionId(roomId);
+        std::string aliceKey = alice.decryptor.curve25519Key();
+        std::string exported = alice.decryptor.megolm()->exportSessionKey(roomId, aliceKey, sid);
+        CHECK(!exported.empty(), "notify: alice exported her session");
+        bob.decryptor.requestRoomKey(roomId, alice.userId, aliceKey, sid, alice.deviceId);
+        std::string fwdContent = "{\"algorithm\":\"m.megolm.v1.aes-sha2\","
+            "\"room_id\":\"" + roomId + "\",\"session_id\":\"" + sid + "\","
+            "\"session_key\":\"" + exported + "\","
+            "\"sender_key\":\"" + aliceKey + "\","
+            "\"forwarding_curve25519_key_chain\":[]}";
+        CHECK(bob.decryptor.handleForwardedRoomKey(fwdContent, alice.userId),
+              "notify: bob imported the forwarded key");
+        bob.decryptor.requestRoomKey(roomId, alice.userId, aliceKey, sid, alice.deviceId);
+        int requested = 0;
+        for (const auto& n : bob.decryptor.takeRoomKeyNotifications()) {
+            if (n.kind == RoomKeyEventKind::Requested && n.sessionId == sid)
+                requested++;
+        }
+        CHECK(requested == 2,
+              "notify: forwarded key satisfied the pending request (re-request not deduped)");
+    }
+    {
+        // Encrypted-media round trip: alice AES-encrypts bytes, uploads the
+        // ciphertext, sends an m.image with a file: object; bob decrypts the
+        // event and downloadMediaEncrypted returns the original bytes.
+        std::vector<uint8_t> blob;
+        for (int i = 0; i < 128; ++i) blob.push_back(static_cast<uint8_t>((i * 7) & 0xff));
+        std::string key, iv;
+        CHECK(progressive::desktop::generateMediaKeyIv(key, iv), "media: key+iv generated");
+        auto cipher = progressive::desktop::aesCtrCrypt(blob, key, iv);
+        CHECK(!cipher.empty() && cipher != blob, "media: ciphertext differs");
+        std::string sha = progressive::desktop::sha256Base64(blob);
+        auto up = alice.client.uploadMedia(cipher, "test.bin", "application/octet-stream");
+        CHECK(up.ok && !up.data.empty(), "media: ciphertext uploaded");
+        std::string content = "{\"msgtype\":\"m.file\",\"body\":\"test.bin\",\"filename\":\"test.bin\","
+            "\"file\":{\"url\":\"" + up.data + "\",\"key\":\"" + key + "\",\"iv\":\"" + iv + "\","
+            "\"hashes\":{\"sha256\":\"" + sha + "\"},\"v\":\"v2\","
+            "\"mimetype\":\"application/octet-stream\"}}";
+        std::string inner = "{\"type\":\"m.room.message\",\"content\":" + content +
+                            ",\"room_id\":\"" + roomId + "\"}";
+        std::string sessId = alice.decryptor.getOrCreateOutboundSession(roomId);
+        CHECK(!sessId.empty(), "media: alice has an outbound session");
+        std::string enc = alice.decryptor.encryptMessage(roomId, alice.deviceId, inner);
+        CHECK(!enc.empty(), "media: event encrypted");
+        auto sendR = alice.client.sendEncryptedEvent(roomId, enc,
+            "med" + std::to_string(std::time(nullptr)));
+        CHECK(!sendR.data.empty(), "media: file: event sent");
+        CHECK(waitForDecrypt(bob, roomId, "test.bin", sinceB), "media: bob decrypts the event");
+        auto dl = bob.client.downloadMediaEncrypted(up.data, key, iv, sha);
+        CHECK(dl.ok && dl.data == blob, "media: bob decrypts to the original bytes");
     }
 
     // Late joiner: dan joins; A1 shares the current key; A1 sends -> dan decrypts.

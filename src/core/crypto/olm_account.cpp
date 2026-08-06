@@ -69,6 +69,15 @@ bool OlmAccountStore::create() {
     return r.success;
 }
 
+bool OlmAccountStore::reset() {
+    delete static_cast<progressive::OlmAccount*>(account_);
+    account_ = new progressive::OlmAccount();
+    uploadedKeyCount_ = 0;
+    auto* acc = static_cast<progressive::OlmAccount*>(account_);
+    auto r = acc->create();
+    return r.success;
+}
+
 bool OlmAccountStore::load(const std::string& pickle, const std::string& key) {
     auto* acc = static_cast<progressive::OlmAccount*>(account_);
     auto r = acc->unpickle(key, pickle);

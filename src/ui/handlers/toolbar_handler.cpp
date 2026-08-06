@@ -282,9 +282,10 @@ void ToolbarHandler::onResetDeviceKeys() {
     if (!client_ || !sync_) return;
     auto reply = QMessageBox::warning(parentWidget_,
         "Reset device keys",
-        "Delete device from server + re-upload device keys.\n"
-        "Other clients (Element, FluffyChat) must re-verify.\n"
-        "Fixes 'Unable to decrypt' from stale one-time keys.",
+        "Regenerates the device identity + re-uploads device keys.\n"
+        "Fixes broken 1:1 sessions (messages stuck encrypted): peers are\n"
+        "forced to re-establish fresh sessions automatically.\n"
+        "Other clients (Element, FluffyChat) must re-verify.",
         QMessageBox::Ok | QMessageBox::Cancel);
     if (reply != QMessageBox::Ok) return;
 
@@ -304,8 +305,12 @@ void ToolbarHandler::onResetDeviceKeys() {
         QMetaObject::invokeMethod(self, [self, delRes]() {
             if (self.isNull()) return;
             if (delRes.ok) {
-                self->statusLabel_->setText("Device deleted. Re-uploading keys...");
+                self->statusLabel_->setText("Device deleted. Regenerating identity...");
                 if (self->sync_ && self->sync_->decryptor()) {
+                    // New identity -> peers' stale 1:1 sessions die with it,
+                    // healing BAD_MESSAGE_MAC deadlocks that no amount of
+                    // m.dummy can rotate.
+                    self->sync_->decryptor()->resetIdentity();
                     self->sync_->decryptor()->setAccountShared(false);
                     auto sync = self->sync_;
                     ThreadPool::instance().enqueue([sync]() {

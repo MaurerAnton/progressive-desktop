@@ -110,6 +110,7 @@ void SyncEngine::run() {
     setState(sinceToken_.empty() ? SyncEngineState::InitialSync
                                   : SyncEngineState::Running);
 
+    otkCountSeen_ = false;  // per login — servers without count fields get the fallback
     int tokenFailures = 0;
 
     while (running_) {
@@ -307,13 +308,19 @@ void SyncEngine::run() {
         if (!running_) break;
         if (result.data.signedCurve25519Count > 0) {
             decryptor_.account()->setUploadedKeyCount(result.data.signedCurve25519Count);
+            otkCountSeen_ = true;
         }
 
-        // Auto-upload one-time keys if running low
+        // Auto-upload one-time keys if running low. Homeservers that omit
+        // both count fields (some non-Synapse servers) never trigger this —
+        // fall back to a periodic self-query (uploadDeviceKeys(true) checks
+        // the real count itself and skips when sufficient).
         if (!running_) break;
         if (result.data.signedCurve25519Count >= 0 && result.data.signedCurve25519Count < 50) {
             LOG(LogChannel::E2EE, "sync: OTK count=%d (<50) — uploading fresh keys",
                 result.data.signedCurve25519Count);
+            uploadDeviceKeys(true);
+        } else if (!otkCountSeen_ && stats_.syncs % 20 == 0) {
             uploadDeviceKeys(true);
         }
 

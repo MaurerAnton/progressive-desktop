@@ -29,6 +29,12 @@ public:
     // Load account from pickle string. Returns false on failure.
     bool load(const std::string& pickle, const std::string& key);
 
+    // Regenerate the identity keys: destroy + rebuild the underlying account
+    // (olm_create_account requires uninitialized memory — never re-call
+    // create() on a live account). Peers' 1:1 sessions become invalid and
+    // they re-establish fresh ones.
+    bool reset();
+
     // Save account to pickle string. Returns empty on failure.
     std::string save(const std::string& key);
 

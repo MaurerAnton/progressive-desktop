@@ -590,7 +590,7 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
         auto result = session.createInbound(*underlyingAccount, msgCopy);
         std::fprintf(stderr, "[E2EE] DBG9: createInbound success=%d\n", result.success ? 1 : 0);
         if (!result.success) {
-            LOG(LogChannel::E2EE, "Olm: createInbound Olm session FAILED — recovering with a fresh session");
+            LOG(LogChannel::E2EE, "Olm: createInbound Olm session FAILED");
             auto* raw = static_cast<::OlmSession*>(session.rawSession());
             std::fprintf(stderr, "[E2EE] createInbound libolm error: %s\n",
                 ::olm_session_last_error(raw) ? ::olm_session_last_error(raw) : "(null)");
@@ -603,7 +603,7 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
         std::fprintf(stderr, "[E2EE] DBG11: decrypt success=%d dataSize=%zu\n",
             decResult.success ? 1 : 0, decResult.data.size());
         if (!decResult.success) {
-            LOG(LogChannel::E2EE, "Olm: decrypt after createInbound FAILED — recovering with a fresh session");
+            LOG(LogChannel::E2EE, "Olm: decrypt after createInbound FAILED");
             deferredRecovery = senderKey;
             goto olm_locked_end;
         }
@@ -627,7 +627,7 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
     } else {
         auto it = olmSessions_.find(senderKey);
         if (it == olmSessions_.end() || it->second.empty()) {
-            LOG(LogChannel::E2EE, "Olm: no saved session for sender=%s — cannot decrypt type %d — recovering with a fresh session",
+            LOG(LogChannel::E2EE, "Olm: no saved session for sender=%s — cannot decrypt type %d",
                 senderKey.c_str(), msgType);
             deferredRecovery = senderKey;
             goto olm_locked_end;
@@ -1525,6 +1525,29 @@ void Decryptor::resendAllPendingRequests() {
     }
 }
 
+bool Decryptor::resetIdentity() {
+    if (!account_) return false;
+    {
+        std::lock_guard<std::mutex> lk(olmMtx_);
+        olmSessions_.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lk(outboundOlmMtx_);
+        outboundOlmSessions_.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lk(requestMtx_);
+        requestedKeys_.clear();
+        recentKeyRequests_.clear();
+        forcedOlm_.clear();
+        lastRequestGateMs_ = 0;
+        requestGateCount_ = 0;
+    }
+    if (!account_->reset()) return false;
+    LOG(LogChannel::E2EE, "resetIdentity: new identity keys generated — 1:1 sessions cleared");
+    return true;
+}
+
 // Persist outstanding key requests (survive restarts).
 std::string Decryptor::picklePendingKeyRequests() {
     std::lock_guard<std::mutex> lk(requestMtx_);
@@ -2020,6 +2043,8 @@ void Decryptor::forceNewOlmSession(const std::string& senderId, const std::strin
         auto it = forcedOlm_.find(senderKey);
         if (it != forcedOlm_.end() && nowMs - it->second < 600000) return;
         forcedOlm_[senderKey] = nowMs;
+        LOG(LogChannel::E2EE, "forceNewOlmSession: re-establishing Olm session with sender=%.40s (10min window)",
+            senderId.c_str());
         // The peer's session is broken — re-arm our pending key requests for
         // this sender so they re-fire soon after the peer rotates (the backoff
         // cap would otherwise keep them silent forever).

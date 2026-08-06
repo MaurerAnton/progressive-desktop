@@ -273,6 +273,14 @@ public:
     // would otherwise leave the event encrypted forever). Backoff schedule.
     // Call from the sync worker thread, once per sync.
     void maybeReRequestKeys();
+
+    // Regenerate our identity keys and drop the whole 1:1 session layer.
+    // Broken Olm chains (BAD_MESSAGE_MAC that even the m.dummy recovery
+    // cannot rotate, because the peer keeps reusing its session) are healed:
+    // the peer must create a fresh outbound session (pre-key) on next
+    // contact. Keeps inbound megolm sessions (they do not depend on our
+    // identity) so history stays decryptable.
+    bool resetIdentity();
     void requestRoomKey(const std::string& roomId, const std::string& senderId,
                         const std::string& senderKey, const std::string& sessionId,
                         const std::string& senderDeviceId = "");

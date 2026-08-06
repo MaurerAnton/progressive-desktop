@@ -185,3 +185,17 @@ completed items are removed.
       instead of rendering duplicate rows
 - [x] Test: applier m.replace case
 - [ ] Follow-up: notification click -> open the room (optional)
+
+## Aug 5 batch 5 (identity reset heals broken Olm chains)
+- [x] "Reset device keys" now REGENERATES the identity (OlmAccountStore::reset:
+      destroy + rebuild — olm_create_account requires uninitialized memory) and
+      clears the whole 1:1 session layer (inbound pickles, outbound cache,
+      pending key requests). Keeps inbound megolm sessions (history stays
+      decryptable). Peers' stale sessions die with the old identity; they
+      re-establish fresh pre-key sessions on next contact — this heals the
+      BAD_MESSAGE_MAC deadlock that m.dummy cannot rotate (the peer keeps
+      reusing its broken session). Dialog text updated with guidance.
+- [ ] Follow-up: multi-account session hygiene — the runtime account can
+      differ from the bootstrapped one after an account switch + pre-refresh
+      (log: sync errors name @t1s3 while the UI loaded @test_1); verify the
+      switcher's active-account persistence

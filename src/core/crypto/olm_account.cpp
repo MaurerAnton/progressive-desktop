@@ -71,11 +71,12 @@ bool OlmAccountStore::create() {
 
 bool OlmAccountStore::reset() {
     delete static_cast<progressive::OlmAccount*>(account_);
+    // Fresh, UNINITIALIZED libolm memory — the only safe target for
+    // olm_unpickle_account (unpickling over an initialized account corrupts
+    // the identity — the source of the all-A / cloned-identity bugs).
     account_ = new progressive::OlmAccount();
     uploadedKeyCount_ = 0;
-    auto* acc = static_cast<progressive::OlmAccount*>(account_);
-    auto r = acc->create();
-    return r.success;
+    return true;
 }
 
 bool OlmAccountStore::load(const std::string& pickle, const std::string& key) {

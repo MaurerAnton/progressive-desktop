@@ -10,7 +10,7 @@
 | Feature / Bug | Primary files | Key lines |
 |---|---|---|
 | **E2EE multi-account — shared flag** | `decryptor.cpp` + `olm_account.hpp` + `sync_engine.cpp` | `decryptor.cpp:29` (init with shared), `olm_account.hpp:58` (shared_), `sync_engine.cpp:325-395` (uploadDeviceKeys) |
-| **E2EE multi-account — per-account scoping** | `session_store.cpp` + `account_switcher.cpp` + `e2ee_init_handler.cpp` | `session_store.cpp:206-230` (saveOlmAccount), `session_store.cpp:243-265` (megolm key format), `account_switcher.cpp:67-85` (switchAccount) |
+| **E2EE multi-account — per-account scoping** | `session_store.cpp` + `account_switcher.cpp` | `session_store.cpp:206-230` (saveOlmAccount), `session_store.cpp:243-265` (megolm key format), `account_switcher.cpp:67-85` (switchAccount) |
 | **E2EE OTK count tracking** | `sync_engine.cpp` + `olm_account.hpp` | `sync_engine.cpp:343-355` (smart generation), `olm_account.hpp:58` (uploadedKeyCount_) |
 | **E2EE device_lists tracking** | `fast_sync.cpp` + `decryptor.cpp` + `sync_engine.cpp` | `fast_sync.cpp:230-245` (parse), `decryptor.cpp` (staleDeviceUsers_), `sync_engine.cpp:225` (mark stale) |
 | **E2EE device reset** | `toolbar_handler.cpp` + `matrix_client.cpp` | `toolbar_handler.cpp` (resetDeviceKeys), `matrix_client.cpp` (deleteDevice) |
@@ -41,7 +41,7 @@
 | **Event source viewer** | Not implemented | — |
 | **E2EE inbound decryption** (Bug A) | `decryptor.cpp` + `sync_engine.cpp` | `decryptor.cpp` (decryptMegolmEvent, handleRoomKey, requestRoomKey, forceNewOlmSession) |
 | **E2EE outbound encryption** (Bug B) | `chat_view.cpp` + `decryptor.cpp` | `chat_view.cpp:144-219`, `decryptor.cpp` (encryptMessage, shareRoomKey) |
-| **E2EE init** (Olm account + megolm load) | `e2ee_init_handler.cpp` + `sync_engine.cpp` | `e2ee_init_handler.cpp:14-89`, `sync_engine.cpp:294-395` (uploadDeviceKeys) |
+| **E2EE init** (Olm account + megolm load) | `sync_engine.cpp` | `sync_engine.cpp:294-395` (uploadDeviceKeys), `initializeE2EE`/`persistCrypto` (X1 phase 4 moved bootstrapping into core — the old `e2ee_init_handler` was deleted) |
 | **Room rendering** | `timeline_painter.cpp` | Full file — bubble, avatar, image, thread badge, reactions, time |
 | **Room list** (sync → upsert) | `room_store.cpp` + `room_list_model.cpp` + `sync_response_handler.cpp` | `room_store.cpp:139-222`, `room_list_model.cpp:60-118` |
 | **Room switch** | `room_handler.cpp` | `room_handler.cpp:68-151` |
@@ -101,13 +101,13 @@
 | File | Lines | Responsibility |
 |---|---|---|
 | `room_handler.cpp/.hpp` | 357 / 93 | **Room orchestration**: onRoomClicked (clear timeline, load history, members), load-more, accept/reject invite, open/close thread view, context menu dispatch. Owns ThreadHandler + RoomContextMenu children. **load-more path has NO m.room.encrypted handling** (DEBT). |
-| `thread_handler.cpp/.hpp` | 221 / 45 | **Thread view**: openThreadView (fetch /relations, snapshot root, parse replies), closeThreadView, sendThreadReply, replyInThread dialog. **sendThreadReply has NO encryption path** (security bug). **No Decryptor* → can't decrypt E2EE root** (DEBT B41). |
+| `thread_handler.cpp/.hpp` | 221 / 45 | **Thread view**: openThreadView (fetch /relations, snapshot root, parse replies), closeThreadView, sendThreadReply, replyInThread dialog. **sendThreadReply encrypts in E2EE rooms** (encryptMessage + shareRoomKeyForRoom, thread_handler.cpp:257-272). |
 | `room_context_menu.cpp/.hpp` | 302 / 48 | **Context menus**: room list (leave/accept/reject/forget/hide), timeline (reaction/pin/reply/copy/edit/delete). **hideAction has no persistence**. forgetAction chains leave→forget. |
 | `sync_response_handler.cpp/.hpp` | 104 / 59 | **Sync → UI bridge**: receives FastSyncResponse from SyncEngine, calls prepareRoomSyncUpdate on thread pool, applyRoomSyncUpdate on UI thread, handles notifications. |
 | `auth_handler.cpp/.hpp` | 57 / 44 | Login/logout flow. Shows LoginDialog, emits loggedIn/loggedOut. |
 | `toolbar_handler.cpp/.hpp` | 255 / 79 | Toolbar actions: New Chat (DM only — no groups), Join Room, Browse, All Threads, Room Settings, Room Members, Settings, Fullscreen. |
 | `session_bootstrap.cpp/.hpp` | 102 / 25 | Post-login bootstrap: start sync, init E2EE, persist crypto, kick off first sync callback. Called from `main_window.cpp:startWithSavedSession()`. |
-| `e2ee_init_handler.cpp/.hpp` | 109 / 22 | E2EE initialization: load/save Olm account pickle, load Megolm + Olm sessions, schedule device key upload. Pure init — no ongoing E2EE ops. |
+| `account_switcher.cpp/.hpp` | 90 / 55 | Multi-account dropdown + switch logic. Refreshes room list on account switch. |
 | `account_switcher.cpp/.hpp` | 90 / 55 | Multi-account dropdown + switch logic. Refreshes room list on account switch. |
 | `attachment_handler.cpp/.hpp` | 88 / 30 | File attachment: open file dialog → download media → ImageViewerDialog. |
 | `slash_command_handler.cpp/.hpp` | 27 / 24 | Slash command parsing: /invite, /leave, /kick, /ban, /join. |
@@ -126,8 +126,11 @@
 
 | File | Lines | Responsibility |
 |---|---|---|
-| `room_store.cpp/.hpp` | 505 / 109 | **Room sync processing**: `prepareRoomSyncUpdate` (worker thread — builds RoomSyncUpdate from FastSyncResponse), `applyRoomSyncUpdate` (UI thread — upserts rooms, appends timeline). Also hosts shared utils: `extractStringDec`, `msgType`, `msgBody`, `extractThreadRootId`, `extractReplyToId`, `makeSystemBody`. `appendTimelineForRoom` — sync timeline path with E2EE decryption. |
-| `room_data_loader.cpp/.hpp` | 296 / 44 | **Async room data loading**: `loadHistory` (GET /messages), `loadMembers` (GET /members), `batchLoadRoomStates` (GET /state for name/avatar/encryption). History path has E2EE decryption but **thread reply count NOT incremented** (bug). |
+| `core/engine/engine_types.hpp` | — | **X1 Qt-free core types** (DisplayedEvent/ReactionData/RoomData — QImage + imageLoaded removed; image roles resolve via the ImageLoader cache). |
+| `core/engine/sync_applier.cpp/.hpp` | — | **X1 pure-delta engine**: `prepareRoomSyncUpdate`, `fastEventToDisplayed`, `makeSystemBody`, `extractReplyToId`, `extractThreadRootId`, string-based extraction. Qt-free; unit-tested (test_sync_applier). |
+| `core/engine/room_state.cpp/.hpp`, `timeline_state.cpp/.hpp` | — | **X1 Qt-free state**: RoomState/TimelineState — worker-thread models; TimelineModel/RoomListModel are thin wrappers (UI-thread copies). |
+| `room_store.cpp/.hpp` | 505 / 109 | **Room sync processing**: `applyRoomSyncUpdate` (UI thread — upserts rooms, appends timeline). Also hosts shared utils: `extractStringDec`, `msgType`, `msgBody`, `makeSystemBody`. `appendTimelineForRoom` — sync timeline path with E2EE decryption. (X1 moved the pure-delta logic + the extractors into `src/core/engine/sync_applier.cpp`; room_store keeps the UI-thread model ops.) |
+| `room_data_loader.cpp/.hpp` | 296 / 44 | **Async room data loading**: `loadHistory` (GET /messages), `loadMembers` (GET /members), `batchLoadRoomStates` (GET /state for name/avatar/encryption). History path has E2EE decryption and now routes through SyncApplier (gains decrypt/badge/reply-strip/reactions-as-rows). |
 | `room_list_model.cpp/.hpp` | 176 / 100 | QAbstractListModel for room sidebar. RoomData vector, upsertRoom (sorted by lastActivity), removeRoom, findRowByRoomId, refreshHeader. **No isHidden check** (bug). |
 | `event_body_parser.hpp` | 32 | `parsePlaintextBody()` — inline helper that parses decrypted Megolm plaintext JSON → type + contentJson. Used by both sync and history paths. |
 

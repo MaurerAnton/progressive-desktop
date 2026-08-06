@@ -134,6 +134,13 @@ public:
     // One-shot note when an Olm session recovery fired (status-line hint).
     std::string takeLastOlmRecoveryNote();
 
+    // Mark a sender's Olm 1:1 channel as broken (called when decrypt totally
+    // fails). Enriches megolm decrypt errors so the UI can explain WHY a
+    // message stays encrypted.
+    void markOlmBroken(const std::string& senderKey);
+    std::string enrichDecryptError(const std::string& senderKey,
+                                   const std::string& baseError) const;
+
     // ---- Inbound Olm 1:1 (to-device decryption) ----
     // Handle a to-device m.room.encrypted event (Olm 1:1 algorithm).
     // Decrypts the ciphertext using an inbound OlmSession, then if the
@@ -274,6 +281,10 @@ public:
     // Call from the sync worker thread, once per sync.
     void maybeReRequestKeys();
 
+    // Drop every piece of state scoped to the previous account. Called on
+    // every init (login, account switch, restart).
+    void clearPerAccountState();
+
     // Regenerate our identity keys and drop the whole 1:1 session layer.
     // Broken Olm chains (BAD_MESSAGE_MAC that even the m.dummy recovery
     // cannot rotate, because the peer keeps reusing its session) are healed:
@@ -363,6 +374,11 @@ private:
     void noteOlmRecovery(const std::string& senderId, const std::string& senderKey);
     std::string lastOlmRecoveryNote_;
     std::mutex olmRecoveryNoteMtx_;
+
+    // senderKey -> last failure ms. Time-bounded (30 min) so the explanation
+    // only appears while the channel is actually broken.
+    std::unordered_map<std::string, int64_t> brokenOlmSenders_;
+    mutable std::mutex brokenOlmMtx_;
 
     // Send a key request to a device list; "*" entries go as PLAIN to-device
     // (Olm encryption to a wildcard is impossible).

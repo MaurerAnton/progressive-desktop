@@ -2,7 +2,7 @@
 
 **Read this file, code_map.json, and memory/REFERENCE.md before any code change.**
 **memory/DREAM.md explains WHY the architecture exists.**
-**Last updated: August 3, 2026**
+**Last updated: August 6, 2026**
 
 ---
 
@@ -335,7 +335,12 @@ If a class calls `httpPost`/`httpPut` with auth headers (`makeAuthHeaders(token)
   the Actions UI and re-run.
 
 ### In Progress 🔄
-- **SAS UI polish** — dialog + handler exist (SasVerificationDialog, VerificationHandler, RoomMembersDialog → Verify, PrefsDialog → Your devices). Cross-client verification against Element/FluffyChat is next.
+- **Bug-zero clean-up** — remaining runtime-only bugs (images, thread-reply-count edge case) need
+  diagnostic LOGs before fix (per PLANNER #9). Roadmap → v0.5 in memory/PROGRESS.md; ordered next
+  tasks in memory/CHECKLIST.md.
+- **Element real-client interop** — SAS MSK mac extension, cross-signing, and key backup (SSSS) are
+  self-consistent (two-manager + live-Synapse CI) but never validated against an actual Element
+  client. The standing biggest external risk.
 
 ### Gaps
 | Gap | What | Priority |

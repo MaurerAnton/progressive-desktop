@@ -146,6 +146,10 @@ std::string MegolmStore::pickleAll(const std::string& key) {
 
 bool MegolmStore::unpickleAll(const std::string& key, const std::string& data) {
     std::lock_guard<std::mutex> lk(mtx_);
+    // Never mix another account's sessions in: a fresh load starts empty
+    // (the manager holds whatever the previous account left behind).
+    impl_->mgr.clearAll();
+    pending_.clear();
     if (data.empty() || data == "[]") return true;
     // Hex-decode
     std::string raw;

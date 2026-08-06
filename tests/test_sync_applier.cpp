@@ -6,6 +6,7 @@
 #include "core/sync_engine.hpp"
 #include "core/session_store.hpp"
 #include "core/crypto/decryptor.hpp"
+#include "core/crypto/megolm_store.hpp"
 #include "core/matrix_client.hpp"
 
 #include <iostream>
@@ -262,6 +263,32 @@ int main() {
         SyncApplier::fastEventToDisplayed(fe, de, "!r:test", nullptr);
         CHECK(de.isReplace && de.replaceTargetId == "$orig" && de.body == "new text",
               "applier: m.replace extracted (target + new_content body)");
+    }
+
+    // --- broken-Olm decrypt-reason enrichment ---
+    {
+        progressive::desktop::Decryptor dec;
+        // Unmarked sender: unchanged.
+        CHECK(dec.enrichDecryptError("skX", "no megolm session — waiting for room_key")
+                  == "no megolm session — waiting for room_key",
+              "enrich: unmarked sender unchanged");
+        dec.markOlmBroken("skX");
+        auto enriched = dec.enrichDecryptError("skX", "no megolm session — waiting for room_key");
+        CHECK(enriched.find("no megolm session") != std::string::npos &&
+              enriched.find("Olm session with you is broken") != std::string::npos,
+              "enrich: marked sender gets the broken-session explanation");
+        CHECK(dec.enrichDecryptError("skY", "other error") == "other error",
+              "enrich: other senders unaffected");
+    }
+    // --- megolm store clears on a fresh load (no cross-account bleed) ---
+    {
+        progressive::desktop::MegolmStore store;
+        progressive::desktop::PendingEncryptedEvent p;
+        p.roomId = "!r:hs"; p.sessionId = "s"; p.senderKey = "k"; p.eventId = "$e";
+        store.addPending(p);
+        CHECK(store.pendingCount() == 1, "megolm: pending recorded");
+        CHECK(store.unpickleAll("k", "[]"), "megolm: fresh load with empty data");
+        CHECK(store.pendingCount() == 0, "megolm: fresh load clears pending");
     }
 
     // --- reactions never count as thread replies ---

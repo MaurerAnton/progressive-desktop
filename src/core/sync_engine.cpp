@@ -65,9 +65,10 @@ void SyncEngine::start() {
     LOG(LogChannel::DBG, "sync start called");
     if (running_.exchange(true)) return;  // already running
 
-    // Load saved since-token if available (for incremental sync after first run).
-    if (store_) {
-        auto tok = store_->loadSyncToken();
+    // Load this account's saved since-token (per-user — never another
+    // account's sync position).
+    if (store_ && client_) {
+        auto tok = store_->loadSyncToken(client_->account().userId);
         if (tok) sinceToken_ = *tok;
     }
     firstRun_ = true;  // next sync uses empty since → gets current state for all rooms
@@ -297,8 +298,8 @@ void SyncEngine::run() {
         if (!running_) break;
 
         // Persist token.
-        if (store_ && !sinceToken_.empty()) {
-            store_->saveSyncToken(sinceToken_);
+        if (store_ && client_ && !sinceToken_.empty()) {
+            store_->saveSyncToken(client_->account().userId, sinceToken_);
         }
 
         // Emit to UI thread.
@@ -923,6 +924,25 @@ SyncEngine::E2eeInitResult SyncEngine::initializeE2EE() {
         if (!result.e2eeOk) {
             LOG(LogChannel::E2EE, "initializeE2EE: failed to create olm account");
             return result;
+        }
+
+        // All-A curve25519 = an account corrupted by the old load-over-
+        // initialized bug (zeroed identity). Peers can never decrypt our
+        // messages and we can never decrypt theirs. Heal automatically:
+        // regenerate the identity and re-upload device keys.
+        {
+            static const std::string kAllASentinel(43, 'A');
+            std::string curve = decryptor_.curve25519Key();
+            if (curve == kAllASentinel) {
+                LOG(LogChannel::E2EE, "initializeE2EE: CORRUPT identity (all-A key) for %s — regenerating",
+                    acct.userId.c_str());
+                if (decryptor_.resetIdentity()) {
+                    decryptor_.setAccountShared(false);
+                    uploadDeviceKeys(true);
+                    LOG(LogChannel::E2EE, "initializeE2EE: identity regenerated — new curve=%.30s",
+                        decryptor_.curve25519Key().c_str());
+                }
+            }
         }
 
         decryptor_.setCryptoContext(acct.userId, acct.deviceId,

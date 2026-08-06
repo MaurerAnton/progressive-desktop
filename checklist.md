@@ -199,3 +199,28 @@ completed items are removed.
       differ from the bootstrapped one after an account switch + pre-refresh
       (log: sync errors name @t1s3 while the UI loaded @test_1); verify the
       switcher's active-account persistence
+
+## Aug 5 batch 6 (multi-account root causes + recovery fixes + reset UX)
+- [x] ROOT CAUSE (clone/all-A identities): OlmAccountStore::reset() rebuilds the
+      wrapper without creating (fresh uninitialized libolm memory); every
+      Decryptor::init() resets first — unpickling over an initialized account
+      corrupted identities across accounts/switches/logins
+- [x] init() clears ALL per-account state: olm pickles, outbound cache+megolm
+      sessions+roomKeys, pending key requests, notifications, recovery notes,
+      broken-Olm marks, stale users, re-decrypted events
+- [x] MegolmStore::unpickleAll clears the manager + pending first (sessions
+      bled across accounts)
+- [x] Per-user since token: sync_state gains user_id (migrated); save/load/
+      clear take the user; test_phase1 covers per-account isolation
+- [x] Startup all-A identity auto-heal: corrupt key detected -> log old key +
+      resetIdentity + re-upload device keys
+- [x] forceNewOlmSession no longer stores its OUTBOUND pickle in the INBOUND
+      store (it poisoned every type-1 decrypt -> BAD_MAC forever); type-1
+      failure no longer erases the vector; pre-key store capped at 20/sender
+- [x] Decrypt-reason enrichment: markOlmBroken + enrichDecryptError -> the
+      badge/tooltip explains "the sender's Olm session with you is broken..."
+      (only for actually-broken senders, 30-min window)
+- [x] Reset device keys: regeneration decoupled from the server delete (404 =
+      "homeserver doesn't support it, identity regenerated anyway"); wrong
+      password (401/403 M_FORBIDDEN) reported as such; M_UNKNOWN_TOKEN ->
+      re-login; completion summary box

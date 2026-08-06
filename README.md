@@ -23,17 +23,18 @@ A Matrix client in the making. Built with Qt6 QWidgets, libolm, and a shared `pr
 
 **⚠️ NOT USABLE for daily use. Under active development. Do not rely on it.**
 
-E2EE works for a basic 2-user, 1-device flow (verified in CI against a live Synapse),
-and the CI suite also exercises a 3-member multi-account/multi-device scenario
-(alice on 2 devices, late joiner, room-key delivery). Cross-signing device trust is
-in progress (Phase 6 tail); SSSS key backup is Phase 7. Several critical bugs remain
-(thread replies, image rendering).
+E2EE is broadly functional: encrypted messaging (2-user and multi-account/multi-device,
+verified in CI against a live Synapse), SAS device verification, cross-signing (Phase 6),
+SSSS key backup + secret sharing (Phase 7), encrypted media, Element-parity key requests,
+and Olm-chain recovery/healing. The Qt-free core engine was extracted (X1). A few
+runtime-only bugs remain (images, a thread-reply-count edge case) plus Tier-1 feature gaps
+(rich markdown, room creation) — see `memory/PROGRESS.md` for the live tracker.
 
-Current phase: E2EE (cross-signing) + bug fixing toward v0.5 (see `memory/PROGRESS.md`
-for the live tracker).
+Current phase: bug-zero clean-up toward v0.5 (see `memory/PROGRESS.md`).
 
 CI test coverage today: 2 users × 1 device each, plus a multi-account/multi-device
-scenario (3 members, alice on 2 devices). Untested: full device-management UI flows.
+scenario (3 members, alice on 2 devices). 14/14 ctest green. Untested: full
+device-management UI flows and real-Element interop.
 
 What works:
 - Login/logout with homeserver discovery + password login
@@ -45,22 +46,18 @@ What works:
 - Emoji picker, quick-react on last message
 - File/image/audio attachment upload
 - Threads: view, reply, indicator (`💬 N replies`)
-- Reactions: context-menu add/remove
-- Load-more (backward pagination)
-- Multi-account (switch between saved accounts)
-- Account switcher dropdown in toolbar
-- E2EE: outbound encryption (Megolm) + inbound decryption (Olm/Megolm recovery chain)
-- E2EE: cross-account key sharing (2 users, 1 device each) — verified in CI against a
-  live Synapse server (`test_synapse_e2ee.cpp`). Multi-account / multi-device scenario
-  (3 members, alice on 2 devices) also exercised in CI.
-- E2EE: SAS device verification (m.sas.v1) — 7-emoji match dialog, device verification
-- E2EE: cross-signing (Phase 6) — key upload/signatures + device trust shields (in progress)
-- Ctrl+K room switcher, date dividers, keyboard navigation
+- Reactions: context-menu add/remove + edits
+- Load-more (backward pagination), multi-account switch
+- E2EE: outbound/inbound Megolm + Olm recovery chain, cross-account + multi-device key sharing
+      (verified in CI against live Synapse)
+- E2EE: SAS device verification (7-emoji match), cross-signing device trust,
+      SSSS key backup + secret sharing, encrypted media both ways, Element-parity key requests,
+      identity-reset Olm-chain healing
+- Ctrl+K room switcher, date dividers, keyboard navigation, in-app log viewer
 
-Not yet implemented:
-- Read receipts, typing indicators (sending)
-- Cross-signing device trust chain — full (partially in, Phase 6 tail)
-- SSSS key backup / history recovery after re-login
+Remaining gaps (not yet):
+- Read markdown (cmark-gfm) / tables, full room creation, event source viewer,
+  error-panel polish, typing indicator in chat, read receipts (sending)
 
 ## Build
 
@@ -196,7 +193,6 @@ progressive-desktop/
         room_context_menu.{hpp,cpp} context menus (leave/reply/react/pin)
         sync_response_handler.{hpp,cpp} sync → UI bridge
         account_switcher.{hpp,cpp} multi-account switch
-        e2ee_init_handler.{hpp,cpp} E2EE init at startup
         session_bootstrap.{hpp,cpp} post-login startup sequence
         attachment_handler.{hpp,cpp} file download + image viewer
         slash_command_handler.{hpp,cpp} /invite, /leave, /kick, /ban, /join

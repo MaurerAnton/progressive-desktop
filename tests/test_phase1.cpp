@@ -93,13 +93,18 @@ static void test_session_store_memory() {
     CHECK(loaded->accessToken == "tok_abc", "accessToken persisted");
     CHECK(loaded->refreshToken == "refresh_xyz", "refreshToken persisted");
 
-    CHECK(s.saveSyncToken("since_123"), "save sync token");
-    auto tok = s.loadSyncToken();
+    CHECK(s.saveSyncToken("@user:server", "since_123"), "save sync token");
+    auto tok = s.loadSyncToken("@user:server");
     CHECK(tok.has_value(), "load sync token returns value");
     CHECK(*tok == "since_123", "sync token persisted");
+    CHECK(s.saveSyncToken("@other:server", "since_999"), "per-user: second account saved");
+    CHECK(s.loadSyncToken("@user:server") && *s.loadSyncToken("@user:server") == "since_123",
+          "per-user: accounts keep their own sync positions");
 
-    CHECK(s.clearSyncToken(), "clear sync token");
-    CHECK(!s.loadSyncToken().has_value(), "sync token cleared");
+    CHECK(s.clearSyncToken("@user:server"), "clear sync token");
+    CHECK(!s.loadSyncToken("@user:server").has_value(), "sync token cleared");
+    CHECK(s.loadSyncToken("@other:server") && *s.loadSyncToken("@other:server") == "since_999",
+          "per-user: other account's token survives");
 
     CHECK(s.clearAccount("@user:server"), "clear account");
     CHECK(!s.loadAccount().has_value(), "account cleared");

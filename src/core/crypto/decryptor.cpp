@@ -40,16 +40,58 @@ Decryptor::Decryptor()
 
 Decryptor::~Decryptor() = default;
 
-bool Decryptor::init(const std::string& accountPickle, const std::string& pickleKey,
-                      bool shared) {
+// Drop everything that is scoped to the previous account: requests, room-key
+// notifications, recovery notes, stale-device marks, broken-Olm state, and
+// pending re-decrypted events. Called on every init (login, switch, restart).
+void Decryptor::clearPerAccountState() {
+    {
+        std::lock_guard<std::mutex> lk(olmMtx_);
+        olmSessions_.clear();
+    }
     {
         std::lock_guard<std::mutex> lk(outboundOlmMtx_);
         outboundOlmSessions_.clear();
     }
     {
-        std::lock_guard<std::mutex> lk(requestMtx_);
-        forcedOlm_.clear();
+        std::lock_guard<std::mutex> lk(outboundMtx_);
+        outboundSessions_.clear();
+        roomKeysShared_.clear();
+        roomEncryptionConfigs_.clear();
     }
+    {
+        std::lock_guard<std::mutex> lk(requestMtx_);
+        requestedKeys_.clear();
+        recentKeyRequests_.clear();
+        forcedOlm_.clear();
+        lastRequestGateMs_ = 0;
+        requestGateCount_ = 0;
+    }
+    {
+        std::lock_guard<std::mutex> lk(roomKeyNotifMtx_);
+        roomKeyNotifications_.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lk(olmRecoveryNoteMtx_);
+        lastOlmRecoveryNote_.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lk(brokenOlmMtx_);
+        brokenOlmSenders_.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lk(staleMtx_);
+        staleDeviceUsers_.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lk(reDecryptedMtx_);
+        reDecryptedEvents_.clear();
+    }
+}
+
+bool Decryptor::init(const std::string& accountPickle, const std::string& pickleKey,
+                      bool shared) {
+    clearPerAccountState();
+    if (!account_->reset()) return false;  // fresh libolm memory — never load over an initialized account
     if (!accountPickle.empty()) {
         if (!account_->load(accountPickle, pickleKey)) {
             return account_->create();
@@ -61,6 +103,8 @@ bool Decryptor::init(const std::string& accountPickle, const std::string& pickle
 }
 
 bool Decryptor::init() {
+    clearPerAccountState();
+    if (!account_->reset()) return false;
     return account_->create();
 }
 
@@ -144,7 +188,7 @@ DecryptionResult Decryptor::decryptMegolmEvent(const std::string& roomId,
         ? std::string(devId.value()) : "";
 
     if (!megolm_->hasSession(roomId, senderKey, sessionId)) {
-        r.error = "no megolm session — waiting for room_key";
+        r.error = enrichDecryptError(senderKey, "no megolm session — waiting for room_key");
         LOG(LogChannel::E2EE, "decryptMegolmEvent: no session room=%.40s eid=%s sid=%.30s senderKey=%.30s devId=%s — saving to pending",
             roomId.c_str(), eventId.c_str(), sessionId.c_str(), senderKey.c_str(),
             senderDeviceId.c_str());
@@ -163,7 +207,7 @@ DecryptionResult Decryptor::decryptMegolmEvent(const std::string& roomId,
 
     auto plaintext = megolm_->decrypt(roomId, senderKey, sessionId, ciphertext);
     if (plaintext.empty()) {
-        r.error = "megolmDecrypt failed (bad mac or unknown session)";
+        r.error = enrichDecryptError(senderKey, "megolmDecrypt failed (bad mac or unknown session)");
         return r;
     }
     r.ok = true;
@@ -307,6 +351,30 @@ std::string Decryptor::takeLastOlmRecoveryNote() {
     std::string out = std::move(lastOlmRecoveryNote_);
     lastOlmRecoveryNote_.clear();
     return out;
+}
+
+void Decryptor::markOlmBroken(const std::string& senderKey) {
+    if (senderKey.empty()) return;
+    std::lock_guard<std::mutex> lk(brokenOlmMtx_);
+    brokenOlmSenders_[senderKey] = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+std::string Decryptor::enrichDecryptError(const std::string& senderKey,
+                                          const std::string& baseError) const {
+    if (baseError.empty()) return baseError;
+    {
+        std::lock_guard<std::mutex> lk(brokenOlmMtx_);
+        auto it = brokenOlmSenders_.find(senderKey);
+        if (it == brokenOlmSenders_.end()) return baseError;
+        auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        if (nowMs - it->second > 30 * 60 * 1000) return baseError;
+    }
+    return baseError + " — The sender's Olm session with you is broken; they can't "
+        "deliver the room key, so only they can see this message right now. Ask them "
+        "to restart their client or reset its encryption in Element, or run "
+        "Settings \u2192 Reset device keys here.";
 }
 
 void Decryptor::noteRoomKey(RoomKeyNotification n) {
@@ -620,7 +688,10 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
             for (const auto& existing : vec) {
                 if (existing == pickleResult.data) { dup = true; break; }
             }
-            if (!dup) vec.push_back(pickleResult.data);
+            if (!dup) {
+                vec.push_back(pickleResult.data);
+                if (vec.size() > 20) vec.erase(vec.begin());  // keep newest
+            }
             LOG(LogChannel::E2EE, "Olm: saved session pickle for sender=%s (total=%zu)",
                 senderKey.c_str(), vec.size());
         }
@@ -660,9 +731,8 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
             // after a restart lost the matching pickle). Drop the stale pickles
             // so the peer's next pre-key message starts clean, and send an
             // m.dummy pre-key so the peer re-establishes a session with us.
-            LOG(LogChannel::E2EE, "Olm: decrypt type %d FAILED for sender=%s (tried %zu sessions) — dropping stale pickles + fresh session",
+            LOG(LogChannel::E2EE, "Olm: decrypt type %d FAILED for sender=%s (tried %zu sessions) — re-establishing session",
                 msgType, senderKey.c_str(), it->second.size());
-            olmSessions_.erase(senderKey);
             deferredRecovery = senderKey;
             goto olm_locked_end;
         }
@@ -672,6 +742,7 @@ olm_locked_end:;
     if (!deferredRecovery.empty()) {
         forceNewOlmSession(senderId, deferredRecovery);
         noteOlmRecovery(senderId, deferredRecovery);
+        markOlmBroken(deferredRecovery);
     }
 
     // If we got plaintext, it's a JSON object like:
@@ -1527,23 +1598,9 @@ void Decryptor::resendAllPendingRequests() {
 
 bool Decryptor::resetIdentity() {
     if (!account_) return false;
-    {
-        std::lock_guard<std::mutex> lk(olmMtx_);
-        olmSessions_.clear();
-    }
-    {
-        std::lock_guard<std::mutex> lk(outboundOlmMtx_);
-        outboundOlmSessions_.clear();
-    }
-    {
-        std::lock_guard<std::mutex> lk(requestMtx_);
-        requestedKeys_.clear();
-        recentKeyRequests_.clear();
-        forcedOlm_.clear();
-        lastRequestGateMs_ = 0;
-        requestGateCount_ = 0;
-    }
+    clearPerAccountState();
     if (!account_->reset()) return false;
+    if (!account_->create()) return false;
     LOG(LogChannel::E2EE, "resetIdentity: new identity keys generated — 1:1 sessions cleared");
     return true;
 }
@@ -2167,18 +2224,9 @@ void Decryptor::forceNewOlmSession(const std::string& senderId, const std::strin
         return;
     }
 
-    auto pickleResult = session.pickle("");
-    if (pickleResult.success) {
-        std::lock_guard<std::mutex> lk(olmMtx_);
-        auto& vec = olmSessions_[senderKey];
-        bool dup = false;
-        for (const auto& existing : vec) {
-            if (existing == pickleResult.data) { dup = true; break; }
-        }
-        if (!dup) vec.push_back(pickleResult.data);
-        std::fprintf(stderr, "[e2ee] forceNewOlmSession: stored outbound session for senderKey=%.20s\n",
-                     senderKey.c_str());
-    }
+    // NOTE: the new OUTBOUND session must NOT be stored in olmSessions_ (the
+    // inbound store) — an outbound pickle can never decrypt the peer's
+    // messages, and it poisoned every subsequent type-1 attempt (BAD_MAC).
 
     std::string txnId = "pddmy" + std::to_string(
         static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count())

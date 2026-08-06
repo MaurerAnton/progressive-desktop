@@ -58,7 +58,7 @@ bool SessionStore::createSchema() {
         "  refresh_token TEXT"
         ");"
         "CREATE TABLE IF NOT EXISTS sync_state ("
-        "  id INTEGER PRIMARY KEY CHECK (id = 1),"
+        "  user_id TEXT PRIMARY KEY,"
         "  since_token TEXT"
         ");"
         "CREATE TABLE IF NOT EXISTS olm_account ("
@@ -95,6 +95,29 @@ bool SessionStore::createSchema() {
     if (rc != SQLITE_OK) {
         sqlite3_free(err);
         return false;
+    }
+
+    // Migration: the pre-multi-account sync_state (id=1) has no user_id —
+    // drop it so the per-user table is created fresh.
+    {
+        sqlite3_stmt* stmt = nullptr;
+        if (sqlite3_prepare_v2(db_, "PRAGMA table_info(sync_state);", -1, &stmt, nullptr) == SQLITE_OK) {
+            bool hasUser = false;
+            while (sqlite3_step(stmt) == SQLITE_ROW) {
+                if (sqlite3_column_text(stmt, 1) &&
+                    std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1))) == "user_id")
+                    hasUser = true;
+            }
+            sqlite3_finalize(stmt);
+            if (!hasUser) {
+                sqlite3_exec(db_, "DROP TABLE IF EXISTS sync_state;", nullptr, nullptr, nullptr);
+                sqlite3_exec(db_,
+                    "CREATE TABLE IF NOT EXISTS sync_state ("
+                    "  user_id TEXT PRIMARY KEY,"
+                    "  since_token TEXT"
+                    ");", nullptr, nullptr, nullptr);
+            }
+        }
     }
 
     // Add shared column to existing olm_account tables
@@ -200,15 +223,16 @@ bool SessionStore::clearAccount(const std::string& userId) {
     return true;
 }
 
-bool SessionStore::saveSyncToken(const std::string& token) {
+bool SessionStore::saveSyncToken(const std::string& userId, const std::string& token) {
     std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return false;
     const char* sql =
-        "INSERT INTO sync_state (id, since_token) VALUES (1, ?) "
-        "ON CONFLICT(id) DO UPDATE SET since_token=excluded.since_token;";
+        "INSERT INTO sync_state (user_id, since_token) VALUES (?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET since_token=excluded.since_token;";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_text(stmt, 1, token.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 1, userId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, token.c_str(), -1, SQLITE_TRANSIENT);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     if (rc != SQLITE_DONE) return false;
@@ -216,12 +240,13 @@ bool SessionStore::saveSyncToken(const std::string& token) {
     return true;
 }
 
-std::optional<std::string> SessionStore::loadSyncToken() {
+std::optional<std::string> SessionStore::loadSyncToken(const std::string& userId) {
     std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return std::nullopt;
-    const char* sql = "SELECT since_token FROM sync_state WHERE id=1;";
+    const char* sql = "SELECT since_token FROM sync_state WHERE user_id=?;";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
+    sqlite3_bind_text(stmt, 1, userId.c_str(), -1, SQLITE_TRANSIENT);
     std::optional<std::string> result;
     if (sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL) {
         result = std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
@@ -230,11 +255,16 @@ std::optional<std::string> SessionStore::loadSyncToken() {
     return result;
 }
 
-bool SessionStore::clearSyncToken() {
+bool SessionStore::clearSyncToken(const std::string& userId) {
     std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return false;
-    int rc = sqlite3_exec(db_, "DELETE FROM sync_state WHERE id=1;", nullptr, nullptr, nullptr);
-    if (rc != SQLITE_OK) return false;
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, "DELETE FROM sync_state WHERE user_id=?;", -1, &stmt, nullptr) != SQLITE_OK)
+        return false;
+    sqlite3_bind_text(stmt, 1, userId.c_str(), -1, SQLITE_TRANSIENT);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) return false;
     checkpoint();
     return true;
 }

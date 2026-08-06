@@ -2,7 +2,7 @@
 
 > 7 phases from alpha E2EE to full spec compliance.
 > Each phase = 1-5 AI coder sessions. Total: ~4-6 weeks.
-> Last updated: August 1, 2026
+> Last updated: August 6, 2026
 
 ## Current state (after alpha hardening)
 - Olm 1:1 sessions (create, persist, decrypt) ✓
@@ -84,7 +84,7 @@ Scenario coverage: 3 members, alice on 2 devices (login helper), both alice devi
 decrypt the sender's messages, device2 sends + device1 decrypts, late joiner invited +
 decrypts, cross-signing publishing verified across devices.
 
-## Phase 7 — SSSS + key backup — 🔄 IN PROGRESS (Aug 4)
+## Phase 7 — SSSS + key backup — ✅ COMPLETE (Aug 4)
 - [x] Slice 1: base58 + recovery key (32B entropy + 2B parity) + backup keypair
       (the seed IS the curve25519 secret) + crypto_box_seal session_data +
       roundtrip unit test; 2 AArch64 libsodium quirks documented
@@ -100,7 +100,7 @@ decrypts, cross-signing publishing verified across devices.
       derivation + AES-256-CBC + HMAC (8-byte mac), key-metadata
       self-encryption verification, key discovery via m.secret_storage.default_key
       (Synapse lacks the global listing endpoint), OpenSSL EVP ed25519 pub
-      derivation (libsodium seed_keypair segfaults on AArch64), PrefsDialog
+      derivation (sodium seed_keypair segfaults on AArch64), PrefsDialog
       sync/retrieve buttons, unit + live roundtrip tests
 
 ## X1 — Qt-free progressive_engine extraction ✅ (Aug 4)
@@ -138,18 +138,18 @@ Depends on Phase 1 (ed25519 verify).
 - ✅ MSK/USK/SSK ed25519 keygen + sign/verify (libsodium, `0806d83`)
 - ✅ Setup + device signing: SSK signs device_keys, PrefsDialog "Set up secure messaging" (`db6c5f0`, `05827d2`)
 - ✅ Spec-correct publishing: POST /keys/device_signing/upload (CrossSigningKey format) + UIA password flow (`1075b57`); full canonical key signature (`db5da04`)
-- 🔄 In flight: AI coder (sync_engine.cpp/hpp modified, not committed to docs yet)
-- [ ] Trust computation with REAL signature verification (Phase 1 primitive)
-- [ ] UI: device shields (red/grey/green), cross-signing reset
+- ✅ Trust computation with REAL signature verification (Phase 1 primitive) — Aug 3
+- ✅ UI: device shields (red/grey/green), cross-signing reset — Aug 3
 
-## Phase 7 — SSSS + key backup (4-5 sessions)
-The hardest phase — crypto core must be written from scratch.
-- Port key_backup.cpp recovery key format (REAL — base58, parity, curve-key)
-- Implement Megolm backup encryption: Curve25519 ECDH + AES-256-CBC + HMAC-SHA-256
-- Backup version create/query/delete (POST/GET/DELETE /room_keys/*)
-- Upload + download + decrypt session keys
-- SSSS secret storage: store/read MSK private key encrypted
-- UI: key backup setup (recovery key display, passphrase entry), backup restore on login
+## Phase 7 — SSSS + key backup — ✅ COMPLETE (Aug 4)
+The hardest phase — crypto core was written from scratch.
+- ✅ recovery key format (base58, parity, curve-key) ported
+- ✅ Megolm backup encryption: Curve25519 ECDH + AES-256-CBC + HMAC-SHA-256
+      (self-consistent crypto_box_seal; spec-exact KDF deferred for Element interop)
+- ✅ Backup version create/query/delete (POST/GET/DELETE /room_keys/*)
+- ✅ Upload + download + decrypt session keys
+- ✅ SSSS secret storage: store/read MSK private key encrypted
+- ✅ UI: key backup setup (recovery key display, passphrase entry), backup restore on login
 
 ## Submodule FAKE-boilerplate trap warning
 DO NOT PORT these files — they are auto-generated JSON-echo no-ops:

@@ -17,8 +17,12 @@
 | Jul 28-29 | **Multi-account E2EE**: shared flag, per-account scoping, OTK count tracking, device_lists tracking, device reset, crash fixes. 11 commits. | 11 |
 | Jul 30 | **E2EE Foundation + Phase 2 start.** Ed25519 verify, Olm validation, OTK/device sig verify, SAS in progress. Crash fixes (Olm growth, SIGSEGV close, Ctrl+Tab logout, clearAccount). Portability hardening. Color centralization. 8 UI quick wins. Registration token + server presets. Submodule audit (12 REAL, ~30 FAKE). 7-phase E2EE roadmap. | 20+ |
 | Jul 31 | **UI polish sprint.** 5min bubble corner merging (B27), Ctrl+K room switcher, reaction pill toggle (DREAM #56), member count in invite preview (B17-B19), clickable file/audio (B31), scroll anchoring (B29), context menu gating (B26), thread root count (B35). | 9 |
-| Aug 1 | **Phase 2 SAS verification COMPLETE + live-Synapse CI.** m.sas.v1 state machine + crypto + dialog + handler + two-manager protocol test (40+ commits). 17 spec-compliance bugs fixed. `.github/workflows/synapse-e2ee.yml` runs a real Synapse: cross-account encrypted room round-trip GREEN. CI build fixes (unordered_set, QPointer, ui_widgets↔ui_dialogs lib cycle). | 40+ |
-| **Total** | **8 days, 200+ commits** | |
+| Aug 1 | **Phase 2 SAS verification COMPLETE + live-Synapse CI.** m.sas.v1 state machine + crypto + dialog + handler + two-manager protocol test (40+ commits). 17 spec-compliance bugs fixed. `synapse-e2ee.yml` runs a real Synapse: cross-account encrypted room round-trip GREEN. CI build fixes. | 40+ |
+| Aug 2 | **Cross-signing (Phase 6).** MSK/USK/SSK ed25519 keygen + setup + device signing + UIA-aware publishing. | ~10 |
+| Aug 3 | **Phase 6 tail + E2EE hardening.** Trust computation, SAS MSK exchange, cross-user cross-signing, UI device shields, cross-signing reset. E2EE bootstrap extracted to core (X1 phase 4). | ~10 |
+| Aug 4 | **Phase 7 (SSSS + key backup) + X1 + 4 UI bugs.** /room_keys backup, SSSS secret sharing, recovery key; X1 engine extraction Phases 1-6 (Qt-free engine_types/state/applier); four reported PineTab UI bugs fixed; reply + file/audio sync-path fixes, ~3s→20s poll. | 20+ |
+| Aug 5 | **E2EE completeness + crashes.** Encrypted media both ways, Element-parity key requests, cross-client SAS, close crash fix, Olm recovery completeness, encrypted menu reactions/edits, m.replace handling, identity-reset heals broken Olm chains. | 10+ |
+| **Total** | **~490 commits** | |
 
 ---
 
@@ -26,7 +30,7 @@
 
 | Metric | Value |
 |---|---|
-| Commits | 200+ (in 8 days) |
+| Commits | ~490 (16 days) |
 | MainWindow reduction | 2772 → 220 lines (-92%) |
 | Files after mega prompt split | +7 new, -1000+ lines of fat |
 | Shared_ptr migration | 39 files (MatrixClient + SessionStore) |
@@ -138,38 +142,27 @@
     Suspected: reaction sync re-delivers the reacted-to reply with an empty eventId, evading seenIds_ dedupe
     (timeline_model.cpp:247-248,270-277), so it's appended as a "new" reply → +1. NEEDS DIAGNOSTIC LOGs
     (per PLANNER #9): log eid + eventIdEmpty in appendBackBatch; confirm before fixing. Do NOT guess-fix.
-[ ] Reply from Element renders inconsistently — CONFIRMED root cause (Aug 3): reply metadata
-    (m.relates_to.m.in_reply_to) is only parsed in the HISTORY paths (room_data_loader.cpp:118-121,
-    140-144; room_handler.cpp:227-231) — NEVER in the LIVE-SYNC path fastEventToDisplayed
-    (room_store.cpp:318-397), so replies arriving via /sync render as plain messages with Element's
+[x] Reply from Element renders inconsistently — root cause CONFIRMED (Aug 3): reply metadata
+    (m.relates_to.m.in_reply_to) was only parsed in the HISTORY paths (room_data_loader.cpp:118-121,
+    140-144; room_handler.cpp:227-231), never in the LIVE-SYNC path fastEventToDisplayed
+    (room_store.cpp:318-397), so replies arriving via /sync rendered as plain messages with Element's
     literal "> @user:server  original" fallback quote visible in the bubble (isReply=false).
-    History-loaded replies DO get the reply UI (colored bar + "sender: preview", timeline_painter.cpp:269-291,
-    kReplyPreviewMax=60) but still show the raw "> ..." fallback text too (nothing strips it), and if the
-    original scrolled out of the 200-event window it collapses to "↩ replied" (timeline_painter.cpp:285-290).
-    Same gap affects thread flags (extractThreadRootId never called in fastEventToDisplayed). Fix scope
-    (deferred): call extractReplyToId/extractThreadRootId in fastEventToDisplayed (and re-run on
-    applyDecryptedEvents late-decrypt), strip the "> <@user:...>" fallback from body when isReply.
-    **Now fix-ready (Phase 6 landed Aug 3) — queued in CHECKLIST.md section 2.**
+    DONE (Aug 4 evening batch, checklist.md): extractReplyToId/extractThreadRootId now called in
+    sync_applier fastEventToDisplayed and the "> <@user:...>" fallback is stripped when isReply.
 [ ] Invite: reject fails with M_FORBIDDEN "duplicate auth_events for m.room.member" (need diagnostic LOGs)
 [ ] Image: images don't render in timeline or viewer — downloadMedia may fail silently (need diagnostic LOGs)
-[ ] File/audio download dead — CONFIRMED root cause (Aug 2): mxcUrl is only parsed for
+[x] File/audio download dead — root cause CONFIRMED (Aug 2): mxcUrl was only parsed for
     m.image/m.video, NOT m.file/m.audio (room_store.cpp:376 `if (msgtype=="m.image"||"m.video")`).
-    So file/audio cards render (painter draws card from msgtype only, timeline_painter.cpp:303)
-    but clicks silently no-op because timeline_delegate.cpp:217 requires !mxcUrl.isEmpty().
-    History path (room_data_loader.cpp parseEventFields :110-122) never sets mxcUrl at all.
-    Fix scope (deferred, not now): parse url (+filename) for m.file/m.audio in BOTH room_store.cpp
-    sync path and room_data_loader.cpp history path.
-    **Now fix-ready (Phase 6 landed Aug 3) — queued in CHECKLIST.md section 2.**
+    So file/audio cards rendered (painter draws card from msgtype only, timeline_painter.cpp:303)
+    but clicks silently no-op'd because timeline_delegate.cpp:217 requires !mxcUrl.isEmpty().
+    DONE (Aug 4 evening batch, checklist.md): m.file/m.audio url (+filename) parsed in all three
+    paths (sync in sync_applier, load-more, history) — superseded by Aug 5 encrypted-media.
 [ ] Room creation: no "+ New room" action for group rooms, no encrypted room creation
 [x] Multi-account UI — DONE (account_switcher.cpp addAccount/switchAccount/logout wired via combo in main_window.cpp:285; LoginDialog flow verified Aug 2)
-[ ] Copy messages: cannot copy message text from timeline (no copy-to-clipboard)
+[x] Copy messages: "Copy text" context action — DONE (room_context_menu.cpp:304)
 [ ] Event source viewer: cannot see raw event JSON (sender_id, body, type, etc.) like Element
-[ ] Message delivery ~3s delay — Progressive→Progressive (plaintext room): BOTH sides wait ~3s;
-    Element→Element is instant; Progressive→Element arrives late on Element too. Since Element's
-    long-poll is proven fast, the delay appears to be on Progressive's SEND side (message reaches
-    server late) — but the send is enqueued immediately (chat_view.cpp:121,209). Needs diagnostic
-    LOGs: (a) send start time on ThreadPool vs press time, (b) HTTP elapsed for sendMessage,
-    (c) sync sent/returned timestamps. See PLANNER 9-step log analysis. Do NOT guess-fix.
+[x] Message delivery ~3s delay — CONFIRMED (Aug 4): the ~3s was the long-poll timeout. FIXED:
+    sync poll default 3000→20000ms (checklist.md Aug 4 evening batch).
 ```
 
 ### Active — Medium
@@ -198,13 +191,12 @@
     Fix scope: upsertRoom copy+emit for typingUsers + optionally in-chat indicator.
 ```
 
-> **Next diagnostic pass (one AI-coder task) — three bugs need LOGs-before-fix, all visible only at runtime:**
-> (1) ~3s message-delivery delay — log send start on ThreadPool + HTTP elapsed + sync sent/returned;
-> (2) images don't render — log downloadMedia/httpGet for image mxcUrl;
-> (3) thread reply count +1 per reaction in thread view — log eid + eventIdEmpty in appendBackBatch.
-> Per PLANNER #9: add LOGs first, analyze, THEN write the fix. Do NOT guess-fix any of these.
-> Combined with the Reply-from-Element fix + the file/audio fix (both above, root cause already
-> confirmed — these two are fix-ready once cross-signing lands; the three above need LOGs first).
+> **Next diagnostic pass (one AI-coder task) — remaining runtime-only bugs need LOGs-before-fix:**
+> (1) images don't render — log downloadMedia/httpGet for the image mxcUrl (Aug 5 media rework
+> added encrypted + fallback paths — confirm at runtime);
+> (2) thread reply count +1 per reaction in thread view — log eid + eventIdEmpty in appendBackBatch.
+> Per PLANNER #9: add LOGs first, analyze, THEN write the fix. Do NOT guess-fix.
+> (The Reply-from-Element + file/audio fixes from the diagnostic note below are DONE — Aug 4 evening batch.)
 
 ### Discussed Wishes (not yet prioritized)
 ```
@@ -305,6 +297,22 @@ Aug 1: E2EE Phase 2 — SAS verification COMPLETE (40+ commits):
         - CI build fixes: <unordered_set> include (room_list_model.hpp), bare
           nullptr → QPointer<MainWindow>() (test_visual.cpp, Qt 6.4), ui_widgets↔
           ui_dialogs static-lib cycle (CMake repeated libs, GNU ld).
+
+Aug 2-3: Cross-signing (Phase 6) — MSK/USK/SSK ed25519 keygen/sign/verify, UIA-aware
+        publishing, Phase 6 tail (trust computation, SAS MSK exchange, cross-user USK
+        cross-signatures, device shields, reset flow). Live-Synapse CI covers the chain.
+
+Aug 4: Phase 7 (SSSS + key backup) — /room_keys backup (create/upload/restore/delete),
+        recovery key (base58+parity), SSSS secret sharing (HKDF+AES-256-CBC+HMAC), X1
+        engine extraction Phases 1-6 (Qt-free engine_types/room_state/timeline_state/
+        sync_applier), 4 PineTab UI bugs, reply+file/audio sync fixes, ~3s→20s poll.
+
+Aug 5-6: E2EE completeness — encrypted media both ways (m.encrypted v2), Element-parity
+        key requests (persist/recipients/cancellation), cross-client SAS (Olm-wrapped
+        verification), close crash fix (persist vs sync-thread lock), Olm decrypt-failure
+        recovery + crash-safe persistence + audit, encrypted menu reactions/edits,
+        m.replace handling, outbound Olm session reuse (OTK drain), identity reset heals
+        permanently broken Olm 1:1 chains (all-A corrupted identity auto-regeneration).
 ```
 
 ---
@@ -319,4 +327,4 @@ Aug 1: E2EE Phase 2 — SAS verification COMPLETE (40+ commits):
 
 ---
 
-*Last updated: Aug 1, 2026*
+*Last updated: Aug 6, 2026*

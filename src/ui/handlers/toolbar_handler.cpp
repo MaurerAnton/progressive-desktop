@@ -299,37 +299,57 @@ void ToolbarHandler::onResetDeviceKeys() {
     QPointer<ToolbarHandler> self(this);
 
     ThreadPool::instance().enqueue([self, client, deviceId, password]() {
+        // The server-side delete is optional — the identity regeneration is
+        // what actually heals broken 1:1 chains, and some homeservers don't
+        // implement /delete_devices (404). Never block the reset on it.
         auto delRes = client->deleteDevice(deviceId, password.toStdString());
-        LOG(LogChannel::E2EE, "resetDeviceKeys: delete http=%d ok=%d",
-            delRes.httpStatus, delRes.ok ? 1 : 0);
-        QMetaObject::invokeMethod(self, [self, delRes]() {
-            if (self.isNull()) return;
-            if (delRes.ok) {
-                self->statusLabel_->setText("Device deleted. Regenerating identity...");
-                if (self->sync_ && self->sync_->decryptor()) {
-                    // New identity -> peers' stale 1:1 sessions die with it,
-                    // healing BAD_MESSAGE_MAC deadlocks that no amount of
-                    // m.dummy can rotate.
-                    self->sync_->decryptor()->resetIdentity();
-                    self->sync_->decryptor()->setAccountShared(false);
-                    auto sync = self->sync_;
-                    ThreadPool::instance().enqueue([sync]() {
-                        sync->uploadDeviceKeys();
-                    });
-                }
+        LOG(LogChannel::E2EE, "resetDeviceKeys: delete http=%d ok=%d code=%s",
+            delRes.httpStatus, delRes.ok ? 1 : 0, delRes.error.code.c_str());
+
+        QString deleteNote;
+        if (delRes.ok) {
+            deleteNote = "Device deleted. ";
+        } else if (delRes.httpStatus == 401 || delRes.httpStatus == 403 ||
+                   delRes.error.code == "M_FORBIDDEN") {
+            if (delRes.error.code == "M_UNKNOWN_TOKEN") {
+                deleteNote = "Session expired. ";
             } else {
-                if (self->authHandler_ && (delRes.httpStatus == 401 ||
-                                     delRes.error.code == "M_UNKNOWN_TOKEN")) {
-                    LOG(LogChannel::E2EE, "resetDeviceKeys: 401 — triggering forceReLogin");
-                    QMetaObject::invokeMethod(self->authHandler_, &AuthHandler::forceReLogin,
-                                             Qt::QueuedConnection);
-                    self->statusLabel_->setText("Session expired — please log in again, then retry reset.");
-                } else {
-                    self->statusLabel_->setText("Reset failed: " +
-                        QString::fromStdString(delRes.error.message));
-                }
+                deleteNote = "Wrong password — the device was NOT deleted, but the identity was regenerated. ";
             }
-        }, Qt::QueuedConnection);
+        } else if (delRes.httpStatus == 404) {
+            deleteNote = "Your homeserver doesn't support device deletion — the identity was regenerated anyway. ";
+        } else {
+            deleteNote = QString("Deleting the device failed (HTTP %1) — the identity was regenerated anyway. ")
+                .arg(delRes.httpStatus);
+        }
+
+        if (delRes.httpStatus == 401 && delRes.error.code == "M_UNKNOWN_TOKEN") {
+            QMetaObject::invokeMethod(self, [self]() {
+                if (self.isNull()) return;
+                self->statusLabel_->setText("Session expired — logging in again...");
+                if (self->authHandler_) self->authHandler_->forceReLogin();
+            });
+            return;
+        }
+
+        if (self && self->sync_ && self->sync_->decryptor()) {
+            // New identity -> peers' stale 1:1 sessions die with it, healing
+            // BAD_MESSAGE_MAC deadlocks that no amount of m.dummy can rotate.
+            self->sync_->decryptor()->resetIdentity();
+            self->sync_->decryptor()->setAccountShared(false);
+            auto sync = self->sync_;
+            ThreadPool::instance().enqueue([sync]() { sync->uploadDeviceKeys(); });
+        }
+
+        QMetaObject::invokeMethod(self, [self, deleteNote]() {
+            if (self.isNull()) return;
+            self->statusLabel_->setText("Reset complete.");
+            QMessageBox::information(self->parentWidget_, "Reset device keys",
+                deleteNote +
+                "Identity regenerated and device keys re-uploaded.\n"
+                "Other clients must re-verify; peers re-establish sessions "
+                "automatically on their next message.");
+        });
     });
 }
 

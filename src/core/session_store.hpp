@@ -55,9 +55,9 @@ public:
 
     // ---- Sync token ----
 
-    bool saveSyncToken(const std::string& token);
-    std::optional<std::string> loadSyncToken();
-    bool clearSyncToken();
+    bool saveSyncToken(const std::string& userId, const std::string& token);
+    std::optional<std::string> loadSyncToken(const std::string& userId);
+    bool clearSyncToken(const std::string& userId);
 
     // ---- Olm account (E2EE) ----
     bool saveOlmAccount(const std::string& pickle, const std::string& pickleKey,

@@ -171,7 +171,18 @@ void ToolbarHandler::onBrowseRooms() {
 
 void ToolbarHandler::onAllThreads() {
     if (!client_ || !client_->isLoggedIn()) { QMessageBox::information(parentWidget_, "Threads", "Login first."); return; }
-    ThreadsDialog dlg(client_.get(), "", parentWidget_);
+    std::string roomId = roomHandler_ ? roomHandler_->currentRoomId() : "";
+    if (roomId.empty()) {
+        QMessageBox::information(parentWidget_, "Threads", "Select a room first.");
+        return;
+    }
+    QPointer<RoomHandler> roomHandler = roomHandler_;
+    ThreadsDialog dlg(client_.get(), roomId,
+        [roomHandler](const QString& rootEventId) {
+            if (!roomHandler.isNull())
+                roomHandler->openThreadView(rootEventId);
+        },
+        parentWidget_);
     dlg.exec();
 }
 
@@ -298,49 +309,15 @@ void ToolbarHandler::onResetDeviceKeys() {
     auto client = client_;
     QPointer<ToolbarHandler> self(this);
 
-    ThreadPool::instance().enqueue([self, client, deviceId, password]() {
-        // The server-side delete is optional — the identity regeneration is
-        // what actually heals broken 1:1 chains, and some homeservers don't
-        // implement /delete_devices (404). Never block the reset on it.
-        auto delRes = client->deleteDevice(deviceId, password.toStdString());
-        LOG(LogChannel::E2EE, "resetDeviceKeys: delete http=%d ok=%d code=%s",
-            delRes.httpStatus, delRes.ok ? 1 : 0, delRes.error.code.c_str());
-
-        QString deleteNote;
-        if (delRes.ok) {
-            deleteNote = "Device deleted. ";
-        } else if (delRes.httpStatus == 401 || delRes.httpStatus == 403 ||
-                   delRes.error.code == "M_FORBIDDEN") {
-            if (delRes.error.code == "M_UNKNOWN_TOKEN") {
-                deleteNote = "Session expired. ";
-            } else {
-                deleteNote = "Wrong password — the device was NOT deleted, but the identity was regenerated. ";
-            }
-        } else if (delRes.httpStatus == 404) {
-            deleteNote = "Your homeserver doesn't support device deletion — the identity was regenerated anyway. ";
-        } else {
-            deleteNote = QString("Deleting the device failed (HTTP %1) — the identity was regenerated anyway. ")
-                .arg(delRes.httpStatus);
-        }
-
-        if (delRes.httpStatus == 401 && delRes.error.code == "M_UNKNOWN_TOKEN") {
-            QMetaObject::invokeMethod(self, [self]() {
-                if (self.isNull()) return;
-                self->statusLabel_->setText("Session expired — logging in again...");
-                if (self->authHandler_) self->authHandler_->forceReLogin();
-            });
-            return;
-        }
-
-        if (self && self->sync_ && self->sync_->decryptor()) {
-            // New identity -> peers' stale 1:1 sessions die with it, healing
-            // BAD_MESSAGE_MAC deadlocks that no amount of m.dummy can rotate.
-            self->sync_->decryptor()->resetIdentity();
-            self->sync_->decryptor()->setAccountShared(false);
-            auto sync = self->sync_;
-            ThreadPool::instance().enqueue([sync]() { sync->uploadDeviceKeys(); });
-        }
-
+    // Identity regeneration runs only after the password is verified via
+    // /delete_devices. Wrong password = abort (truthful, no silent reset).
+    auto proceedWithReset = [self](const QString& deleteNote) {
+        if (self.isNull() || !self->sync_) return;
+        self->statusLabel_->setText("Regenerating identity...");
+        self->sync_->decryptor()->resetIdentity();
+        self->sync_->decryptor()->setAccountShared(false);
+        auto sync = self->sync_;
+        ThreadPool::instance().enqueue([sync]() { sync->uploadDeviceKeys(); });
         QMetaObject::invokeMethod(self, [self, deleteNote]() {
             if (self.isNull()) return;
             self->statusLabel_->setText("Reset complete.");
@@ -349,6 +326,52 @@ void ToolbarHandler::onResetDeviceKeys() {
                 "Identity regenerated and device keys re-uploaded.\n"
                 "Other clients must re-verify; peers re-establish sessions "
                 "automatically on their next message.");
+        });
+    };
+
+    ThreadPool::instance().enqueue([self, client, deviceId, password, proceedWithReset]() {
+        // /delete_devices doubles as password verification. Some homeservers
+        // don't implement it (404) — then we cannot verify, and the user must
+        // explicitly confirm the unverified reset.
+        auto delRes = client->deleteDevice(deviceId, password.toStdString());
+        LOG(LogChannel::E2EE, "resetDeviceKeys: delete http=%d ok=%d code=%s",
+            delRes.httpStatus, delRes.ok ? 1 : 0, delRes.error.code.c_str());
+
+        QMetaObject::invokeMethod(self, [self, delRes, proceedWithReset]() {
+            if (self.isNull()) return;
+
+            if (delRes.ok) {
+                proceedWithReset("Device deleted. ");
+                return;
+            }
+            if (delRes.httpStatus == 401 && delRes.error.code == "M_UNKNOWN_TOKEN") {
+                self->statusLabel_->setText("Session expired — logging in again...");
+                if (self->authHandler_) self->authHandler_->forceReLogin();
+                return;
+            }
+            if (delRes.httpStatus == 401 || delRes.httpStatus == 403 ||
+                delRes.error.code == "M_FORBIDDEN") {
+                // Wrong password (or no UIA session). Abort — NO regeneration.
+                LOG(LogChannel::E2EE, "resetDeviceKeys: wrong password — identity NOT regenerated");
+                QMessageBox::warning(self->parentWidget_, "Reset device keys",
+                    "Wrong password — the device was NOT deleted and the "
+                    "identity was NOT regenerated.");
+                return;
+            }
+            // 404 (server lacks /delete_devices) or other failure: password
+            // cannot be verified — require an explicit confirmation.
+            auto confirm = QMessageBox::question(self->parentWidget_, "Reset device keys",
+                QString("This homeserver could not verify your password "
+                        "(/delete_devices failed with HTTP %1).\n\n"
+                        "Regenerate the device identity anyway?").arg(delRes.httpStatus),
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+            if (confirm != QMessageBox::Yes) {
+                LOG(LogChannel::E2EE, "resetDeviceKeys: unverified reset declined — identity NOT regenerated");
+                return;
+            }
+            proceedWithReset(QString("Password could not be verified (HTTP %1) — "
+                                     "the identity was regenerated anyway. ")
+                                 .arg(delRes.httpStatus));
         });
     });
 }
@@ -401,7 +424,13 @@ void ToolbarHandler::toggleThreadPanel() {
         QMessageBox::information(parentWidget_, "Threads", "Select a room first.");
         return;
     }
-    ThreadsDialog dlg(client_.get(), roomHandler_->currentRoomId(), parentWidget_);
+    QPointer<RoomHandler> roomHandler = roomHandler_;
+    ThreadsDialog dlg(client_.get(), roomHandler_->currentRoomId(),
+        [roomHandler](const QString& rootEventId) {
+            if (!roomHandler.isNull())
+                roomHandler->openThreadView(rootEventId);
+        },
+        parentWidget_);
     dlg.exec();
 }
 

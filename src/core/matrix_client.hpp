@@ -233,6 +233,10 @@ public:
     // Returns the thread's replies as a messages response (chunk + end).
     ApiResult<std::string> getThreadReplies(const std::string& roomId, const std::string& rootEventId);
 
+    // GET /_matrix/client/v3/rooms/{roomId}/event/{eventId}
+    // Returns the raw event JSON (used for thread root previews).
+    ApiResult<std::string> getEvent(const std::string& roomId, const std::string& eventId);
+
     // ---- Public rooms directory ----
 
     // POST /_matrix/client/v3/publicRooms  body: {"server":"...","limit":20,"filter":{"generic_search_term":"..."}}

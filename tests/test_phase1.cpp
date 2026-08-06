@@ -21,7 +21,10 @@
 #include <progressive/well_known.hpp>
 #include <progressive/json_parser.hpp>
 
+#include "core/debug_log.hpp"
+
 using namespace progressive::desktop;
+using namespace progressive;
 
 static int failures = 0;
 #define CHECK(cond, msg) do { \
@@ -110,6 +113,23 @@ static void test_session_store_memory() {
     CHECK(!s.loadAccount().has_value(), "account cleared");
 }
 
+// The in-app log ring must round-trip: LOG writes must appear in the
+// snapshot the log viewer reads (regression: two separate static rings
+// made the viewer permanently empty).
+static void test_log_ring() {
+    const size_t before = snapshotLogRing().size();
+    LOG(LogChannel::E2EE, "ring-test-%d", 42);
+    LOG(LogChannel::DBG, "ring-test-two");
+    auto lines = snapshotLogRing();
+    CHECK(lines.size() == before + 2, "log ring round-trips writes");
+    bool found = false;
+    for (const auto& l : lines) {
+        if (l.channel == LogChannel::E2EE && l.text.find("ring-test-42") != std::string::npos)
+            found = true;
+    }
+    CHECK(found, "log ring preserves channel + text");
+}
+
 int main() {
     std::cout << "=== Phase 1 unit tests ===\n";
     test_well_known();
@@ -117,6 +137,7 @@ int main() {
     test_matrix_error_parse();
     test_sync_parse_minimal();
     test_session_store_memory();
+    test_log_ring();
 
     std::cout << "\n";
     if (failures == 0) {

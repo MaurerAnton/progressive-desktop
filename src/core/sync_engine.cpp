@@ -278,6 +278,12 @@ void SyncEngine::run() {
         stats_.timelineEvents += result.data.totalTimelineEvents;
         stats_.toDeviceEvents += result.data.toDeviceEvents;
 
+        // Share-on-join + device-list re-share: members who join an encrypted
+        // room (or whose devices change) must get the CURRENT outbound megolm
+        // session key — otherwise everything we send with pre-existing
+        // sessions stays unreadable for them (Element shares on membership
+        // change; this is the same behavior).
+        handleRoomKeyShares(result.data);
         // Process to-device events (E2EE): m.room_key adds megolm sessions,
         // m.room.encrypted handles Olm 1:1 (decrypts room_key delivery).
         processToDeviceEvents(result.data);
@@ -376,8 +382,109 @@ void SyncEngine::run() {
     setState(SyncEngineState::Stopped);
 }
 
-void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
-    LOG(LogChannel::E2EE, "processToDevice: %zu toDevice events", resp.toDeviceEventList.size());
+// Share the current outbound room key with members who joined an encrypted
+// room (timeline + state events), and with members whose devices changed
+// (new device = needs the key it never received). Deduped per session so a
+// startup sync (full state) does not re-share to everyone repeatedly.
+void SyncEngine::handleRoomKeyShares(const FastSyncResponse& resp) {
+    if (!client_ || !decryptor_.isInitialized()) return;
+    auto acct = client_->account();
+    const std::string ourId = acct.userId;
+
+    auto membershipOf = [](std::string_view contentJson) -> std::string {
+        simdjson::dom::parser p;
+        auto doc = p.parse(std::string(contentJson));
+        if (doc.error() != simdjson::SUCCESS) return {};
+        auto m = doc.value()["membership"].get_string();
+        if (m.error() != simdjson::SUCCESS) return {};
+        return std::string(m.value());
+    };
+
+    for (const auto& [rid, room] : resp.joinedRooms) {
+        if (!room.isEncrypted) continue;
+        const std::string roomId(rid);
+        std::vector<FastEvent> joinEvents;
+        for (const auto& evt : room.timeline.events) {
+            if (evt.type == "m.room.member" && !evt.stateKey.empty() &&
+                membershipOf(evt.contentJson) == "join")
+                joinEvents.push_back(evt);
+        }
+        // On the first sync (empty since) the current state arrives in
+        // stateEvents — catch members who joined while we were offline.
+        for (const auto& se : room.stateEvents) {
+            if (se.type == "m.room.member" && !se.stateKey.empty() &&
+                membershipOf(se.contentJson) == "join")
+                joinEvents.push_back(se);
+        }
+        if (joinEvents.empty()) continue;
+
+        for (const auto& evt : joinEvents) {
+            std::string memberId(evt.stateKey);
+            const bool weJoined = (memberId == ourId);
+            std::string dedupe = roomId + "|" + memberId;
+            if (sharedOnJoin_.count(dedupe)) continue;
+
+            bool shared = false;
+            if (weJoined) {
+                // We joined/created an encrypted room: share to every member.
+                auto membersResp = client_->getRoomMembers(roomId);
+                std::vector<std::string> members;
+                if (membersResp.ok) {
+                    simdjson::dom::parser mp;
+                    auto doc = mp.parse(membersResp.data);
+                    if (doc.error() == simdjson::SUCCESS) {
+                        auto chunk = doc.value()["chunk"].get_array();
+                        if (chunk.error() == simdjson::SUCCESS) {
+                            for (auto ev : chunk.value()) {
+                                auto mship = ev["content"]["membership"].get_string();
+                                if (mship.error() != simdjson::SUCCESS ||
+                                    std::string(mship.value()) != "join") continue;
+                                auto sk = ev["state_key"].get_string();
+                                if (sk.error() == simdjson::SUCCESS)
+                                    members.push_back(std::string(sk.value()));
+                            }
+                        }
+                    }
+                }
+                shared = decryptor_.shareRoomKey(roomId, members, ourId,
+                    acct.deviceId, acct.homeserverUrl, acct.accessToken);
+            } else {
+                shared = decryptor_.shareRoomKey(roomId, {memberId}, ourId,
+                    acct.deviceId, acct.homeserverUrl, acct.accessToken);
+            }
+            if (shared) sharedOnJoin_.insert(dedupe);
+            LOG(LogChannel::E2EE, "share-on-join: room=%.40s member=%s%s shared=%d",
+                rid.data(), memberId.c_str(), weJoined ? " (we joined)" : "",
+                shared ? 1 : 0);
+        }
+    }
+
+    // A member's device list changed (new device): re-share the current
+    // session so the new device can decrypt. Rate-limited (rare events, but
+    // each share claims an OTK per device).
+    if (!resp.deviceListChanged.empty()) {
+        const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        if (nowMs - lastDeviceListShareMs_ < 60000) return;
+        lastDeviceListShareMs_ = nowMs;
+        for (const auto& [rid, room] : resp.joinedRooms) {
+            if (!room.isEncrypted) continue;
+            std::vector<std::string> members;
+            for (const auto& se : room.stateEvents) {
+                if (se.type == "m.room.member" && !se.stateKey.empty() &&
+                    membershipOf(se.contentJson) == "join")
+                    members.push_back(std::string(se.stateKey));
+            }
+            if (members.empty()) continue;
+            bool shared = decryptor_.shareRoomKey(std::string(rid), members, ourId,
+                acct.deviceId, acct.homeserverUrl, acct.accessToken);
+            LOG(LogChannel::E2EE, "device-list re-share: room=%.40s members=%zu shared=%d",
+                rid.data(), members.size(), shared ? 1 : 0);
+        }
+    }
+}
+
+void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {    LOG(LogChannel::E2EE, "processToDevice: %zu toDevice events", resp.toDeviceEventList.size());
     for (const auto& evt : resp.toDeviceEventList) {
         std::fprintf(stderr, "[E2EE] RAW toDevice type='%s' sender='%s' content='%s'\n",
             std::string(evt.type).c_str(), std::string(evt.senderId).c_str(),
@@ -439,6 +546,27 @@ void SyncEngine::processToDeviceEvents(const FastSyncResponse& resp) {
             // policy is enforced inside handleRoomKeyRequest via the checker.
             decryptor_.handleRoomKeyRequest(std::string(evt.contentJson),
                                             std::string(evt.senderId));
+        } else if (evt.type == "m.room_key.withheld") {
+            // The sender refused to share a room key (m.no_olm etc.) — parse
+            // code/reason and surface it against the matching pending request.
+            simdjson::dom::parser wp;
+            auto wdoc = wp.parse(std::string(evt.contentJson));
+            std::string code, reason, fromDevice, senderKey;
+            if (wdoc.error() == simdjson::SUCCESS) {
+                auto c = wdoc.value()["code"].get_string();
+                if (c.error() == simdjson::SUCCESS) code = std::string(c.value());
+                auto r = wdoc.value()["reason"].get_string();
+                if (r.error() == simdjson::SUCCESS) reason = std::string(r.value());
+                auto fd = wdoc.value()["from_device"].get_string();
+                if (fd.error() == simdjson::SUCCESS) fromDevice = std::string(fd.value());
+                auto sk = wdoc.value()["sender_key"].get_string();
+                if (sk.error() == simdjson::SUCCESS) senderKey = std::string(sk.value());
+            }
+            LOG(LogChannel::E2EE, "WITHHELD from=%s code=%s reason=%s device=%s",
+                std::string(evt.senderId).c_str(), code.c_str(), reason.c_str(),
+                fromDevice.c_str());
+            if (!senderKey.empty())
+                decryptor_.noteWithheld(senderKey, fromDevice, reason.empty() ? code : reason);
         } else if (evt.type.find("m.key.verification.") == 0) {
             LOG(LogChannel::E2EE, "processToDevice: verification event type=%s from=%s",
                 std::string(evt.type).c_str(), std::string(evt.senderId).c_str());
@@ -585,6 +713,21 @@ void SyncEngine::uploadDeviceKeys(bool force) {
     auto result = client_->uploadKeys(body);
     LOG(LogChannel::E2EE, "uploadDeviceKeys: result ok=%d httpStatus=%d bodyLen=%zu",
         result.ok ? 1 : 0, result.httpStatus, body.size());
+
+    if (!result.ok && result.httpStatus == 400 &&
+        result.error.message.find("already exists") != std::string::npos) {
+        // A fresh account's OTK ids collide with stale keys still stored on
+        // the server under this device id (left over from an older identity —
+        // /delete_devices 404s on custom servers, so they linger). Discard +
+        // regenerate advances the id counter past the collision set.
+        LOG(LogChannel::E2EE, "uploadDeviceKeys: 400 'already exists' — retrying once with fresh OTKs");
+        decryptor_.markOneTimeKeysPublished();
+        body = decryptor_.buildKeysUploadBody(userId, deviceId, needed,
+            needDeviceKeys, !decryptor_.accountShared(), sskPriv, sskPub);
+        result = client_->uploadKeys(body);
+        LOG(LogChannel::E2EE, "uploadDeviceKeys: retry ok=%d httpStatus=%d",
+            result.ok ? 1 : 0, result.httpStatus);
+    }
 
     if (result.ok) {
         LOG(LogChannel::E2EE, "uploadDeviceKeys: SUCCESS — response=[%.200s]", result.data.c_str());

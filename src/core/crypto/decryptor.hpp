@@ -37,7 +37,7 @@ struct ReDecryptedEvent {
 };
 
 // Room-key activity surfaced in the UI timeline ("X sent us the room key").
-enum class RoomKeyEventKind { Received, Requested };
+enum class RoomKeyEventKind { Received, Requested, Withheld };
 struct RoomKeyNotification {
     std::string roomId;
     std::string sessionId;
@@ -45,6 +45,7 @@ struct RoomKeyNotification {
     RoomKeyEventKind kind = RoomKeyEventKind::Received;
     int attempt = 0;           // Requested: 1 = first request, 2+ = retry
     int64_t ts = 0;
+    std::string detail;        // Withheld: reason string from the sender
 };
 
 // Per-room outbound megolm session. Created when we first send a message
@@ -249,6 +250,11 @@ public:
     // on success. Verified-only policy checked internally via the checker.
     bool handleRoomKeyRequest(const std::string& contentJson,
                               const std::string& senderId);
+
+    // m.room_key.withheld: match sender_key/device against pending requests
+    // and surface "X withheld the room key: <reason>" in the right room.
+    void noteWithheld(const std::string& senderKey, const std::string& fromDevice,
+                      const std::string& reason);
 
     // Callback: "is (userId, deviceId) SAS-verified?" — used by the
     // verified-only key-sharing policy. Wired by SyncEngine to the store.

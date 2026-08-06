@@ -224,3 +224,56 @@ completed items are removed.
       "homeserver doesn't support it, identity regenerated anyway"); wrong
       password (401/403 M_FORBIDDEN) reported as such; M_UNKNOWN_TOKEN ->
       re-login; completion summary box
+
+## Round: share-on-join, log viewer, media/downloads, threads, image viewer (Aug 6)
+
+- [x] Log viewer root cause: logToRing + snapshotLogRing used two SEPARATE static
+      deques (debug_log.hpp) — snapshot always read an empty ring, so the in-app
+      viewer could never show lines (present since e74dfae). Merged into one shared
+      ring; test_phase1 round-trip test added.
+- [x] ImageLoader: negative cache for failed mxcs (1h cooldown, bounded 1024),
+      image cache 20 -> 128, in-flight dedup per mxc, failure-context logging
+      ("avatar"/"timeline image"/"room avatar"/"movie"). Stops the per-sync
+      retry storm of 404'd media.
+- [x] Image viewer: maximized Element-style lightbox, wheel + double-click zoom
+      (cursor-centered), Save-as with ORIGINAL bytes, temp-file open with real
+      name/extension (no more PNG re-encode), full-image cache in
+      AttachmentHandler (48 entries) so re-opening never re-downloads.
+- [x] Attachment clicks (video/audio/file): real filename from event body +
+      extension from mimetype (was timestamp + msgtype guess).
+- [x] Threads: "All threads" passed roomId="" -> broken URL (rooms//threads);
+      now requires the current room. List shows root previews (sender, body,
+      replies, "You", time); double-click opens the thread view via
+      ThreadHandler (replaces the raw-JSON placeholder box). "N replies" bubble
+      on thread roots already existed (clickable).
+- [x] Share-on-join (the new-member-cant-decrypt root cause): we only shared
+      room keys on NEW session creation — a member joining later never got the
+      current session key (Element shares on membership change). SyncEngine now
+      shares the current outbound key to joiners (timeline + state events,
+      deduped per session), shares to all members when WE join, and re-shares
+      (rate-limited) when device_lists.changed fires.
+- [x] OTK claim retry-once on BAD_MESSAGE_MAC in sendOlmToDevice + shareRoomKey
+      (stale keys are consumed by claiming, so a retry often reaches a fresh
+      one); discriminator log when it stays invalid ("pool holds keys from an
+      older identity — peer must rotate keys").
+- [x] uploadDeviceKeys: 400 "already exists" -> immediate discard+generate retry
+      (fresh account OTK ids colliding with stale server-side OTKs).
+- [x] m.room_key.withheld surfaced: parsed (code/reason/from_device), matched
+      against pending requests via sender_key+device, rendered as a system row
+      "X withheld the room key (<reason>)".
+- [x] Identity-change hint: when Olm ciphertext is addressed to a key we no
+      longer hold, each key gets an IDENTITY-HINT log explaining the stale
+      peer/server cache.
+- [x] Reset device keys: password gate hardened — wrong password now ABORTS
+      (no silent regeneration; previously regenerated anyway), M_UNKNOWN_TOKEN
+      re-logs-in, 404/unverifiable requires an explicit confirm dialog.
+
+## Deferred (recorded, not client-fixable / out of scope)
+
+- Federation caveat: peers on xmr.se (offcrise, @12a19e18_2ea13) keep stale
+  device-key/OTK caches of our reset accounts — their Olm to us targets keys we
+  no longer hold and their served OTKs can fail verification. Client-side fix:
+  NONE (server-side cache/federation); peers must refresh/reset in their client.
+- Threads: global "All threads" across ALL rooms (per-room list only now); the
+  /threads API is per-room, so a global view needs per-room fan-out.
+- Video/audio playback in-app (currently opens the system player).

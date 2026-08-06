@@ -132,7 +132,8 @@ void drawBubbleAvatar(QPainter* p, int x, int y,
                             }
                         }
                     }
-                });
+                },
+                "avatar");
         }
     }
 
@@ -416,7 +417,7 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
                             auto* tm = qobject_cast<TimelineModel*>(model);
                             if (tm) tm->imageLoaded(mxcUrl.toStdString());
                         }
-                    });
+                    }, "timeline image");
             }
         }
     }

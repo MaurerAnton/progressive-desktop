@@ -189,6 +189,9 @@ void SyncResponseHandler::appendRoomKeyRows(std::vector<RoomKeyNotification> not
         sys.senderName = "system";
         if (n.kind == RoomKeyEventKind::Received) {
             sys.body = who + " sent us the room key (session " + shortSid + ")";
+        } else if (n.kind == RoomKeyEventKind::Withheld) {
+            sys.body = who + " withheld the room key" +
+                       (n.detail.empty() ? std::string() : " (" + n.detail + ")");
         } else {
             sys.body = "No key yet — requested from " + who +
                        (n.attempt > 1 ? " again (session " : " (session ") +

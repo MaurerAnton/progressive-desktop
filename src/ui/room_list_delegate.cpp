@@ -137,7 +137,7 @@ void RoomListDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
                             break;
                         }
                     }
-                });
+                }, "room avatar");
         }
     }
 

@@ -70,19 +70,30 @@ struct LogLine {
     uint64_t seq = 0;  // insertion order (for stable filtering)
 };
 
-inline void logToRing(LogChannel ch, const std::string& text) {
+// Single shared ring (one static per program for inline functions).
+// BUG FIX (2026-08-06): logToRing and snapshotLogRing previously declared
+// SEPARATE static deques — snapshot always read an empty ring, so the in-app
+// log viewer could never show lines.
+inline std::deque<LogLine>& logRing() {
     static std::deque<LogLine> ring;
+    return ring;
+}
+inline std::mutex& logRingMtx() {
     static std::mutex mtx;
+    return mtx;
+}
+
+inline void logToRing(LogChannel ch, const std::string& text) {
     static uint64_t seq = 0;
-    std::lock_guard<std::mutex> lock(mtx);
+    std::lock_guard<std::mutex> lock(logRingMtx());
+    auto& ring = logRing();
     ring.push_back({ch, text, seq++});
     if (ring.size() > 2000) ring.pop_front();
 }
 
 inline std::vector<LogLine> snapshotLogRing() {
-    static std::deque<LogLine> ring;
-    static std::mutex mtx;
-    std::lock_guard<std::mutex> lock(mtx);
+    std::lock_guard<std::mutex> lock(logRingMtx());
+    const auto& ring = logRing();
     return std::vector<LogLine>(ring.begin(), ring.end());
 }
 

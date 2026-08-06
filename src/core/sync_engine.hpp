@@ -23,7 +23,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
-#include <string>
+#include <unordered_set>#include <string>
 #include <thread>
 
 namespace progressive::desktop {
@@ -173,6 +173,13 @@ private:
     void processToDeviceEvents(const FastSyncResponse& resp);
     std::mutex persistMtx_;  // serializes persistCrypto (close vs periodic)
     bool otkCountSeen_ = false;  // /sync reported an OTK count at least once
+    // Share-on-join: the current outbound megolm key must reach members who
+    // join an encrypted room (and members whose devices changed). Element
+    // does this on membership change; without it a joiner can never decrypt
+    // anything sent with pre-existing sessions.
+    void handleRoomKeyShares(const FastSyncResponse& resp);
+    std::unordered_set<std::string> sharedOnJoin_;  // "roomId|userId" this session
+    int64_t lastDeviceListShareMs_ = 0;
     void handleVerificationEvent(const std::string& type,
                                  const std::string& senderId,
                                  const std::string& contentJson);

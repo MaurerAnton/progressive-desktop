@@ -900,6 +900,19 @@ ApiResult<std::string> MatrixClient::getThreadReplies(const std::string& roomId,
     return r;
 }
 
+ApiResult<std::string> MatrixClient::getEvent(const std::string& roomId, const std::string& eventId) {
+    ApiResult<std::string> r;
+    if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    std::ostringstream url;
+    url << account().homeserverUrl << "/_matrix/client/v3/rooms/" << urlEncodePath(roomId)
+        << "/event/" << urlEncodePath(eventId);
+    auto resp = httpGet(url.str(), authHeaders(), 15000);
+    r.httpStatus = resp.statusCode;
+    if (resp.success) { r.ok = true; r.data = resp.body; }
+    else { if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body); }
+    return r;
+}
+
 ApiResult<std::string> MatrixClient::searchPublicRooms(const std::string& server, const std::string& query, int limit, const std::string& from) {
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }

@@ -4,16 +4,20 @@
 #include <QListWidget>
 #include <QPushButton>
 #include <QLabel>
-#include <QLineEdit>
+#include <functional>
+#include <string>
 #include "core/matrix_client.hpp"
 
 namespace progressive::desktop {
 
+// Lists every thread in a room (root preview + reply count) and hands the
+// chosen root back to the room for the thread view (Element-style).
 class ThreadsDialog : public QDialog {
     Q_OBJECT
 public:
     explicit ThreadsDialog(MatrixClient* client, const std::string& roomId,
-                             QWidget* parent = nullptr);
+                           std::function<void(const QString& rootEventId)> onOpenThread,
+                           QWidget* parent = nullptr);
 
 private slots:
     void onRefreshClicked();
@@ -22,6 +26,7 @@ private slots:
 private:
     MatrixClient* client_;
     std::string roomId_;
+    std::function<void(const QString&)> onOpenThread_;
     QListWidget* list_;
     QLabel* statusLabel_;
     QPushButton* refreshBtn_;

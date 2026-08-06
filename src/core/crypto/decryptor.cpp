@@ -384,6 +384,33 @@ void Decryptor::noteRoomKey(RoomKeyNotification n) {
     roomKeyNotifications_.push_back(std::move(n));
 }
 
+// A sender refused to give us a room key (m.room_key.withheld). The event
+// carries no room/session id — match it against our outstanding key requests
+// (sender_key + device) to surface "X withheld the key: <reason>" in the
+// right room.
+void Decryptor::noteWithheld(const std::string& senderKey,
+                             const std::string& fromDevice,
+                             const std::string& reason) {
+    std::lock_guard<std::mutex> lk(requestMtx_);
+    for (const auto& [key, st] : requestedKeys_) {
+        auto sep1 = key.find('|');
+        auto sep2 = key.find('|', sep1 == std::string::npos ? 0 : sep1 + 1);
+        if (sep1 == std::string::npos || sep2 == std::string::npos) continue;
+        const std::string roomId = key.substr(0, sep1);
+        const std::string sessionId = key.substr(sep1 + 1, sep2 - sep1 - 1);
+        const std::string sk = key.substr(sep2 + 1);
+        bool deviceMatches = fromDevice.empty() || fromDevice == st.senderDeviceId ||
+                             fromDevice == "*";
+        if (sk == senderKey && deviceMatches) {
+            noteRoomKey({roomId, sessionId, st.senderId,
+                         RoomKeyEventKind::Withheld, 0, 0, reason});
+            return;
+        }
+    }
+    LOG(LogChannel::E2EE, "withheld: no matching pending request for senderKey=%.20s "
+        "(code=m.no_olm — sender could not establish a secure channel)", senderKey.c_str());
+}
+
 // ---- Device key upload body builder ----
 
 std::string Decryptor::signCanonicalJson(const std::string& canonicalJson) {
@@ -607,6 +634,11 @@ std::string Decryptor::handleOlmEncryptedToDevice(const std::string& senderId,
         if (ctObj.error() == simdjson::SUCCESS) {
             for (auto entry : ctObj.value()) {
                 LOG(LogChannel::E2EE, "Olm: ciphertext has key=%s",
+                    std::string(entry.key).c_str());
+                LOG(LogChannel::E2EE, "IDENTITY-HINT: sender encrypted to %s — a key we "
+                    "no longer hold. Their client/server still cache an OLD identity of "
+                    "ours (after a device-key reset). They must refresh their device "
+                    "list or reset encryption in their client.",
                     std::string(entry.key).c_str());
             }
         }
@@ -1216,9 +1248,47 @@ bool Decryptor::shareRoomKey(const std::string& roomId,
                         }
                         if (!otkSig.empty() && !devEd25519.empty()) {
                             if (!verifyOtk(devEd25519, ck.oneTimeKey, otkSig)) {
-                                LOG(LogChannel::E2EE, "shareRoomKey: OTK sig INVALID for %s/%s — SKIPPING",
-                                    ck.userId.c_str(), ck.deviceId.c_str());
-                                break;
+                                // Retry the claim once — a fresh OTK may be
+                                // served (stale keys are also consumed by
+                                // claiming, so a retry often reaches a good one).
+                                std::string retryBody = "{\"one_time_keys\":{\"" + ck.userId
+                                    + "\":{\"" + ck.deviceId + "\":\"signed_curve25519\"}}}";
+                                auto retryResp = httpPost(ctxHomeserver_
+                                    + "/_matrix/client/v3/keys/claim", retryBody, hdrs, 15000);
+                                bool retryOk = false;
+                                if (retryResp.success) {
+                                    simdjson::dom::parser rp;
+                                    auto rdoc = rp.parse(retryResp.body);
+                                    if (rdoc.error() == simdjson::SUCCESS) {
+                                        auto rdev = rdoc.value()["one_time_keys"][ck.userId][ck.deviceId];
+                                        auto rkeyObj = rdev.get_object();
+                                        if (rkeyObj.error() == simdjson::SUCCESS) {
+                                            for (auto rk : rkeyObj.value()) {
+                                                if (std::string(rk.key).find("signed_curve25519:") != 0) continue;
+                                                auto rkv = rk.value["key"].get_string();
+                                                if (rkv.error() == simdjson::SUCCESS) {
+                                                    auto rkSig = rk.value["signatures"][ck.userId]
+                                                        ["ed25519:" + ck.deviceId].get_string();
+                                                    if (rkSig.error() != simdjson::SUCCESS ||
+                                                        verifyOtk(devEd25519,
+                                                                  std::string(rkv.value()),
+                                                                  std::string(rkSig.value()))) {
+                                                        ck.oneTimeKey = std::string(rkv.value());
+                                                        retryOk = true;
+                                                    }
+                                                }
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                if (!retryOk) {
+                                    LOG(LogChannel::E2EE,
+                                        "shareRoomKey: OTK sig INVALID for %s/%s after re-claim — "
+                                        "its OTK pool holds keys from an older identity",
+                                        ck.userId.c_str(), ck.deviceId.c_str());
+                                    break;
+                                }
                             }
                         }
                         claimedKeys.push_back(ck);
@@ -1989,32 +2059,41 @@ bool Decryptor::sendOlmToDevice(const std::string& targetUserId,
     }
 
     // 2. Claim an OTK (fallback key returned when the pool is exhausted).
-    std::string claimBody = "{\"one_time_keys\":{\"" + targetUserId
-        + "\":{\"" + targetDeviceId + "\":\"signed_curve25519\"}}}";
-    auto claimResp = httpPost(ctxHomeserver_ + "/_matrix/client/v3/keys/claim",
-                              claimBody, hdrs, 15000);
-    if (!claimResp.success) return false;
+    // Retry once with a fresh claim on signature failure: the server may hand
+    // out a different (fresh) OTK — claiming also consumes stale keys, so a
+    // retry often reaches a valid one.
     std::string oneTimeKey, otkSig;
-    {
-        simdjson::dom::parser p;
-        auto doc = p.parse(claimResp.body);
-        if (doc.error() != simdjson::SUCCESS) return false;
-        auto devObj = doc.value()["one_time_keys"][targetUserId][targetDeviceId];
-        auto keyObj = devObj.get_object();
-        if (keyObj.error() != simdjson::SUCCESS) return false;
-        for (auto k : keyObj.value()) {
-            if (std::string(k.key).find("signed_curve25519:") != 0) continue;
-            auto kv = k.value["key"].get_string();
-            if (kv.error() == simdjson::SUCCESS) oneTimeKey = std::string(kv.value());
-            auto sig = k.value["signatures"][targetUserId]["ed25519:" + targetDeviceId].get_string();
-            if (sig.error() == simdjson::SUCCESS) otkSig = std::string(sig.value());
-            break;
+    auto claimAndVerify = [&](bool secondAttempt) {
+        std::string claimBody = "{\"one_time_keys\":{\"" + targetUserId
+            + "\":{\"" + targetDeviceId + "\":\"signed_curve25519\"}}}";
+        auto claimResp = httpPost(ctxHomeserver_ + "/_matrix/client/v3/keys/claim",
+                                  claimBody, hdrs, 15000);
+        if (!claimResp.success) return false;
+        oneTimeKey.clear();
+        otkSig.clear();
+        {
+            simdjson::dom::parser p;
+            auto doc = p.parse(claimResp.body);
+            if (doc.error() != simdjson::SUCCESS) return false;
+            auto devObj = doc.value()["one_time_keys"][targetUserId][targetDeviceId];
+            auto keyObj = devObj.get_object();
+            if (keyObj.error() != simdjson::SUCCESS) return false;
+            for (auto k : keyObj.value()) {
+                if (std::string(k.key).find("signed_curve25519:") != 0) continue;
+                auto kv = k.value["key"].get_string();
+                if (kv.error() == simdjson::SUCCESS) oneTimeKey = std::string(kv.value());
+                auto sig = k.value["signatures"][targetUserId]["ed25519:" + targetDeviceId].get_string();
+                if (sig.error() == simdjson::SUCCESS) otkSig = std::string(sig.value());
+                break;
+            }
         }
-    }
-    if (oneTimeKey.empty()) return false;
-    // Verify the claimed key signature (OTK or fallback — both signed like OTKs).
-    if (!otkSig.empty() && !verifyOtk(theirEd, oneTimeKey, otkSig)) {
-        LOG(LogChannel::E2EE, "sendOlmToDevice: OTK sig INVALID for %s/%s — refusing",
+        if (oneTimeKey.empty()) return false;
+        if (otkSig.empty()) return true;  // nothing to verify (server quirk)
+        return verifyOtk(theirEd, oneTimeKey, otkSig);
+    };
+    if (!claimAndVerify(false) && !claimAndVerify(true)) {
+        LOG(LogChannel::E2EE, "sendOlmToDevice: OTK sig INVALID for %s/%s after re-claim — "
+            "its OTK pool holds keys from an older identity (peer must rotate keys)",
             targetUserId.c_str(), targetDeviceId.c_str());
         return false;
     }

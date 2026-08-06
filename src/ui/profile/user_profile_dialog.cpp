@@ -12,6 +12,7 @@
 #include <QGuiApplication>
 #include <QInputDialog>
 #include <QPixmap>
+#include <QHash>
 #include "core/thread_pool.hpp"
 
 #include <simdjson.h>
@@ -201,14 +202,30 @@ void UserProfileDialog::loadProfile() {
                     auto av = root.value()["avatar_url"].get_string();
                     if (av.error() == simdjson::SUCCESS) {
                         std::string avUrl(av.value());
+                        // Small process-wide success cache: re-opening the same
+                        // user's profile must not re-download the avatar.
+                        static QHash<QString, QPixmap> avatarCache;
+                        static const int kAvatarCacheMax = 64;
+                        auto it = avatarCache.find(QString::fromStdString(avUrl));
+                        if (it != avatarCache.end()) {
+                            guard->avatarLabel_->setPixmap(
+                                it.value().scaled(72, 72, Qt::KeepAspectRatio,
+                                                  Qt::SmoothTransformation));
+                            return;
+                        }
                         ThreadPool::instance().enqueue([guard, avUrl]() {
                             auto r = guard->client_->downloadMedia(avUrl, 72, 72);
-                            QMetaObject::invokeMethod(guard, [guard, r]() {
+                            QMetaObject::invokeMethod(guard, [guard, r, avUrl]() {
                                 if (guard.isNull() || !r.ok || r.data.empty()) return;
                                 QPixmap pix;
                                 pix.loadFromData(r.data.data(), (int)r.data.size());
                                 if (!pix.isNull()) {
-                                    guard->avatarLabel_->setPixmap(pix.scaled(72, 72, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+                                    if (avatarCache.size() >= kAvatarCacheMax)
+                                        avatarCache.clear();
+                                    avatarCache.insert(QString::fromStdString(avUrl), pix);
+                                    guard->avatarLabel_->setPixmap(
+                                        pix.scaled(72, 72, Qt::KeepAspectRatio,
+                                                   Qt::SmoothTransformation));
                                 }
                             });
                         });

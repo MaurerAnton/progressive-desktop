@@ -466,6 +466,38 @@ std::optional<bool> SessionStore::loadE2eeFlag(const std::string& key) {
     return r;
 }
 
+bool SessionStore::saveRoomKeyShareMarker(const std::string& userId,
+    const std::string& roomId, const std::string& memberId,
+    const std::string& eventId) {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
+    if (!db_) return false;
+    const std::string key = "share:" + userId + ":" + roomId + ":" + memberId + ":" + eventId;
+    const char* sql = "INSERT OR IGNORE INTO e2ee_data(key,value) VALUES(?1,'1');";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, key.c_str(), -1, SQLITE_TRANSIENT);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) return false;
+    checkpoint();
+    return true;
+}
+
+bool SessionStore::hasRoomKeyShareMarker(const std::string& userId,
+    const std::string& roomId, const std::string& memberId,
+    const std::string& eventId) {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
+    if (!db_) return false;
+    const std::string key = "share:" + userId + ":" + roomId + ":" + memberId + ":" + eventId;
+    const char* sql = "SELECT 1 FROM e2ee_data WHERE key=?1;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, key.c_str(), -1, SQLITE_TRANSIENT);
+    bool found = (sqlite3_step(stmt) == SQLITE_ROW);
+    sqlite3_finalize(stmt);
+    return found;
+}
+
 bool SessionStore::saveCrossSigningKeys(const std::string& userId,
     const std::string& json) {
     std::lock_guard<std::recursive_mutex> lk(mtx_);

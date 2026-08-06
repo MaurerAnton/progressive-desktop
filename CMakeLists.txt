@@ -97,7 +97,7 @@ find_package(OpenSSL REQUIRED)
 target_link_libraries(progressive_core PUBLIC
     progressive_native
     CURL::libcurl
-    SQLite::SQLite3
+    SQLite3::SQLite3
     simdjson::simdjson
     PkgConfig::SODIUM
     OpenSSL::Crypto

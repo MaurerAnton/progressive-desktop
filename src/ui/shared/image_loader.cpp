@@ -33,11 +33,13 @@ bool ImageLoader::isFailed(const QString& key) const {
 }
 
 void ImageLoader::markFailed(const QString& key, const std::string& context) {
-    failedUntil_.insert(key, QDateTime::currentMSecsSinceEpoch() + kFailedMxcCooldownMs);
+    const bool avatar = context == "avatar" || context == "room avatar";
+    const qint64 cooldown = avatar ? kFailedAvatarCooldownMs : kFailedMxcCooldownMs;
+    failedUntil_.insert(key, QDateTime::currentMSecsSinceEpoch() + cooldown);
     if (failedUntil_.size() > kMaxFailedEntries) failedUntil_.clear();
     LOG(LogChannel::NET, "imageLoader: %s failed for mxc=%.80s — not retrying for %lld min",
         context.empty() ? "fetch" : context.c_str(), key.toStdString().c_str(),
-        kFailedMxcCooldownMs / 60000);
+        cooldown / 60000);
 }
 
 bool ImageLoader::beginFetch(const QString& key,
@@ -70,6 +72,7 @@ void ImageLoader::fetchThumbnail(const std::string& mxcUrl, int w, int h,
         ThreadPool::instance().enqueue([self, client, mxcUrl, key, w, h, context]() {
             auto result = client->downloadMedia(mxcUrl, w, h);
             QImage img;
+            int httpStatus = result.httpStatus;
             if (result.ok && !result.data.empty()) {
                 img.loadFromData(result.data.data(), static_cast<int>(result.data.size()));
             }
@@ -79,12 +82,16 @@ void ImageLoader::fetchThumbnail(const std::string& mxcUrl, int w, int h,
                 auto full = client->downloadMedia(mxcUrl, 0, 0);
                 if (full.ok && !full.data.empty())
                     img.loadFromData(full.data.data(), static_cast<int>(full.data.size()));
+                else
+                    httpStatus = full.httpStatus;
             }
-            QMetaObject::invokeMethod(self, [self, key, img, context]() {
+            QMetaObject::invokeMethod(self, [self, key, img, httpStatus, context]() {
                 if (self.isNull()) return;
                 if (!img.isNull()) {
                     self->imageCache_.insert(key, new QImage(img));
-                } else {
+                } else if (httpStatus >= 400) {
+                    // Only HTTP failures (404/5xx) are cached — a decryption
+                    // failure or network blip (status 0) must be retryable.
                     self->markFailed(key, context);
                 }
                 auto queued = self->inFlight_.take(key);
@@ -115,11 +122,13 @@ void ImageLoader::fetchEncryptedThumbnail(const std::string& mxcUrl,
             if (result.ok && !result.data.empty()) {
                 img.loadFromData(result.data.data(), static_cast<int>(result.data.size()));
             }
-            QMetaObject::invokeMethod(self, [self, qkey, img, context]() {
+            QMetaObject::invokeMethod(self, [self, qkey, img, httpStatus = result.httpStatus, context]() {
                 if (self.isNull()) return;
                 if (!img.isNull()) {
                     self->imageCache_.insert(qkey, new QImage(img));
-                } else {
+                } else if (httpStatus >= 400) {
+                    // Decrypt failures (status 0/200 — key not yet arrived)
+                    // must NOT be negative-cached; only real HTTP failures.
                     self->markFailed(qkey, context);
                 }
                 auto queued = self->inFlight_.take(qkey);
@@ -149,10 +158,10 @@ void ImageLoader::fetchMovie(const std::string& mxcUrl,
             bytes = QByteArray(reinterpret_cast<const char*>(result.data.data()),
                                static_cast<int>(result.data.size()));
         }
-        QMetaObject::invokeMethod(self, [self, key, bytes, cb]() {
+        QMetaObject::invokeMethod(self, [self, key, bytes, httpStatus = result.httpStatus, cb]() {
             if (self.isNull()) return;
             if (bytes.isEmpty()) {
-                self->markFailed(key, "movie");
+                if (httpStatus >= 400) self->markFailed(key, "movie");
                 cb(nullptr);
                 return;
             }

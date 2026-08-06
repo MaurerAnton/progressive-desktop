@@ -12,8 +12,13 @@ namespace progressive::desktop {
 
 class MatrixClient;
 
-// Cooldown for known-failed (404 etc.) mxcs before we try again.
+// Cooldown for known-failed (404 etc.) mxcs before we try again. Avatars use
+// a shorter window — a user can set an avatar mid-session and the room list
+// must show it reasonably soon. IMPORTANT: the negative cache must NEVER
+// engage on decryption failures (the key may arrive a second later) — only
+// on HTTP failures (httpStatus >= 400).
 inline constexpr qint64 kFailedMxcCooldownMs = 60 * 60 * 1000;
+inline constexpr qint64 kFailedAvatarCooldownMs = 10 * 60 * 1000;
 
 class ImageLoader : public QObject {
     Q_OBJECT

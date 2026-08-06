@@ -45,18 +45,29 @@ QString extensionForMimetype(const QString& mt) {
     return ".bin";
 }
 
+// Images without a mimetype default to .png, not .bin.
+QString defaultSuffixForMsgtype(const QString& msgtype) {
+    if (msgtype == "m.image") return ".png";
+    if (msgtype == "m.video") return ".mp4";
+    if (msgtype == "m.audio") return ".mp3";
+    return ".bin";
+}
+
 // Real filename: prefer the event's body (m.file uses body = filename),
 // fall back to a generic name + the mimetype's extension.
 QString displayNameFor(const QString& body, const QString& msgtype,
                        const QString& mimetype) {
+    const QString ext = mimetype.isEmpty()
+        ? defaultSuffixForMsgtype(msgtype)
+        : extensionForMimetype(mimetype);
     if (!body.isEmpty()) {
         if (body.contains('.')) return body;
-        return body + extensionForMimetype(mimetype);
+        return body + ext;
     }
-    if (msgtype == "m.image") return "image" + extensionForMimetype(mimetype);
-    if (msgtype == "m.video") return "video" + extensionForMimetype(mimetype);
-    if (msgtype == "m.audio") return "audio" + extensionForMimetype(mimetype);
-    return "file" + extensionForMimetype(mimetype);
+    if (msgtype == "m.image") return "image" + ext;
+    if (msgtype == "m.video") return "video" + ext;
+    if (msgtype == "m.audio") return "audio" + ext;
+    return "file" + ext;
 }
 
 QString tempPathFor(const QString& name) {
@@ -101,8 +112,11 @@ void AttachmentHandler::openAttachment(const QString& eventId, const QString& mx
 
     if (msgtype == "m.video" || msgtype == "m.audio" || msgtype == "m.file") {
         if (statusLabel_) statusLabel_->setText("Downloading " + fileName + "...");
-        ThreadPool::instance().enqueue([guard, client, mxc, fileName]() {
-            auto r = client->downloadMedia(mxc, 0, 0);
+        ThreadPool::instance().enqueue([guard, client, mxc, fileName,
+                                        mediaKey, mediaIv, mediaSha]() {
+            auto r = mediaKey.empty()
+                ? client->downloadMedia(mxc, 0, 0)
+                : client->downloadMediaEncrypted(mxc, mediaKey, mediaIv, mediaSha);
             QMetaObject::invokeMethod(guard, [guard, r, fileName]() {
                 if (guard.isNull()) return;
                 if (!r.ok || r.data.empty()) {

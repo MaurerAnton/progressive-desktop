@@ -23,7 +23,8 @@
 #include <map>
 #include <memory>
 #include <mutex>
-#include <unordered_set>#include <string>
+#include <unordered_set>
+#include <string>
 #include <thread>
 
 namespace progressive::desktop {
@@ -176,9 +177,12 @@ private:
     // Share-on-join: the current outbound megolm key must reach members who
     // join an encrypted room (and members whose devices changed). Element
     // does this on membership change; without it a joiner can never decrypt
-    // anything sent with pre-existing sessions.
+    // anything sent with pre-existing sessions. The HTTP-heavy work runs on
+    // the thread pool so the /sync loop is never stalled.
     void handleRoomKeyShares(const FastSyncResponse& resp);
-    std::unordered_set<std::string> sharedOnJoin_;  // "roomId|userId" this session
+    void doRoomKeyShares(const FastSyncResponse& resp, const AccountInfo& acct);
+    std::mutex shareMtx_;  // guards sharedOnJoin_ + lastDeviceListShareMs_
+    std::unordered_set<std::string> sharedOnJoin_;  // "roomId|userId|eventId" this session
     int64_t lastDeviceListShareMs_ = 0;
     void handleVerificationEvent(const std::string& type,
                                  const std::string& senderId,

@@ -384,11 +384,19 @@ void SyncEngine::run() {
 
 // Share the current outbound room key with members who joined an encrypted
 // room (timeline + state events), and with members whose devices changed
-// (new device = needs the key it never received). Deduped per session so a
-// startup sync (full state) does not re-share to everyone repeatedly.
+// (new device = needs the key it never received). The share itself is
+// synchronous HTTP, so it runs on the thread pool — the /sync loop must
+// never block on it.
 void SyncEngine::handleRoomKeyShares(const FastSyncResponse& resp) {
     if (!client_ || !decryptor_.isInitialized()) return;
     auto acct = client_->account();
+    ThreadPool::instance().enqueue([this, resp, acct]() {
+        doRoomKeyShares(resp, acct);
+    });
+}
+
+void SyncEngine::doRoomKeyShares(const FastSyncResponse& resp, const AccountInfo& acct) {
+    if (!client_ || !decryptor_.isInitialized()) return;
     const std::string ourId = acct.userId;
 
     auto membershipOf = [](std::string_view contentJson) -> std::string {
@@ -411,6 +419,7 @@ void SyncEngine::handleRoomKeyShares(const FastSyncResponse& resp) {
         }
         // On the first sync (empty since) the current state arrives in
         // stateEvents — catch members who joined while we were offline.
+        // Persisted share markers make this idempotent across restarts.
         for (const auto& se : room.stateEvents) {
             if (se.type == "m.room.member" && !se.stateKey.empty() &&
                 membershipOf(se.contentJson) == "join")
@@ -420,9 +429,18 @@ void SyncEngine::handleRoomKeyShares(const FastSyncResponse& resp) {
 
         for (const auto& evt : joinEvents) {
             std::string memberId(evt.stateKey);
+            std::string eventId(evt.eventId);
+            if (eventId.empty()) continue;
             const bool weJoined = (memberId == ourId);
-            std::string dedupe = roomId + "|" + memberId;
-            if (sharedOnJoin_.count(dedupe)) continue;
+            // Dedupe by the JOIN EVENT: a member who leaves and re-joins gets
+            // a fresh share; sync re-delivery of the same event does not.
+            std::string dedupe = roomId + "|" + memberId + "|" + eventId;
+            {
+                std::lock_guard<std::mutex> lk(shareMtx_);
+                if (sharedOnJoin_.count(dedupe)) continue;
+            }
+            if (store_ && store_->hasRoomKeyShareMarker(ourId, roomId, memberId, eventId))
+                continue;
 
             bool shared = false;
             if (weJoined) {
@@ -448,11 +466,28 @@ void SyncEngine::handleRoomKeyShares(const FastSyncResponse& resp) {
                 }
                 shared = decryptor_.shareRoomKey(roomId, members, ourId,
                     acct.deviceId, acct.homeserverUrl, acct.accessToken);
+                if (shared) {
+                    decryptor_.markRoomKeyShared(roomId);
+                    // Mark every member's join event so a restart does not
+                    // re-share to the whole room again.
+                    for (const auto& se : room.stateEvents) {
+                        if (se.type == "m.room.member" && !se.stateKey.empty() &&
+                            !se.eventId.empty() &&
+                            membershipOf(se.contentJson) == "join" && store_)
+                            store_->saveRoomKeyShareMarker(ourId, roomId,
+                                std::string(se.stateKey), std::string(se.eventId));
+                    }
+                }
             } else {
                 shared = decryptor_.shareRoomKey(roomId, {memberId}, ourId,
                     acct.deviceId, acct.homeserverUrl, acct.accessToken);
             }
-            if (shared) sharedOnJoin_.insert(dedupe);
+            if (shared) {
+                std::lock_guard<std::mutex> lk(shareMtx_);
+                sharedOnJoin_.insert(dedupe);
+                if (store_)
+                    store_->saveRoomKeyShareMarker(ourId, roomId, memberId, eventId);
+            }
             LOG(LogChannel::E2EE, "share-on-join: room=%.40s member=%s%s shared=%d",
                 rid.data(), memberId.c_str(), weJoined ? " (we joined)" : "",
                 shared ? 1 : 0);
@@ -465,8 +500,11 @@ void SyncEngine::handleRoomKeyShares(const FastSyncResponse& resp) {
     if (!resp.deviceListChanged.empty()) {
         const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now().time_since_epoch()).count();
-        if (nowMs - lastDeviceListShareMs_ < 60000) return;
-        lastDeviceListShareMs_ = nowMs;
+        {
+            std::lock_guard<std::mutex> lk(shareMtx_);
+            if (nowMs - lastDeviceListShareMs_ < 60000) return;
+            lastDeviceListShareMs_ = nowMs;
+        }
         for (const auto& [rid, room] : resp.joinedRooms) {
             if (!room.isEncrypted) continue;
             std::vector<std::string> members;
@@ -478,6 +516,7 @@ void SyncEngine::handleRoomKeyShares(const FastSyncResponse& resp) {
             if (members.empty()) continue;
             bool shared = decryptor_.shareRoomKey(std::string(rid), members, ourId,
                 acct.deviceId, acct.homeserverUrl, acct.accessToken);
+            if (shared) decryptor_.markRoomKeyShared(std::string(rid));
             LOG(LogChannel::E2EE, "device-list re-share: room=%.40s members=%zu shared=%d",
                 rid.data(), members.size(), shared ? 1 : 0);
         }

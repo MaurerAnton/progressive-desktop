@@ -1790,7 +1790,21 @@ void Decryptor::maybeReRequestKeys() {
     std::lock_guard<std::mutex> lk(requestMtx_);
     for (auto& [key, st] : requestedKeys_) {
         int64_t elapsed = nowMs - st.lastMs;
-        if (!shouldReRequestKey(st.attempts, elapsed)) continue;
+        if (!shouldReRequestKey(st.attempts, elapsed)) {
+            // After the final attempt the backoff stops forever — surface
+            // the dead end once so the room doesn't just say "waiting".
+            if (st.attempts > 4 && !st.gaveUpNotified) {
+                st.gaveUpNotified = true;
+                auto sep1 = key.find('|');
+                auto sep2 = key.find('|', sep1 == std::string::npos ? 0 : sep1 + 1);
+                if (sep1 != std::string::npos && sep2 != std::string::npos) {
+                    noteRoomKey({key.substr(0, sep1),
+                                 key.substr(sep1 + 1, sep2 - sep1 - 1),
+                                 st.senderId, RoomKeyEventKind::GaveUp, 0, 0});
+                }
+            }
+            continue;
+        }
         st.attempts++;
         st.lastMs = nowMs;
         std::string reqId = "pdrkr" + std::to_string(

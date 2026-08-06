@@ -168,12 +168,16 @@ void SyncResponseHandler::appendRoomKeyRows(std::vector<RoomKeyNotification> not
                                             const std::string& curRoomId) {
     if (notifs.empty()) return;
     int requestedRows = 0;
+    int withheldRows = 0;
     int skipped = 0;
     for (const auto& n : notifs) {
         if (n.roomId != curRoomId || n.roomId.empty()) continue;
         if (n.kind == RoomKeyEventKind::Requested) {
             if (requestedRows >= 3) { skipped++; continue; }
             requestedRows++;
+        } else if (n.kind == RoomKeyEventKind::Withheld) {
+            if (withheldRows >= 3) { skipped++; continue; }
+            withheldRows++;
         }
         std::string who = n.fromUserId;
         if (roomHandler_) {
@@ -192,6 +196,9 @@ void SyncResponseHandler::appendRoomKeyRows(std::vector<RoomKeyNotification> not
         } else if (n.kind == RoomKeyEventKind::Withheld) {
             sys.body = who + " withheld the room key" +
                        (n.detail.empty() ? std::string() : " (" + n.detail + ")");
+        } else if (n.kind == RoomKeyEventKind::GaveUp) {
+            sys.body = "Gave up requesting the key from " + who +
+                       " — right-click the message \u2192 \u201cRequest the key again\u201d";
         } else {
             sys.body = "No key yet — requested from " + who +
                        (n.attempt > 1 ? " again (session " : " (session ") +

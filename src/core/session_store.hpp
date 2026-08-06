@@ -80,6 +80,15 @@ public:
     bool savePendingKeyRequests(const std::string& data, const std::string& pickleKey);
     std::optional<std::string> loadPendingKeyRequests(const std::string& pickleKey);
 
+    // ---- Share-on-join markers (E2EE) ----
+    // Records that we shared the current outbound megolm session to a member
+    // at a specific join event. Persisted so restarts don't re-share to every
+    // member of every encrypted room (the first sync returns full state).
+    bool saveRoomKeyShareMarker(const std::string& userId, const std::string& roomId,
+                                const std::string& memberId, const std::string& eventId);
+    bool hasRoomKeyShareMarker(const std::string& userId, const std::string& roomId,
+                               const std::string& memberId, const std::string& eventId);
+
     // ---- E2EE flags ----
     bool saveE2eeFlag(const std::string& key, bool value);
     std::optional<bool> loadE2eeFlag(const std::string& key);

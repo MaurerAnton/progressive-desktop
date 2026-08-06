@@ -177,7 +177,7 @@ void ToolbarHandler::onAllThreads() {
         return;
     }
     QPointer<RoomHandler> roomHandler = roomHandler_;
-    ThreadsDialog dlg(client_.get(), roomId,
+    ThreadsDialog dlg(client_.get(), roomId, timelineModel_,
         [roomHandler](const QString& rootEventId) {
             if (!roomHandler.isNull())
                 roomHandler->openThreadView(rootEventId);
@@ -425,7 +425,7 @@ void ToolbarHandler::toggleThreadPanel() {
         return;
     }
     QPointer<RoomHandler> roomHandler = roomHandler_;
-    ThreadsDialog dlg(client_.get(), roomHandler_->currentRoomId(),
+    ThreadsDialog dlg(client_.get(), roomHandler_->currentRoomId(), timelineModel_,
         [roomHandler](const QString& rootEventId) {
             if (!roomHandler.isNull())
                 roomHandler->openThreadView(rootEventId);

@@ -277,3 +277,27 @@ completed items are removed.
 - Threads: global "All threads" across ALL rooms (per-room list only now); the
   /threads API is per-room, so a global view needs per-room fan-out.
 - Video/audio playback in-app (currently opens the system player).
+
+## Round: audit-19/20/21 fixes (Aug 6)
+
+- [x] Fixed glued #include in sync_engine.hpp:26 (extra-tokens warning)
+- [x] CMakeLists.txt: SQLite::SQLite3 -> SQLite3::SQLite3 (deprecation warning)
+- [x] attachment_handler: restored encrypted-media path for m.video/audio/file
+      clicks (regression from the media round — raw ciphertext was being
+      written to the temp file); m.image without mimetype defaults to .png
+- [x] Negative cache now engages ONLY on HTTP failures (httpStatus >= 400) —
+      decrypt failures (key arrives a second later) and network blips are
+      retryable; avatar contexts use a 10-min cooldown vs 1h for media
+- [x] Share-on-join moved to the thread pool (sync loop never blocks on the
+      HTTP share work); dedupe keyed roomId|userId|joinEventId (leave+re-join
+      re-shares); markRoomKeyShared after full-room shares (no duplicate
+      first-send share); persisted share markers in the SessionStore
+      (e2ee_data "share:...") so restarts don't re-share to every member of
+      every encrypted room
+- [x] User profile avatar: process-wide success cache (no re-download per open)
+- [x] Threads dialog: local decrypted timeline used for root previews first
+      (encrypted rooms now show real previews), single-click opens (Element
+      parity), next_batch pagination ("Load more"), refresh resets the cursor
+- [x] m.room_key.withheld rows capped at 3 per sync (like requested rows)
+- [x] Key-request give-up row: after attempt 4 the room shows "Gave up
+      requesting the key from X — right-click → Request the key again"

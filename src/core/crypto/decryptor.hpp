@@ -37,7 +37,7 @@ struct ReDecryptedEvent {
 };
 
 // Room-key activity surfaced in the UI timeline ("X sent us the room key").
-enum class RoomKeyEventKind { Received, Requested, Withheld };
+enum class RoomKeyEventKind { Received, Requested, Withheld, GaveUp };
 struct RoomKeyNotification {
     std::string roomId;
     std::string sessionId;
@@ -343,6 +343,7 @@ private:
         std::string senderDeviceId;
         std::string lastRequestId;                 // for request_cancellation
         std::vector<std::string> recipientDevices; // devices we asked
+        bool gaveUpNotified = false;  // surfaced the give-up row after attempt 4
     };
     std::unordered_map<std::string, KeyRequestState> requestedKeys_;
     std::unordered_set<std::string> recentKeyRequests_;  // dedup by request_id (capped)

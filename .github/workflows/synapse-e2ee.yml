@@ -125,4 +125,7 @@ jobs:
 
     - name: Run Synapse E2EE integration test
       run: |
+        # The default build target may not include the test executables on
+        # this runner — build the test binary explicitly first.
+        cmake --build build --target test_synapse_e2ee -j$(nproc)
         SYNAPSE_URL=http://localhost:8008 ./build/test_synapse_e2ee

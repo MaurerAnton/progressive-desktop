@@ -2,15 +2,15 @@
 #include "room_store.hpp"
 #include "room_data_loader.hpp"
 #include "event_body_parser.hpp"
-#include "../../core/session_store.hpp"
-#include "../../core/engine/sync_applier.hpp"
-#include "../../core/fast_sync.hpp"
-#include "../../core/crypto/decryptor.hpp"
+#include "core/session_store.hpp"
+#include "core/engine/sync_applier.hpp"
+#include "core/fast_sync.hpp"
+#include "core/crypto/decryptor.hpp"
 #include "../timeline/timeline_model.hpp"
 #include "../room_list_model.hpp"
 #include "../profile/room_members_dialog.hpp"
-#include "../../core/fast_sync.hpp"
-#include "../../core/crypto/decryptor.hpp"
+#include "core/fast_sync.hpp"
+#include "core/crypto/decryptor.hpp"
 
 #include <QMetaObject>
 #include <QWidget>

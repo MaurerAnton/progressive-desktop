@@ -8,7 +8,9 @@
 #include <QDateTime>
 #include <QMetaObject>
 #include <QPointer>
+#include <QSet>
 #include <QThread>
+#include <QString>
 
 namespace progressive::desktop {
 
@@ -18,10 +20,24 @@ static const int kMaxCachedMovies = 20;
 // Cap for the negative-cache (failed mxcs) — beyond this, drop everything.
 static const int kMaxFailedEntries = 1024;
 
+// Mxcs uploaded by this process (send path) — exempt from the negative cache
+// because fresh uploads 404 briefly while the media server replicates.
+static QSet<QString>& freshUploadSet() {
+    static QSet<QString> set;
+    return set;
+}
+
+void markMxcFreshUpload(const std::string& mxcUrl) {
+    auto& s = freshUploadSet();
+    s.insert(QString::fromStdString(mxcUrl));
+    if (s.size() > 512) s.clear();  // bounded; old entries fall out naturally
+}
+
 ImageLoader::ImageLoader(std::shared_ptr<MatrixClient> client, QObject* parent)
     : QObject(parent), client_(std::move(client)) {}
 
 bool ImageLoader::isFailed(const QString& key) const {
+    if (freshUploadSet().contains(key)) return false;  // own upload — always retry
     auto it = failedUntil_.constFind(key);
     if (it == failedUntil_.constEnd()) return false;
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
@@ -33,8 +49,16 @@ bool ImageLoader::isFailed(const QString& key) const {
 }
 
 void ImageLoader::markFailed(const QString& key, const std::string& context) {
+    if (freshUploadSet().contains(key)) {
+        LOG(LogChannel::NET, "imageLoader: fresh upload mxc=%.80s failed — retrying on next paint",
+            key.toStdString().c_str());
+        return;
+    }
     const bool avatar = context == "avatar" || context == "room avatar";
-    const qint64 cooldown = avatar ? kFailedAvatarCooldownMs : kFailedMxcCooldownMs;
+    const bool image = context == "timeline image";
+    const qint64 cooldown = avatar ? kFailedAvatarCooldownMs
+                            : image ? kFailedImageCooldownMs
+                                    : kFailedMxcCooldownMs;
     failedUntil_.insert(key, QDateTime::currentMSecsSinceEpoch() + cooldown);
     if (failedUntil_.size() > kMaxFailedEntries) failedUntil_.clear();
     LOG(LogChannel::NET, "imageLoader: %s failed for mxc=%.80s — not retrying for %lld min",

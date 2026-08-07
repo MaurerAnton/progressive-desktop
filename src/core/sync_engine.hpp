@@ -102,6 +102,11 @@ public:
     // UIA-aware — the password retry reuses setupCrossSigningWithPassword).
     bool resetCrossSigning();
 
+    // Drop the persisted outbound megolm sessions for the current account
+    // (called right after an identity reset — old-identity sessions must not
+    // survive a restart).
+    void clearPersistedOutboundSessions();
+
     // ---- Key backup (Phase 7) ----
     // Create a backup version; returns the recovery key ("" on failure) —
     // the caller shows it ONCE.

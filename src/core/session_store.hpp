@@ -75,6 +75,9 @@ public:
     // ---- Outbound Megolm sessions (E2EE) ----
     bool saveOutboundSessions(const std::string& data, const std::string& pickleKey);
     std::optional<std::string> loadOutboundSessions(const std::string& pickleKey);
+    // Drop persisted outbound megolm sessions (identity reset: sessions from
+    // the old identity must never survive a restart).
+    bool clearOutboundSessions(const std::string& pickleKey);
 
     // ---- Pending room-key requests (E2EE, Element parity: survive restarts) ----
     bool savePendingKeyRequests(const std::string& data, const std::string& pickleKey);

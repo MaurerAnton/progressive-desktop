@@ -728,12 +728,33 @@ ApiResult<bool> MatrixClient::setRoomName(const std::string& roomId, const std::
 ApiResult<std::string> MatrixClient::getRoomMembers(const std::string& roomId) {
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
+    // TTL cache: room members are re-queried on every sync by multiple paths;
+    // a 30s window removes the per-sync HTTP storm (404/403 spam on left
+    // rooms included). Membership changes land on the next refresh.
+    {
+        std::lock_guard<std::mutex> lk(memberCacheMtx_);
+        const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        auto it = memberCache_.find(roomId);
+        if (it != memberCache_.end() && nowMs - it->second.first < 30000) {
+            r.ok = true;
+            r.data = it->second.second;
+            LOG(LogChannel::NET, "getRoomMembers: room=%.60s (cached)", roomId.c_str());
+            return r;
+        }
+    }
     std::string url = account().homeserverUrl + "/_matrix/client/v3/rooms/" + urlEncodePath(roomId) + "/members";
     LOG(LogChannel::NET, "getRoomMembers: room=%.60s", roomId.c_str());
     auto resp = httpGet(url, authHeaders(), 15000);
     r.httpStatus = resp.statusCode;
     if (resp.success) { r.ok = true; r.data = resp.body; }
     else { if (!resp.body.empty()) r.error = progressive::parseMatrixErrorJson(resp.body); }
+    if (r.ok) {
+        std::lock_guard<std::mutex> lk(memberCacheMtx_);
+        if (memberCache_.size() > 64) memberCache_.clear();
+        memberCache_[roomId] = {std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count(), r.data};
+    }
     LOG(LogChannel::NET, "getRoomMembers: room=%.60s http=%d ok=%d err=%.200s",
         roomId.c_str(), r.httpStatus, r.ok ? 1 : 0, r.error.message.c_str());
     return r;

@@ -301,3 +301,36 @@ completed items are removed.
 - [x] m.room_key.withheld rows capped at 3 per sync (like requested rows)
 - [x] Key-request give-up row: after attempt 4 the room shows "Gave up
       requesting the key from X — right-click → Request the key again"
+
+## Round: encryption root-cause + image preview + commands/invite + speed (Aug 7)
+
+- [x] ROOT CAUSE (megolm): our inbound lookup was keyed (room, sender_key,
+      session_id) while Nheko keys by (room, session_id). After an identity
+      reset, events carry the NEW curve but sessions were stored under the
+      OLD one -> "no session" for everyone. Fixed: MegolmStore::decrypt falls
+      back to a (room, session_id) match across stored sessions (Nheko
+      semantics); unit test test_sender_key_drift_fallback.
+- [x] Outbound sessions are now bound to the creating identity: senderKey
+      persisted in the pickle; unpickle DISCARDS sessions whose senderKey !=
+      current curve (and empty-id degenerate sessions); getOrCreateOutbound
+      rotates mismatched sessions; resetIdentity clears the persisted pickle
+      (SessionStore::clearOutboundSessions + SyncEngine::
+      clearPersistedOutboundSessions, called from the reset flow). Unit test
+      test_outbound_discard_on_identity_change.
+- [x] Key-request delivery with stale peer OTK pools: when encrypted requests
+      fail (OTK sig INVALID), fall back to the PLAIN "*" wildcard
+      m.room_key_request (Element sends requests in the clear) — requests now
+      reach peers even with stale OTKs (progressive<->progressive deadlock).
+- [x] Image preview (Element/Nheko parity): images no longer render a
+      filename text bubble + grey rect — one bubble, caption inside the image
+      area; mxcs uploaded by this process are exempt from the negative cache
+      (fresh uploads 404 during CDN replication) and retry on next paint;
+      timeline-image cooldown 5 min (was 60).
+- [x] Speed: getRoomMembers TTL cache (30s) in MatrixClient — kills the
+      per-sync member HTTP storm (incl. 403 spam on left rooms).
+- [x] Commands: SlashCommandHandler is now an Element-style command table
+      (args help + handler) with client + roomId provider: /help /invite
+      /join /leave /kick /ban /unban /roomname /clear /logout; unknown
+      commands show a feedback row. Invite… button in RoomMembersDialog.
+- [x] CI: two new unit tests (drift fallback, identity discard). Deferred:
+      live-Synapse stale-OTK scenario (complex), media-retry live test.

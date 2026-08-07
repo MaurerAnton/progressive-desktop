@@ -208,11 +208,100 @@ static void test_outbound_encrypt_roundtrip() {
     std::cout << "--- test_outbound_encrypt_roundtrip PASSED ---\n";
 }
 
+// ---- Test 4: sender_key drift — decrypt falls back to (room, session_id) ----
+// Nheko keys megolm sessions by (room, session_id) only. After an identity
+// reset our events carry a NEW sender_key while sessions are stored under the
+// old one — the strict (room, sender_key, session_id) lookup must fall back.
+
+static void test_sender_key_drift_fallback() {
+    using namespace progressive::desktop;
+
+    Decryptor decryptor;
+    bool ok = decryptor.init();
+    CHECK(ok, "Decryptor initialized");
+
+    std::string roomId = "!drift:localhost";
+    std::string deviceId = "TESTDEVICE";
+    std::string plaintextBody = "{\"body\":\"drift test\",\"msgtype\":\"m.text\"}";
+
+    std::string sessionId = decryptor.getOrCreateOutboundSession(roomId);
+    CHECK(!sessionId.empty(), "getOrCreateOutboundSession");
+    std::string encryptedJson = decryptor.encryptMessage(roomId, deviceId, plaintextBody);
+    CHECK(!encryptedJson.empty(), "encryptMessage returned JSON");
+
+    simdjson::dom::parser parser;
+    auto doc = parser.parse(encryptedJson);
+    CHECK(doc.error() == simdjson::SUCCESS, "Parse encrypted JSON");
+    auto v = doc.value();
+    auto ct = v["ciphertext"].get_string();
+    auto sid = v["session_id"].get_string();
+    CHECK(ct.error() == simdjson::SUCCESS && sid.error() == simdjson::SUCCESS,
+          "Extract ciphertext + session_id");
+    std::string ciphertext(ct.value());
+    std::string parsedSessionId(sid.value());
+    std::string sessionKey = decryptor.getOutboundSessionKey(roomId);
+    CHECK(!sessionKey.empty(), "getOutboundSessionKey");
+
+    // Store under a DIFFERENT (old) sender key — simulates a session received
+    // before our identity change.
+    MegolmStore store;
+    bool added = store.addInboundSession(roomId, "OLDKEYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                                         parsedSessionId, sessionKey);
+    CHECK(added, "addInboundSession under OLD sender key");
+
+    // Event arrives with a NEW sender key — strict lookup misses, fallback must hit.
+    std::string decrypted = store.decrypt(roomId, "NEWKEYBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+                                          parsedSessionId, ciphertext);
+    CHECK(!decrypted.empty(), "Sender-key drift fallback decrypts");
+    CHECK_EQ(decrypted, plaintextBody, "Drift fallback plaintext matches");
+
+    std::cout << "--- test_sender_key_drift_fallback PASSED ---\n";
+}
+
+// ---- Test 5: outbound sessions are discarded when the identity changes ----
+// Sessions from a previous identity must never survive a restart: the pickle
+// carries the creating senderKey and unpickle drops mismatched entries.
+
+static void test_outbound_discard_on_identity_change() {
+    using namespace progressive::desktop;
+
+    Decryptor decryptor;
+    bool ok = decryptor.init();
+    CHECK(ok, "Decryptor initialized");
+
+    std::string roomId = "!identity:localhost";
+    std::string oldId = decryptor.getOrCreateOutboundSession(roomId);
+    CHECK(!oldId.empty(), "Session created under old identity");
+
+    std::string pickled = decryptor.pickleOutboundSessions("testkey");
+    CHECK(pickled.find("\"senderKey\":\"") != std::string::npos,
+          "Pickle records the creating senderKey");
+
+    // Identity reset (clears in-memory outbound sessions).
+    CHECK(decryptor.resetIdentity(), "resetIdentity");
+    // Reload the OLD pickle — the session belongs to the previous identity and
+    // must be discarded, so a fresh session with a NEW id is created.
+    CHECK(decryptor.unpickleOutboundSessions("testkey", pickled),
+          "unpickleOutboundSessions (discards stale)");
+    std::string newId = decryptor.getOrCreateOutboundSession(roomId);
+    CHECK(!newId.empty(), "Fresh session after reset");
+    CHECK(newId != oldId, "Old-identity session was discarded (new id differs)");
+
+    // And the fresh session is pickled under the CURRENT sender key.
+    std::string pickled2 = decryptor.pickleOutboundSessions("testkey");
+    CHECK(pickled2.find(decryptor.curve25519Key()) != std::string::npos,
+          "New pickle carries the current sender key");
+
+    std::cout << "--- test_outbound_discard_on_identity_change PASSED ---\n";
+}
+
 int main() {
     std::cout << "=== Megolm + Olm Roundtrip Tests ===\n\n";
     test_megolm_roundtrip();
     test_olm_wrapper_roundtrip();
     test_outbound_encrypt_roundtrip();
+    test_sender_key_drift_fallback();
+    test_outbound_discard_on_identity_change();
     if (failures == 0) { std::cout << "\nALL TESTS PASSED\n"; return 0; }
     std::cerr << failures << " FAILURE(S)\n"; return 1;
 }

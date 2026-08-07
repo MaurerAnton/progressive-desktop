@@ -19,6 +19,12 @@ class MatrixClient;
 // on HTTP failures (httpStatus >= 400).
 inline constexpr qint64 kFailedMxcCooldownMs = 60 * 60 * 1000;
 inline constexpr qint64 kFailedAvatarCooldownMs = 10 * 60 * 1000;
+inline constexpr qint64 kFailedImageCooldownMs = 5 * 60 * 1000;
+
+// Register an mxc URL uploaded by THIS process (chat send path). Fresh
+// uploads race the media server's replication (404 right after 200 upload)
+// — they must never be negative-cached, and the next paint retries.
+void markMxcFreshUpload(const std::string& mxcUrl);
 
 class ImageLoader : public QObject {
     Q_OBJECT

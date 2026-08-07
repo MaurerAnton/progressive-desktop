@@ -11,6 +11,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QMetaObject>
+#include <QInputDialog>
 #include <QPointer>
 #include <QMessageBox>
 #include <QMenu>
@@ -50,6 +51,7 @@ RoomMembersDialog::RoomMembersDialog(MatrixClient* client, const std::string& ro
     statusLabel_ = new QLabel("Loading members...", this);
     statusLabel_->setStyleSheet("color:" + Design::mutedTextColor.name() + ";");
     closeBtn_ = new QPushButton("Close", this);
+    inviteBtn_ = new QPushButton("Invite…", this);
 
     auto* root = new QVBoxLayout(this);
     root->addWidget(searchEdit_);
@@ -59,10 +61,12 @@ RoomMembersDialog::RoomMembersDialog(MatrixClient* client, const std::string& ro
     reloadBtn_ = new QPushButton("Reload", this);
     reloadBtn_->setEnabled(false);
     btnRow->addWidget(reloadBtn_);
+    btnRow->addWidget(inviteBtn_);
     btnRow->addStretch();
     btnRow->addWidget(closeBtn_);
     root->addLayout(btnRow);
     connect(reloadBtn_, &QPushButton::clicked, this, &RoomMembersDialog::reload);
+    connect(inviteBtn_, &QPushButton::clicked, this, &RoomMembersDialog::onInviteClicked);
 
     // 150ms debounce: filter client-side, not reload from server
     debounceTimer_ = new QTimer(this);
@@ -241,6 +245,32 @@ void RoomMembersDialog::onMemberClicked(QListWidgetItem* item) {
     connect(&dlg, &UserProfileDialog::verifyRequested, this,
             &RoomMembersDialog::verifyRequested);
     dlg.exec();
+}
+
+void RoomMembersDialog::onInviteClicked() {
+    if (!client_) return;
+    bool ok;
+    QString userId = QInputDialog::getText(this, "Invite to room",
+        "Enter Matrix user ID (e.g. @bob:matrix.org):", QLineEdit::Normal, "@", &ok);
+    if (!ok || userId.trimmed().isEmpty()) return;
+    std::string uid = userId.trimmed().toStdString();
+    if (!uid.empty() && uid[0] != '@') uid = "@" + uid;
+    statusLabel_->setText("Inviting " + QString::fromStdString(uid) + "...");
+    auto client = client_;
+    QPointer<RoomMembersDialog> guard(this);
+    ThreadPool::instance().enqueue([guard, client, uid, this]() {
+        auto r = client->inviteUser(roomId_, uid);
+        QMetaObject::invokeMethod(guard, [guard, r, uid]() {
+            if (guard.isNull()) return;
+            if (r.ok) {
+                guard->statusLabel_->setText("Invited " + QString::fromStdString(uid) + ".");
+                guard->reload();
+            } else {
+                guard->statusLabel_->setText(
+                    "Invite failed: " + QString::fromStdString(r.error.message));
+            }
+        }, Qt::QueuedConnection);
+    });
 }
 
 void RoomMembersDialog::onMemberContextMenu(const QPoint& pos) {

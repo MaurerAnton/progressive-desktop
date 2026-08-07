@@ -54,6 +54,11 @@ struct RoomKeyNotification {
 struct OutboundMegolmSession {
     std::string sessionId;
     std::string sessionKey;     // base64 — for sharing with other devices
+    std::string senderKey;      // OUR curve25519 at creation time — sessions
+                                // from another identity are discarded on load
+                                // (receivers store keys by the event sender_key;
+                                // sending with an old-identity session makes
+                                // our events undecryptable for everyone).
     void* session = nullptr;     // OlmOutboundGroupSession* (libolm)
     int messageIndex = 0;
     int messageCount = 0;        // messages sent with this session (rotation)

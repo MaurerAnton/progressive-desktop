@@ -46,6 +46,26 @@ std::string MegolmStore::decrypt(const std::string& roomId,
                                     const std::string& ciphertext) {
     std::lock_guard<std::mutex> lk(mtx_);
     auto* sess = impl_->mgr.findSession(roomId, senderKey, sessionId);
+    if (!sess) {
+        // Sender-key drift: after an identity reset the sender's events carry
+        // the NEW curve key while the session was stored under the OLD one.
+        // Nheko keys sessions by (room, session_id) only — match by session id
+        // as a fallback so drifted-key events still decrypt.
+        for (const auto& p : impl_->params) {
+            if (p.roomId == roomId && p.sessionId == sessionId) {
+                auto* alt = impl_->mgr.findSession(roomId, p.senderKey, sessionId);
+                if (alt) {
+                    sess = alt;
+                    LOG(LogChannel::E2EE,
+                        "megolm: sender_key drift for room=%.40s sid=%.20s "
+                        "(stored under key=%.20s, event key=%.20s) — fallback match",
+                        roomId.c_str(), sessionId.c_str(), p.senderKey.c_str(),
+                        senderKey.c_str());
+                    break;
+                }
+            }
+        }
+    }
     if (!sess) return {};
     return progressive::megolmDecrypt(*sess, ciphertext);
 }

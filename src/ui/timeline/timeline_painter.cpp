@@ -316,7 +316,9 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
         QFont f = p->font(); f.setItalic(true); f.setPointSize(ds(kFontSizeBody)); p->setFont(f);
         QRect emoteRect(bubbleX + kBubblePadding, bubbleY + 6, textW, L.textH + 14);
         p->drawText(emoteRect, Qt::AlignLeft | Qt::TextWordWrap, emoteText);
-    } else if (!body.isEmpty()) {
+    } else if (!body.isEmpty() && msgtype != "m.image") {
+        // m.image renders its filename inside the image area (single bubble,
+        // Element/Nheko parity) — never as a separate text block.
         int textBottom = bubbleY + L.bubbleH - kEmoteBottomPad;
         int textH = textBottom - curY;
         if (textH < kMinTextH) textH = kMinTextH;
@@ -353,6 +355,7 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
     if (hasImage) {
         curY += 2;
         int maxW = qMin(bubbleW - kBubblePadding * 2, kMaxImageW);
+        QString caption = body;
         if (imageLoaded) {
             QImage img = idx.data(TimelineModel::ImageRole).value<QImage>();
             if (!img.isNull()) {
@@ -369,6 +372,14 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
                     QFont pf = p->font(); pf.setPointSize(ds(kFontSizeIcon)); p->setFont(pf);
                     p->drawText(playBtn, Qt::AlignCenter, "▶");
                 }
+                // Filename caption inside the same bubble (single-bubble layout).
+                if (!caption.isEmpty()) {
+                    p->setPen(Design::mutedTextColor);
+                    QFont cf = p->font(); cf.setPointSize(ds(kFontSizeCaption)); p->setFont(cf);
+                    p->drawText(bubbleX + kBubblePadding, curY, maxW, kIndicatorRowH,
+                                Qt::AlignLeft, caption);
+                    curY += kIndicatorRowH + 2;
+                }
             }
         } else {
             QRect placeholderRect(bubbleX + kBubblePadding, curY, maxW, kImagePlaceholderH);
@@ -377,8 +388,10 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
             p->drawRoundedRect(placeholderRect, 6, 6);
             p->setPen(Design::mutedTextColor);
             QFont pf = p->font(); pf.setPointSize(ds(kFontSizeBody)); p->setFont(pf);
-            p->drawText(placeholderRect, Qt::AlignCenter,
-                        msgtype == "m.video" ? "🎬 loading..." : "🖼 loading...");
+            QString phText = msgtype == "m.video" ? "🎬 " : "🖼 ";
+            if (!caption.isEmpty()) phText += caption + "\n";
+            phText += "loading…";
+            p->drawText(placeholderRect, Qt::AlignCenter, phText);
             curY += kImagePlaceholderH + 2;
             // Encrypted media (file:) has no server-side thumbnail — fetch
             // the full ciphertext and decrypt client-side.

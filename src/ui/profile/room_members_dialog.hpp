@@ -40,6 +40,7 @@ private slots:
     void onSearchChanged();
     void onMemberClicked(QListWidgetItem* item);
     void onMemberContextMenu(const QPoint& pos);
+    void onInviteClicked();
 
 signals:
     void verifyRequested(const QString& userId, const QString& deviceId);
@@ -54,6 +55,7 @@ private:
     QLabel* statusLabel_;
     QPushButton* closeBtn_;
     QPushButton* reloadBtn_ = nullptr;
+    QPushButton* inviteBtn_ = nullptr;
     QTimer* debounceTimer_;
     std::vector<MemberInfo> allMembers_;
     std::map<std::string, int> userTrust_;  // userId -> 0 unverified, 1 trusted, 2 verified

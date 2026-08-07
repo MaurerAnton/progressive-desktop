@@ -857,16 +857,26 @@ void Decryptor::setRoomEncryptionConfig(const std::string& roomId,
 
 std::string Decryptor::getOrCreateOutboundSession(const std::string& roomId) {
     std::lock_guard<std::mutex> lk(outboundMtx_);
+    const std::string curKey = curve25519Key();
     auto it = outboundSessions_.find(roomId);
     if (it != outboundSessions_.end()) {
-        // Rotation: if the room's encryption config says this session is due
-        // (message count or time period), drop it and create a fresh one.
+        bool staleIdentity = it->second.senderKey.empty() ||
+                             it->second.senderKey != curKey;
+        bool emptyIds = it->second.sessionId.empty() || it->second.sessionKey.empty();
+        // Rotation: the session was created under a different identity (a
+        // reset/re-login) — receivers key megolm stores by the sender_key in
+        // the event, so an old-identity session makes every event
+        // undecryptable. Drop and re-create (Nheko rotates on identity
+        // mismatch too). Also drop degenerate empty-id sessions.
         auto cfgIt = roomEncryptionConfigs_.find(roomId);
-        if (cfgIt != roomEncryptionConfigs_.end() &&
+        bool rotationDue = cfgIt != roomEncryptionConfigs_.end() &&
             progressive::isRotationDue(cfgIt->second, it->second.messageCount,
-                                       it->second.startTimeMs)) {
-            LOG(LogChannel::E2EE, "getOrCreateOutboundSession: rotating session for room=%.40s",
-                roomId.c_str());
+                                       it->second.startTimeMs);
+        if (staleIdentity || emptyIds || rotationDue) {
+            LOG(LogChannel::E2EE, "getOrCreateOutboundSession: rotating session for room=%.40s "
+                "(staleIdentity=%d emptyIds=%d rotationDue=%d)",
+                roomId.c_str(), staleIdentity ? 1 : 0, emptyIds ? 1 : 0,
+                rotationDue ? 1 : 0);
             olm_clear_outbound_group_session(static_cast<::OlmOutboundGroupSession*>(
                 it->second.session));
             free(it->second.session);
@@ -908,6 +918,7 @@ std::string Decryptor::getOrCreateOutboundSession(const std::string& roomId) {
     s.session = session;
     s.sessionId = sessionId;
     s.sessionKey = sessionKey;
+    s.senderKey = curKey;
     // Import outbound session as inbound so we can decrypt our own message echoes.
     megolm_->addInboundSession(roomId, curve25519Key(), sessionId, sessionKey);
     s.messageIndex = 0;
@@ -1499,6 +1510,22 @@ bool Decryptor::sendKeyRequestToDevices(const std::string& senderId,
         LOG(LogChannel::E2EE, "sendKeyRequestToDevices: plain wildcard send ok=%d status=%d",
             resp.success ? 1 : 0, resp.statusCode);
         ok = ok || resp.success;
+    }
+    // Element sends key requests in the clear when an Olm session cannot be
+    // established (e.g. the peer's OTK pool holds stale keys and every claim
+    // fails verification). Without this fallback the request never reaches
+    // the peer and the session stays dead forever.
+    if (!ok && !senderId.empty()) {
+        std::string fbBody = "{\"messages\":{\"" + senderId + "\":{\"*\":"
+            + requestContent + "}}}";
+        std::string txn = "pdplain" + std::to_string(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count());
+        auto resp = httpPut(ctxHomeserver_ + "/_matrix/client/v3/sendToDevice/m.room_key_request/"
+            + txn, fbBody, makeAuthHeaders(ctxToken_), 15000);
+        LOG(LogChannel::E2EE, "sendKeyRequestToDevices: plain wildcard FALLBACK (stale OTK pool?) ok=%d status=%d",
+            resp.success ? 1 : 0, resp.statusCode);
+        ok = resp.success;
     }
     return ok;
 }
@@ -2426,6 +2453,7 @@ std::string Decryptor::pickleOutboundSessions(const std::string& key) {
         os << "{\"roomId\":\"" << roomId << "\","
            << "\"sessionId\":\"" << out.sessionId << "\","
            << "\"sessionKey\":\"" << out.sessionKey << "\","
+           << "\"senderKey\":\"" << out.senderKey << "\","
            << "\"messageIndex\":" << out.messageIndex << ","
            << "\"shared\":" << (roomKeysShared_[roomId] ? "true" : "false");
         size_t len = olm_pickle_outbound_group_session_length(olmSession);
@@ -2470,6 +2498,25 @@ bool Decryptor::unpickleOutboundSessions(const std::string& key, const std::stri
         if (r.error() != simdjson::SUCCESS || si.error() != simdjson::SUCCESS ||
             sk.error() != simdjson::SUCCESS) continue;
         std::string roomId(r.value());
+        std::string sessionId(si.value());
+        std::string sessionKey(sk.value());
+        // Discard degenerate or stale-identity sessions: receivers key their
+        // megolm store by the sender_key in the event, so a session from a
+        // previous identity poisons every future send. (Also clears the
+        // empty-id sessions persisted by older builds.)
+        std::string storedSenderKey;
+        auto skf = obj.value()["senderKey"].get_string();
+        if (skf.error() == simdjson::SUCCESS) storedSenderKey = std::string(skf.value());
+        if (sessionId.empty() || sessionKey.empty() ||
+            storedSenderKey.empty() || storedSenderKey != curve25519Key()) {
+            LOG(LogChannel::E2EE,
+                "unpickleOutbound: DISCARD stale-identity session for room=%.40s "
+                "(storedSenderKey=%s current=%s)",
+                roomId.c_str(),
+                storedSenderKey.empty() ? "(none)" : storedSenderKey.c_str(),
+                curve25519Key().c_str());
+            continue;
+        }
         std::string hexPickle(pk.error() == simdjson::SUCCESS ? pk.value() : "");
         if (hexPickle.empty() || hexPickle.size() % 2 != 0) continue;
         std::vector<uint8_t> pickledData;
@@ -2491,8 +2538,9 @@ bool Decryptor::unpickleOutboundSessions(const std::string& key, const std::stri
         }
         OutboundMegolmSession out;
         out.session = mem;
-        out.sessionId = std::string(si.value());
-        out.sessionKey = std::string(sk.value());
+        out.sessionId = sessionId;
+        out.sessionKey = sessionKey;
+        out.senderKey = storedSenderKey;
         out.messageIndex = mi.error() == simdjson::SUCCESS ? (int)mi.value() : 0;
         outboundSessions_[roomId] = std::move(out);
         bool shared = sh.error() == simdjson::SUCCESS ? sh.value() : false;

@@ -5,6 +5,7 @@
 #include "core/sync_engine.hpp"
 #include "core/debug_log.hpp"
 #include "core/memory_stats.hpp"
+#include "../shared/image_loader.hpp"
 #include "../room_list_model.hpp"
 #include "../handlers/room_key_helper.hpp"
 #include "core/crypto/media_crypto.hpp"
@@ -337,6 +338,7 @@ void ChatView::doAttachFile(const QString& filePath) {
                 failNotice("❌ Upload failed: " + up.error.message);
                 return;
             }
+            markMxcFreshUpload(up.data);
             std::ostringstream fbody;
             fbody << "{\"msgtype\":\"" << mt << "\",\"body\":\"" << fn << "\",\"filename\":\"" << fn << "\""
                   << ",\"file\":{\"url\":\"" << up.data << "\",\"key\":\"" << encKey
@@ -363,6 +365,7 @@ void ChatView::doAttachFile(const QString& filePath) {
                 failNotice("❌ Upload failed: " + up.error.message);
                 return;
             }
+            markMxcFreshUpload(up.data);
             std::ostringstream body;
             body << "{\"msgtype\":\"" << mt << "\",\"body\":\"" << fn << "\",\"url\":\"" << up.data << "\"}";
             r = client->sendMessageEvent(roomId, "m.room.message", body.str());

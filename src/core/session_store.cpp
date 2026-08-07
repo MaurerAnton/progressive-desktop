@@ -436,6 +436,21 @@ std::optional<std::string> SessionStore::loadOutboundSessions(const std::string&
     return r;
 }
 
+bool SessionStore::clearOutboundSessions(const std::string& pickleKey) {
+    std::lock_guard<std::recursive_mutex> lk(mtx_);
+    if (!db_) return false;
+    std::string key = "outbound_megolm:" + pickleKey;
+    const char* sql = "DELETE FROM e2ee_data WHERE key=?;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, key.c_str(), -1, SQLITE_TRANSIENT);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) return false;
+    checkpoint();
+    return true;
+}
+
 bool SessionStore::saveE2eeFlag(const std::string& key, bool value) {
     std::lock_guard<std::recursive_mutex> lk(mtx_);
     if (!db_) return false;

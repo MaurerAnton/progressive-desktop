@@ -20,6 +20,8 @@
 
 #include <string>
 #include <unordered_map>
+#include <mutex>
+#include <chrono>
 #include <atomic>
 #include <memory>
 
@@ -431,6 +433,11 @@ private:
     std::atomic<std::shared_ptr<AccountInfo>> accountPtr_{std::make_shared<AccountInfo>()};
     SessionStore* sessionStore_ = nullptr;
     bool invisibleMode_ = false;
+
+    // Room members TTL cache (30s) — getRoomMembers is called on every sync
+    // from several paths; the cache stops the per-sync HTTP storm.
+    mutable std::mutex memberCacheMtx_;
+    mutable std::unordered_map<std::string, std::pair<int64_t, std::string>> memberCache_;
 
     // Build the standard auth header if logged in.
     std::unordered_map<std::string, std::string> authHeaders() const;

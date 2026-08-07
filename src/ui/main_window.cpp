@@ -86,6 +86,7 @@ void MainWindow::setClient(std::shared_ptr<MatrixClient> client) {
     if (accountSwitcher_) accountSwitcher_->setClient(client_);
     if (syncHandler_) syncHandler_->setClient(client_);
     if (verifyHandler_) verifyHandler_->setClient(client_);
+    if (slashHandler_) slashHandler_->setClient(client_);
 }
 
 void MainWindow::setSessionStore(std::shared_ptr<SessionStore> store) {
@@ -306,6 +307,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         attachmentHandler_->openAttachment(eventId, mxcUrl);
     });
     connect(chatView_, &ChatView::slashCommandForward, slashHandler_, [this](const std::string& cmd, const std::string& args) {
+        slashHandler_->setRoomIdProvider([this]() {
+            return roomHandler_ ? roomHandler_->currentRoomId() : std::string();
+        });
         slashHandler_->handleCommand(cmd, args);
     });
 }

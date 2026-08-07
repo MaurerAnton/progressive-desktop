@@ -753,19 +753,25 @@ void SyncEngine::uploadDeviceKeys(bool force) {
     LOG(LogChannel::E2EE, "uploadDeviceKeys: result ok=%d httpStatus=%d bodyLen=%zu",
         result.ok ? 1 : 0, result.httpStatus, body.size());
 
-    if (!result.ok && result.httpStatus == 400 &&
-        result.error.message.find("already exists") != std::string::npos) {
-        // A fresh account's OTK ids collide with stale keys still stored on
-        // the server under this device id (left over from an older identity —
-        // /delete_devices 404s on custom servers, so they linger). Discard +
-        // regenerate advances the id counter past the collision set.
-        LOG(LogChannel::E2EE, "uploadDeviceKeys: 400 'already exists' — retrying once with fresh OTKs");
+    // A fresh account's OTK ids collide with stale keys still stored on the
+    // server under this device id (left over from an older identity —
+    // /delete_devices 404s on custom servers, so they linger). Discard +
+    // regenerate advances the id counter by 100 per attempt; with many stale
+    // keys on the server a single retry is not always enough, so retry up to
+    // 3 times (each generation jumps past the collision range).
+    int otkRetries = 0;
+    while (!result.ok && result.httpStatus == 400 &&
+           result.error.message.find("already exists") != std::string::npos &&
+           otkRetries < 3) {
+        otkRetries++;
+        LOG(LogChannel::E2EE, "uploadDeviceKeys: 400 'already exists' — retry %d/3 with fresh OTKs",
+            otkRetries);
         decryptor_.markOneTimeKeysPublished();
         body = decryptor_.buildKeysUploadBody(userId, deviceId, needed,
             needDeviceKeys, !decryptor_.accountShared(), sskPriv, sskPub);
         result = client_->uploadKeys(body);
-        LOG(LogChannel::E2EE, "uploadDeviceKeys: retry ok=%d httpStatus=%d",
-            result.ok ? 1 : 0, result.httpStatus);
+        LOG(LogChannel::E2EE, "uploadDeviceKeys: retry %d ok=%d httpStatus=%d",
+            otkRetries, result.ok ? 1 : 0, result.httpStatus);
     }
 
     if (result.ok) {
@@ -1188,10 +1194,21 @@ void SyncEngine::persistCrypto() {
         store_->savePendingKeyRequests(pendingPickle, pickleKey);
 }
 
+// Drop the persisted outbound megolm sessions for the current account.
+// Called right after an identity reset so old-identity sessions cannot be
+// reloaded on the next restart (they would make every send undecryptable).
+void SyncEngine::clearPersistedOutboundSessions() {
+    if (!store_ || !client_) return;
+    std::lock_guard<std::mutex> lk(persistMtx_);
+    std::string pickleKey = client_->account().userId + "/" + client_->account().deviceId;
+    store_->clearOutboundSessions(pickleKey);
+    LOG(LogChannel::E2EE, "clearPersistedOutboundSessions: dropped outbound pickle for %s",
+        pickleKey.c_str());
+}
+
 bool SyncEngine::resetCrossSigning() {
     if (!client_ || !client_->isLoggedIn()) return false;
     std::string userId = client_->account().userId;
-
     auto keys = generateCrossSigningKeys();
     if (keys.masterPub.empty()) return false;
     saveCrossSigningKeysJson(userId, keys);

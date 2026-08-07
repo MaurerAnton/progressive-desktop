@@ -94,10 +94,17 @@ target_include_directories(progressive_core PUBLIC
 )
 find_package(OpenSSL REQUIRED)
 
+# SQLite3::SQLite3 exists on modern CMake; older CI images only have the
+# deprecated SQLite::SQLite3 alias — pick whichever is available.
+set(_sqlite_target SQLite::SQLite3)
+if(TARGET SQLite3::SQLite3)
+    set(_sqlite_target SQLite3::SQLite3)
+endif()
+
 target_link_libraries(progressive_core PUBLIC
     progressive_native
     CURL::libcurl
-    SQLite3::SQLite3
+    ${_sqlite_target}
     simdjson::simdjson
     PkgConfig::SODIUM
     OpenSSL::Crypto

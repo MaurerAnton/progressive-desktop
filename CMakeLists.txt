@@ -43,9 +43,12 @@ FetchContent_Declare(
     GIT_TAG        main
     GIT_SHALLOW    TRUE
 )
-# The core builds its own unit tests — the desktop keeps only its Qt/UI tests.
+# The core builds its own unit tests — skip them when fetched. The core
+# shares the SAME option name, so restore the desktop's own flag right after
+# (the desktop keeps its integration tests: Qt/UI + the live-Synapse E2EE).
 set(PROGRESSIVE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(progressive-core)
+set(PROGRESSIVE_BUILD_TESTS ON CACHE BOOL "" FORCE)
 
 # --- UI widget layer (no deps on other UI libs) ---
 add_library(progressive_ui_widgets STATIC

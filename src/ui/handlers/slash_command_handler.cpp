@@ -15,7 +15,7 @@ SlashCommandHandler::SlashCommandHandler(TimelineModel* timelineModel, AuthHandl
     : QObject(parent), timelineModel_(timelineModel), auth_(auth) {
     commands_ = {
         {"help", "", "List commands"},
-        {"invite", "<user-id> [reason]", "Invite a user to this room"},
+        {"invite", "<user-id>", "Invite a user to this room"},
         {"join", "<room-id-or-alias>", "Join a room"},
         {"leave", "", "Leave this room"},
         {"kick", "<user-id> [reason]", "Kick a user from this room"},
@@ -62,7 +62,7 @@ void SlashCommandHandler::runInvite(const std::string& roomId, const std::string
     auto space = args.find(' ');
     std::string userId = (space == std::string::npos) ? args : args.substr(0, space);
     std::string reason = (space == std::string::npos) ? "" : args.substr(space + 1);
-    if (userId.empty()) { systemRow("Usage: /invite <user-id> [reason]"); return; }
+    if (userId.empty()) { systemRow("Usage: /invite <user-id>"); return; }
     if (!userId.empty() && userId[0] != '@') userId = "@" + userId;
     auto client = client_;
     QPointer<SlashCommandHandler> self(this);

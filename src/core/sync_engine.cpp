@@ -445,7 +445,7 @@ void SyncEngine::doRoomKeyShares(const FastSyncResponse& resp, const AccountInfo
             bool shared = false;
             if (weJoined) {
                 // We joined/created an encrypted room: share to every member.
-                auto membersResp = client_->getRoomMembers(roomId);
+                auto membersResp = client_->getRoomMembers(roomId, true);
                 std::vector<std::string> members;
                 if (membersResp.ok) {
                     simdjson::dom::parser mp;

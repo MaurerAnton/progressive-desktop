@@ -208,7 +208,10 @@ public:
     // ---- Room members ----
 
     // GET /_matrix/client/v3/rooms/{roomId}/members
-    ApiResult<std::string> getRoomMembers(const std::string& roomId);
+    // Cached for 30s (per-sync calls would otherwise storm the server).
+    // forceFresh bypasses the cache — REQUIRED for room-key sharing, where a
+    // stale member list would skip a just-joined member.
+    ApiResult<std::string> getRoomMembers(const std::string& roomId, bool forceFresh = false);
 
     // ---- Kick / Ban / Power levels ----
 

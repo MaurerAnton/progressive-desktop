@@ -19,7 +19,7 @@ bool shareRoomKeyForRoom(MatrixClient& client, Decryptor& dec,
     std::string homeserver = client.account().homeserverUrl;
     std::string token = client.account().accessToken;
 
-    auto membersResp = client.getRoomMembers(roomId);
+    auto membersResp = client.getRoomMembers(roomId, true);
     if (!membersResp.ok) return false;
 
     std::vector<std::string> userIds;

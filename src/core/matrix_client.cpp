@@ -725,13 +725,14 @@ ApiResult<bool> MatrixClient::setRoomName(const std::string& roomId, const std::
     return sendStateEvent(roomId, "m.room.name", "", body);
 }
 
-ApiResult<std::string> MatrixClient::getRoomMembers(const std::string& roomId) {
+ApiResult<std::string> MatrixClient::getRoomMembers(const std::string& roomId, bool forceFresh) {
     ApiResult<std::string> r;
     if (!isLoggedIn()) { r.error.message = "not logged in"; return r; }
     // TTL cache: room members are re-queried on every sync by multiple paths;
     // a 30s window removes the per-sync HTTP storm (404/403 spam on left
-    // rooms included). Membership changes land on the next refresh.
-    {
+    // rooms included). Sharing paths pass forceFresh=true — a stale member
+    // list would skip a just-joined member in the room-key share.
+    if (!forceFresh) {
         std::lock_guard<std::mutex> lk(memberCacheMtx_);
         const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now().time_since_epoch()).count();

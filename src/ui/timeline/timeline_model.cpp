@@ -46,6 +46,8 @@ QVariant TimelineModel::data(const QModelIndex& index, int role) const {
             return loader_ ? loader_->getCached(e.mxcUrl) : QImage();
         case ImageLoadedRole:
             return loader_ ? loader_->hasImage(e.mxcUrl) : false;
+        case MediaFailureRole:
+            return loader_ ? loader_->failureReason(e.mxcUrl) : QString();
         case IsMovieRole:      return e.isMovie;
         case EventIdRole:      return QString::fromStdString(e.eventId);
         case AvatarUrlRole:    return QString::fromStdString(e.avatarUrl);
@@ -188,7 +190,7 @@ void TimelineModel::imageLoaded(const std::string& mxcUrl) {
     for (int row = 0; row < static_cast<int>(state_.size()); ++row) {
         const auto* e = state_.at(row);
         if (!e || e->mxcUrl != mxcUrl) continue;
-        emit dataChanged(index(row), index(row), {ImageRole, ImageLoadedRole});
+        emit dataChanged(index(row), index(row), {ImageRole, ImageLoadedRole, MediaFailureRole});
     }
 }
 

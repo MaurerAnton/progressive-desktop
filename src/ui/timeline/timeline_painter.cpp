@@ -316,9 +316,10 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
         QFont f = p->font(); f.setItalic(true); f.setPointSize(ds(kFontSizeBody)); p->setFont(f);
         QRect emoteRect(bubbleX + kBubblePadding, bubbleY + 6, textW, L.textH + 14);
         p->drawText(emoteRect, Qt::AlignLeft | Qt::TextWordWrap, emoteText);
-    } else if (!body.isEmpty() && msgtype != "m.image") {
-        // m.image renders its filename inside the image area (single bubble,
-        // Element/Nheko parity) — never as a separate text block.
+    } else if (!body.isEmpty() && msgtype != "m.image" && msgtype != "m.video") {
+        // m.image/m.video render their filename as the caption INSIDE the
+        // media bubble (single bubble, Element/Nheko parity) — never as a
+        // separate text block (a video used to get 2 bubbles here).
         int textBottom = bubbleY + L.bubbleH - kEmoteBottomPad;
         int textH = textBottom - curY;
         if (textH < kMinTextH) textH = kMinTextH;
@@ -388,9 +389,10 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
             p->drawRoundedRect(placeholderRect, 6, 6);
             p->setPen(Design::mutedTextColor);
             QFont pf = p->font(); pf.setPointSize(ds(kFontSizeBody)); p->setFont(pf);
+            QString failReason = idx.data(TimelineModel::MediaFailureRole).toString();
             QString phText = msgtype == "m.video" ? "🎬 " : "🖼 ";
             if (!caption.isEmpty()) phText += caption + "\n";
-            phText += "loading…";
+            phText += failReason.isEmpty() ? "loading…" : failReason;
             p->drawText(placeholderRect, Qt::AlignCenter, phText);
             curY += kImagePlaceholderH + 2;
             // Encrypted media (file:) has no server-side thumbnail — fetch
@@ -409,7 +411,14 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
                                 auto* tm = qobject_cast<TimelineModel*>(model);
                                 if (tm) tm->imageLoaded(mxcUrl.toStdString());
                             }
-                        });
+                        }, "timeline image");
+                } else if (msgtype == "m.video") {
+                    // No thumbnail → never download the whole video for a
+                    // preview (video bytes never decode as an image).
+                    // The placeholder already shows the caption.
+                    loader->markFailed(QString::fromStdString(mxcUrl.toStdString()),
+                                       "timeline video",
+                                       "no preview — click to download");
                 } else {
                     loader->fetchEncryptedThumbnail(
                         evt->mxcUrl, evt->mediaKey, evt->mediaIv, evt->mediaSha256,
@@ -419,7 +428,7 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
                                 auto* tm = qobject_cast<TimelineModel*>(model);
                                 if (tm) tm->imageLoaded(mxcUrl.toStdString());
                             }
-                        });
+                        }, "timeline image");
                 }
             } else {
                 loader->fetchThumbnail(
@@ -430,7 +439,8 @@ void drawMessageBubble(QPainter* p, const QRect& rowRect, const QModelIndex& idx
                             auto* tm = qobject_cast<TimelineModel*>(model);
                             if (tm) tm->imageLoaded(mxcUrl.toStdString());
                         }
-                    }, "timeline image");
+                    },
+                    msgtype == "m.video" ? "timeline video" : "timeline image");
             }
         }
     }

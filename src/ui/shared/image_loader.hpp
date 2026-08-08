@@ -58,6 +58,16 @@ public:
     // Get from cache (returns empty if not cached).
     QImage getCached(const std::string& mxcUrl) const;
 
+    // Human-readable reason why this mxc is not showing ("" = no known
+    // failure yet, e.g. still loading). Shown inside the placeholder box.
+    QString failureReason(const std::string& mxcUrl) const;
+
+    // Record a permanent-ish failure with a visible reason (no HTTP fetch is
+    // attempted again during the cooldown). Used e.g. for videos without a
+    // thumbnail: "no preview — click to download".
+    void markFailed(const QString& key, const std::string& context,
+                    const QString& reason = QString());
+
     // Change cache size. Default is 128. Set to 0 for unlimited (not recommended).
     void setCacheSize(int maxItems) { imageCache_.setMaxCost(maxItems > 0 ? maxItems : 1); }
 
@@ -73,13 +83,14 @@ private:
 
     // True if this mxc is on the failure cooldown (skip the HTTP fetch).
     bool isFailed(const QString& key) const;
-    void markFailed(const QString& key, const std::string& context);
 
     std::shared_ptr<MatrixClient> client_;
     QCache<QString, QImage> imageCache_{128};
     QHash<QString, QMovie*> moviePool_;
     // Negative cache: mxc -> time until which we skip re-fetching.
     QHash<QString, qint64> failedUntil_;
+    // Last failure reason per mxc (cleared on success) — shown in placeholders.
+    QHash<QString, QString> failedReason_;
     // In-flight dedup: mxc -> queued callbacks waiting for the fetch.
     QHash<QString, QList<std::function<void(const QImage&)>>> inFlight_;
 };

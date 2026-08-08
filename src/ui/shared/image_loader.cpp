@@ -43,12 +43,14 @@ bool ImageLoader::isFailed(const QString& key) const {
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     if (now >= it.value()) {
         const_cast<ImageLoader*>(this)->failedUntil_.erase(it);
+        const_cast<ImageLoader*>(this)->failedReason_.remove(key);
         return false;
     }
     return true;
 }
 
-void ImageLoader::markFailed(const QString& key, const std::string& context) {
+void ImageLoader::markFailed(const QString& key, const std::string& context,
+                             const QString& reason) {
     if (freshUploadSet().contains(key)) {
         LOG(LogChannel::NET, "imageLoader: fresh upload mxc=%.80s failed — retrying on next paint",
             key.toStdString().c_str());
@@ -60,10 +62,20 @@ void ImageLoader::markFailed(const QString& key, const std::string& context) {
                             : image ? kFailedImageCooldownMs
                                     : kFailedMxcCooldownMs;
     failedUntil_.insert(key, QDateTime::currentMSecsSinceEpoch() + cooldown);
-    if (failedUntil_.size() > kMaxFailedEntries) failedUntil_.clear();
+    failedReason_.insert(key, reason.isEmpty()
+        ? QString::fromStdString(context.empty() ? "fetch failed" : context)
+        : reason);
+    if (failedUntil_.size() > kMaxFailedEntries) {
+        failedUntil_.clear();
+        failedReason_.clear();
+    }
     LOG(LogChannel::NET, "imageLoader: %s failed for mxc=%.80s — not retrying for %lld min",
         context.empty() ? "fetch" : context.c_str(), key.toStdString().c_str(),
         cooldown / 60000);
+}
+
+QString ImageLoader::failureReason(const std::string& mxcUrl) const {
+    return failedReason_.value(QString::fromStdString(mxcUrl));
 }
 
 bool ImageLoader::beginFetch(const QString& key,
@@ -100,7 +112,10 @@ void ImageLoader::fetchThumbnail(const std::string& mxcUrl, int w, int h,
             if (result.ok && !result.data.empty()) {
                 img.loadFromData(result.data.data(), static_cast<int>(result.data.size()));
             }
-            if (img.isNull() && (w > 0 || h > 0)) {
+            // Never download the FULL file to preview a video (video bytes
+            // never decode as an image, and it wastes the peer's bandwidth).
+            const bool videoPreview = context == "timeline video";
+            if (img.isNull() && (w > 0 || h > 0) && !videoPreview) {
                 // Some servers/CDNs 404 the thumbnail endpoint — fall back to the
                 // full file so avatars still render.
                 auto full = client->downloadMedia(mxcUrl, 0, 0);
@@ -113,10 +128,15 @@ void ImageLoader::fetchThumbnail(const std::string& mxcUrl, int w, int h,
                 if (self.isNull()) return;
                 if (!img.isNull()) {
                     self->imageCache_.insert(key, new QImage(img));
+                    self->failedReason_.remove(key);
                 } else if (httpStatus >= 400) {
-                    // Only HTTP failures (404/5xx) are cached — a decryption
-                    // failure or network blip (status 0) must be retryable.
-                    self->markFailed(key, context);
+                    // Only HTTP failures (404/5xx) are negative-cached — a
+                    // decryption failure or network blip (status 0) must be
+                    // retryable (reason shown meanwhile).
+                    self->markFailed(key, context,
+                        "HTTP " + QString::number(httpStatus));
+                } else {
+                    self->failedReason_.insert(key, "network/decrypt failed — retrying");
                 }
                 auto queued = self->inFlight_.take(key);
                 for (auto& c : queued) c(img);
@@ -134,7 +154,14 @@ void ImageLoader::fetchEncryptedThumbnail(const std::string& mxcUrl,
         cb(*cached);
         return;
     }
-    if (!client_ || key.empty() || iv.empty()) { cb(QImage()); return; }
+    if (!client_ || key.empty() || iv.empty()) {
+        // Can never succeed as-is: a missing key/iv means no decrypt is
+        // possible. Record the reason so the placeholder explains itself
+        // instead of grey-forever with silent retries.
+        markFailed(qkey, context, "missing key/iv — no preview");
+        cb(QImage());
+        return;
+    }
     if (isFailed(qkey)) { cb(QImage()); return; }
 
     auto self = QPointer<ImageLoader>(this);
@@ -150,10 +177,14 @@ void ImageLoader::fetchEncryptedThumbnail(const std::string& mxcUrl,
                 if (self.isNull()) return;
                 if (!img.isNull()) {
                     self->imageCache_.insert(qkey, new QImage(img));
+                    self->failedReason_.remove(qkey);
                 } else if (httpStatus >= 400) {
                     // Decrypt failures (status 0/200 — key not yet arrived)
                     // must NOT be negative-cached; only real HTTP failures.
-                    self->markFailed(qkey, context);
+                    self->markFailed(qkey, context,
+                        "HTTP " + QString::number(httpStatus));
+                } else {
+                    self->failedReason_.insert(qkey, "decrypt failed — retrying");
                 }
                 auto queued = self->inFlight_.take(qkey);
                 for (auto& c : queued) c(img);

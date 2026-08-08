@@ -49,6 +49,7 @@ public:
         DecryptErrorRole,
         ImageRole,
         ImageLoadedRole,
+        MediaFailureRole,
         IsMovieRole,
         EventIdRole,
         AvatarUrlRole,

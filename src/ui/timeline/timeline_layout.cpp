@@ -81,13 +81,22 @@ BubbleLayout computeLayout(const QModelIndex& idx, const QString& myUserId, int 
         L.nameH = kNameRowH;
 
     int textW = bubbleW - kBubblePadding * 2;
-    if (!body.isEmpty() || isEmote) {
+    // Media rows (m.image/m.video) draw the filename as a caption INSIDE the
+    // media bubble (single-bubble, Element/Nheko parity) — no separate text
+    // block, so no text height here (videos used to reserve + draw a second
+    // bubble, which overflowed the next message when the caption also drew).
+    if ((!body.isEmpty() || isEmote) && !hasImage) {
         QString text = isEmote ? ("* " + senderName + " " + body) : body;
         L.textH = calcTextHeight(text, isEmote ? "m.text" : msgtype, textW);
     }
 
-    if (hasImage)
+    if (hasImage) {
         L.imageH = imageLoaded ? kImageLoadedH : kImagePlaceholderH;
+        // The loaded media bubble draws the caption below the picture —
+        // reserve its row so the next message can never overlap it.
+        if (imageLoaded && !body.isEmpty())
+            L.imageH += kIndicatorRowH + 2;
+    }
 
     if (pinned)           L.pinnedH = kIndicatorRowH;
     if (isThreadReply)     L.threadReplyH = kIndicatorRowH;

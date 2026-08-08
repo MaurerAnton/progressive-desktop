@@ -25,6 +25,18 @@ QCache<QString, QByteArray>& fullImageCache() {
     return cache;
 }
 
+// Human-readable failure reason for media dialogs (Element/Nheko parity:
+// the user must see WHY a media item failed, not a generic error).
+QString mediaFailureReason(int httpStatus, const QString& errMessage) {
+    if (httpStatus == 404)
+        return "Media not found (HTTP 404) — removed from the server";
+    if (httpStatus >= 400)
+        return QString("HTTP %1 — access denied or unavailable").arg(httpStatus);
+    if (!errMessage.isEmpty())
+        return errMessage;
+    return "network error — will retry";
+}
+
 // Map a content-type to a file extension (".bin" when unknown).
 QString extensionForMimetype(const QString& mt) {
     const QString m = mt.toLower();
@@ -120,7 +132,10 @@ void AttachmentHandler::openAttachment(const QString& eventId, const QString& mx
             QMetaObject::invokeMethod(guard, [guard, r, fileName]() {
                 if (guard.isNull()) return;
                 if (!r.ok || r.data.empty()) {
-                    QMessageBox::warning(nullptr, "Error", "Failed to download " + fileName + ".");
+                    QMessageBox::warning(nullptr, "Error",
+                        "Failed to download " + fileName + "\n"
+                        + mediaFailureReason(r.httpStatus,
+                            QString::fromStdString(r.error.message)));
                     return;
                 }
                 QString tempPath = tempPathFor(fileName);
@@ -161,10 +176,15 @@ void AttachmentHandler::openAttachment(const QString& eventId, const QString& mx
         if (r.ok && !r.data.empty())
             raw = QByteArray(reinterpret_cast<const char*>(r.data.data()),
                              static_cast<int>(r.data.size()));
-        QMetaObject::invokeMethod(guard, [guard, img, raw, qkey, fileName, mxc]() {
+        int imgStatus = r.httpStatus;
+        std::string imgErr = r.error.message;
+        QMetaObject::invokeMethod(guard, [guard, img, raw, qkey, fileName, mxc,
+                                          imgStatus, imgErr]() {
             if (guard.isNull()) return;
             if (img.isNull()) {
-                QMessageBox::warning(nullptr, "Error", "Failed to load image.");
+                QMessageBox::warning(nullptr, "Error",
+                    "Failed to load image\n"
+                    + mediaFailureReason(imgStatus, QString::fromStdString(imgErr)));
                 return;
             }
             if (!raw.isEmpty()) fullImageCache().insert(qkey, new QByteArray(raw));

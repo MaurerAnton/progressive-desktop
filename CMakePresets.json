@@ -9,6 +9,7 @@
             "binaryDir": "${sourceDir}/build",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_WARN_DEPRECATED": "OFF",
                 "CMAKE_C_COMPILER_LAUNCHER": "ccache",
                 "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
@@ -26,6 +27,7 @@
             "binaryDir": "${sourceDir}/build",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_WARN_DEPRECATED": "OFF",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
                 "PROGRESSIVE_LTO": "ON",
                 "PROGRESSIVE_MOBILE": "OFF",
@@ -40,6 +42,7 @@
             "binaryDir": "${sourceDir}/build",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_WARN_DEPRECATED": "OFF",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
                 "PROGRESSIVE_LTO": "OFF",
                 "PROGRESSIVE_MOBILE": "OFF",

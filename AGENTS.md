@@ -96,7 +96,7 @@ ninja -C build CMakeFiles/progressive-desktop.dir/src/ui/handlers/room_handler.c
 ./scripts/build.sh all
 
 # User's command on PineTab:
-git pull && git submodule update --init --recursive && cmake --preset pinetab2 && cmake --build build -j4 && ./build/progressive-desktop
+git pull && cmake --preset pinetab2 && cmake --build build -j4 && ./build/progressive-desktop
 ```
 
 ---
@@ -105,7 +105,7 @@ git pull && git submodule update --init --recursive && cmake --preset pinetab2 &
 
 | Directory | Purpose | New files go here? |
 |---|---|---|
-| `src/core/` | Qt-free Matrix logic | No Qt includes allowed |
+| `src/core/` | Fetched at configure time from `progressive-chat/progressive-core` (Qt-free Matrix logic). Edit the core repo, NOT this dir | No Qt includes allowed |
 | `src/ui/handlers/` | Business logic | ✅ New handlers |
 | `src/ui/chat/` | Chat widgets | ✅ Chat UI |
 | `src/ui/timeline/` | Message rendering | ✅ Layout/painter |
@@ -114,14 +114,30 @@ git pull && git submodule update --init --recursive && cmake --preset pinetab2 &
 | `src/ui/shared/` | Theme, images, notifications | ✅ Shared utilities |
 | `tests/` | Test files | ✅ New tests |
 
-### src/core/ portability (Qt-free)
+### The core is the progressive-chat/progressive-core repo
 
-`src/core/` MUST remain Qt-free. Rationale: Android NDK and WebAssembly
+`src/core/` no longer lives in this repo. It is fetched via CMake
+FetchContent from `progressive-chat/progressive-core` (GIT_TAG main) into
+`build/_deps/progressive-core-src/` at configure time. Edit the core there,
+push it, then re-run cmake here (reconfigure picks up the new commit).
+
+The core MUST remain Qt-free. Rationale: Android NDK and WebAssembly
 builds link `progressive_core` without Qt — any Qt include in core fails
 the build (link-time enforcement: `progressive_core` does not link Qt).
-CI guard: `scripts/check_no_qt_in_core.sh` (grep-based, runs in <1s).
+CI guard (in the core repo): grep-based check, runs in <1s.
 This protects the sister-project design (`progressive-android-next`)
 and a future WASM target (JS UI + Embind to progressive_core).
+
+### Prebuilt core artifact (fast builds)
+
+The core repo's CI builds + tests every main push (unity build) and
+publishes `libprogressive_native.a` + `libprogressive_core.a` for x86_64
+and aarch64 as a per-commit GitHub release (`core-<sha>`). This repo
+configures `PROGRESSIVE_CORE_USE_ARTIFACT=ON`: at configure time it
+downloads the archive for the resolved commit + architecture and skips
+compiling the core (PineTab full build ~10 min instead of ~40-50 min).
+If the release is not published yet (race with CI), it falls back to
+compiling from source automatically.
 
 ## Code Rules
 
@@ -372,10 +388,20 @@ If a class calls `httpPost`/`httpPut` with auth headers (`makeAuthHeaders(token)
 7. **`device_lists` from /sync**: Parse `device_lists:{changed,left}` in `fast_sync.cpp`. Mark users as stale in `Decryptor::staleDeviceUsers_`. LOG on next `shareRoomKey` call.
 See `docs/E2EE.md` for full multi-account E2EE architecture and the 167 stale OTKs cautionary tale.
 
-### E2EE Submodule Audit — FAKE Boilerplate Trap Warning
-The `third_party/progressive-android-experiments/` submodule has ~90 E2EE-relevant files. ~12 are REAL (libolm-backed, safe to port). ~30+ are FAKE (auto-generated JSON-echo boilerplate). **Do NOT port files named `*_v4.cpp`, `crypto_ops.cpp`, `sas_manager.cpp`, `backup_controller.cpp`, `gossip_manager.cpp`, `key_export_utils.cpp`, `dehydrate_utils.cpp`, or `secret_*` without verifying they contain real crypto logic.** These have plausible names and large file sizes but are no-ops. A filename-based audit badly overstates what's there. See `docs/E2EE.md` for the full REAL/FAKE inventory.
+### E2EE Vendored-Native Audit — FAKE Boilerplate Trap Warning (history)
+The old `third_party/progressive-android-experiments/` submodule (removed —
+now vendored as `native/` in `progressive-chat/progressive-core`) had ~90
+E2EE-relevant files. ~12 are REAL (libolm-backed, safe to port). ~30+ are
+FAKE (auto-generated JSON-echo boilerplate). **Do NOT port files named
+`*_v4.cpp`, `crypto_ops.cpp`, `sas_manager.cpp`, `backup_controller.cpp`,
+`gossip_manager.cpp`, `key_export_utils.cpp`, `dehydrate_utils.cpp`, or
+`secret_*` without verifying they contain real crypto logic.** These have
+plausible names and large file sizes but are no-ops. A filename-based audit
+badly overstates what's there. See `docs/E2EE.md` for the full REAL/FAKE
+inventory. The core repo's `scripts/audit_modules.py` keeps the A/B-tier
+filter that the desktop's CMake used to run at configure time.
 
-### REAL submodule files safe to port:
+### REAL vendored files (ported into the core):
 - `sas_verification.cpp` (212L) — OlmSAS wrapper (13 `olm_sas_*` calls) → ✅ PORTED (`sas.cpp`/`sas.hpp`)
 - `verification_utils.cpp` (156L) — 64-emoji table + computeSasEmojis + builders → ✅ PORTED (`sas_emojis.cpp`, `verification.cpp`)
 - `keyshare.cpp` (103L) — incoming m.room_key_request handling + m.forwarded_room_key builders

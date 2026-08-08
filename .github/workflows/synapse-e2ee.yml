@@ -53,7 +53,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ~/.cache/ccache
-        key: ccache-${{ runner.os }}-${{ hashFiles('src/**', 'tests/**', 'CMakeLists.txt', 'cmake/**', 'CMakePresets.json', 'third_party/patches/**') }}
+        key: ccache-${{ runner.os }}-${{ hashFiles('src/**', 'tests/**', 'CMakeLists.txt', 'CMakePresets.json') }}
         restore-keys: |
           ccache-${{ runner.os }}-
 

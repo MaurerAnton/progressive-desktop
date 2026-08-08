@@ -173,10 +173,30 @@ DO NOT PORT these files — they are auto-generated JSON-echo no-ops:
 ## What's missing (must write from scratch)
 - Ed25519 verify primitive → ✅ DONE (Phase 1)
 - Full SAS state machine → ✅ DONE (Phase 2)
-- Cross-signing keygen + signing → Phase 6
-- SSSS key backup encryption → Phase 7 (hardest — no submodule code)
+- Cross-signing keygen + signing → ✅ DONE (Phase 6)
+- SSSS key backup encryption → ✅ DONE (Phase 7, Aug 4)
 - QR verification → not planned
 - Device dehydration → not planned
+
+## Aug 5-6 completeness (beyond the 7-phase roadmap — all landed)
+- Encrypted media both ways (m.encrypted v2): AES-256-CTR + sha256-of-plaintext media_crypto,
+  downloadMediaEncrypted, file:.info.thumbnail_file extraction, ImageLoader encrypted fetch,
+  attachment open/save decrypt, sendFile uploads ciphertext + emits file:{...}
+- Element-parity key requests: persisted in SessionStore, sent to ALL of the sender's devices
+  (keys/query + wildcard fallback), cancelled on key arrival, re-asked after SAS Done, backoff
+  retry on EVERY sync tick (not just data syncs), 10-per-5s rate gate, cap 200
+- Cross-client SAS: Olm-wrapped verification events dispatched (incoming) + outgoing
+  Olm-wrapped with plain fallback
+- Close crash fix: closeEvent stop() BEFORE persistCrypto() (same-thread double-lock)
+- Olm decrypt-failure recovery: forceNewOlmSession (m.dummy) un-deadened, stale pickles dropped,
+  time-bounded m.dummy dedup — self-heals the peer's broken session
+- Crash-safe crypto persistence every 20 syncs + logout + on close
+- Context-menu reactions + message edits now encrypted in E2EE rooms (were plaintext leaks)
+- Incoming m.replace (edits): applier extracts target + new content, updates the original row
+- Outbound Olm session reuse (OTK drain) + CI diagnostics
+- Identity reset heals permanently broken Olm 1:1 chains: all-A corrupted identity
+  (old load-over-initialized bug) auto-regenerates; "Reset device keys" rebuilds the identity
+  + clears the 1:1 session layer (keeps inbound megolm — history stays decryptable)
 
 ## Live-Synapse CI regression guard (done)
 `.github/workflows/synapse-e2ee.yml` runs a real Synapse container and executes

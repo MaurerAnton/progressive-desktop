@@ -345,7 +345,7 @@ If a class calls `httpPost`/`httpPut` with auth headers (`makeAuthHeaders(token)
 ### Gaps
 | Gap | What | Priority |
 |---|---|---|
-| Device verification (cross-signing) | Setup + publishing done (Phase 6 core); trust chain (SAS MSK exchange, device shields, cross-signing reset flow) deferred | Phase 6 tail |
+| Device verification (cross-signing) | DONE (Phase 6, Aug 3) — trust computation, SAS MSK exchange, cross-user cross-signing, device shields, cross-signing reset. Element real-client interop remains manual-verification | ✅ |
 | SSSS + key backup | DONE (Phase 7, Aug 4) — /room_keys backup (create/upload/restore/delete + recovery key), sync auto-upload, SSSS secret sharing (cross-signing keys to account-data). Cross-device onboarding flow + Element interop remain manual-verification items | ✅ |
 | Invite/add-member into EXISTING room | `MatrixClient::inviteUser` exists (test-only) but no UI calls it; planned as part of a command system (/invite, /ban, /confetti — user's Element-style copy-paste plan) | Later |
 | Threading: HTTP on UI thread | requestRoomKey blocks UI for 1-3s | LOW |

@@ -47,6 +47,9 @@ FetchContent_Declare(
 # shares the SAME option name, so restore the desktop's own flag right after
 # (the desktop keeps its integration tests: Qt/UI + the live-Synapse E2EE).
 set(PROGRESSIVE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+# Download the prebuilt core for this commit (fast builds). Falls back to
+# compiling from source automatically when the artifact isn't published yet.
+set(PROGRESSIVE_CORE_USE_ARTIFACT ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(progressive-core)
 set(PROGRESSIVE_BUILD_TESTS ON CACHE BOOL "" FORCE)
 
